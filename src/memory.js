@@ -1,4 +1,4 @@
-import { formatTheirTime, formatSpan, parseJsonLoose, normalize } from './core.js';
+import { theirLabel, formatSpan, parseJsonLoose, normalize } from './core.js';
 
 // 장기 기억과 정리 단계(부수 효과 없음).
 // 기억 층: L1 관계 장부 / L2 최근 원문(core) / L3 편지 요약 / L4 시기 요약 / L5 그쪽 사건 / L6 로어북(match.pickLore) / L7 옛 편지 회상
@@ -152,7 +152,7 @@ export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitl
   const letters = c.letters.filter((l) => set.has(l.id));
   const fmt = (l) => {
     const who = l.from === 'me' ? '{{user}}' : c.name;
-    const when = l.from === 'me' ? formatTheirTime(l.theirArriveAt) : formatTheirTime(l.theirWrittenAt);
+    const when = l.from === 'me' ? theirLabel(c, l.theirArriveAt) : theirLabel(c, l.theirWrittenAt);
     const between = l.from === 'them' && l.between?.length ? `\n(그사이 ${c.name}에게 일어난 일, 편지에는 일부만 드러남)\n${l.between.map((e) => `- [${e.when}] ${e.event}${e.open ? ' (진행 중)' : ''}`).join('\n')}` : '';
     const enc = (l.enclosures || []).map((x) => x.item).join(', ');
     return `<letter id="${l.id}" from="${who}" their_date="${when}">\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${enc ? `\n(동봉: ${enc})` : ''}${between}\n</letter>`;
@@ -237,7 +237,7 @@ export function applyMemory(c, org, { letterIds, now = Date.now() }) {
     const l = byId.get(s.letterId) || null;
     if (!l || !ids.has(l.id)) continue;
     const i = sums.findIndex((x) => x.letterId === l.id);
-    const row = { letterId: l.id, from: l.from, when: formatTheirTime(l.from === 'me' ? l.theirArriveAt : l.theirWrittenAt), text: s.text };
+    const row = { letterId: l.id, from: l.from, when: theirLabel(c, l.from === 'me' ? l.theirArriveAt : l.theirWrittenAt), text: s.text };
     if (i >= 0) sums[i] = row; else sums.push(row);
   }
   const L0 = m.ledger || emptyLedger();

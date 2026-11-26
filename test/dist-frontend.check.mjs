@@ -165,6 +165,7 @@ ok('보조창에서 보내기(동봉 2줄)', sendMsg.length === 1 && sendMsg[0].
 // 새 상대(매칭)
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '설정'); await tick(8);
+ok('설정: 먼저 오는 편지·알림 칸', drawerRoot.textContent.includes('먼저 오는 편지') && drawerRoot.textContent.includes('편지가 도착하면 푸시 알림 보내기'));
 ok('설정: 이미지 모델 목록', drawerRoot.querySelectorAll('#im-image-models option').length === 2 && drawerRoot.textContent.includes('이 연결의 기본 모델: chroma'));
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '새 상대'); await tick(6);
@@ -191,6 +192,7 @@ clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, '.im-card', '미렌'); await tick(6);
 clickIn(drawerRoot, 'button', '서류함'); await tick(6);
 ok('서류함: 장부·연대기·변경·규칙·모의 조립', ['관계 장부', '나를 부르는 말: 시드 씨', '닻줄 그림 보내기', '상대가 아는 나', '● [2일째] 닻줄 균열', '변경 기록 · 확인 필요 2', '로어북 · 토마 (새로)', '승인 대기', '충돌', '규칙', '약 2,941토큰', '1/1통'].every((t) => drawerRoot.textContent.includes(t)));
+ok('서류함: 달력 칸(없으면 만들기)', drawerRoot.textContent.includes('그쪽 달력') && drawerRoot.textContent.includes('달력 만들기(글 1회)'));
 clickIn(drawerRoot, 'button', '되돌리기'); await tick(6);
 ok('서류함: 되돌리기 요청', sentLog.some((x) => x.type === 'change' && x.changeId === 'x1' && x.action === 'revert'));
 const lockIn = [...drawerRoot.querySelectorAll('input')].find((i) => i.value.startsWith('first_line'));

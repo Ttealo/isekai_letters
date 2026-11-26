@@ -506,3 +506,59 @@ test('그림 상태: 대상마다 상태, 주제 글 실패 시 이름으로 대
   await host.ask('u1', 'artDismiss', { id: r.id });
   assert.equal((await host.ask('u1', 'get', { id: r.id })).c.artJob, null);
 });
+
+test('먼저 오는 편지·푸시 알림·달력 만들기', async (t) => {
+  const realNow = Date.now;
+  let now = 7_000_000_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, mail: { ...MATCH.mail, ratio: 1, write_min: 1, write_max: 1, wait_hours: 10 }, calendar: { day_hours: 28, months: [{ name: '백무기', days: 30 }, { name: '흑풍기', days: 30 }], year_label: '년', start_year: 312, start_month: '백무기', start_day: 8 } });
+  const pushes = [];
+  host.api.push = { send: async (input, u) => { pushes.push([input, u]); return { sent: 1 }; } };
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/design the calendar/.test(req.messages[0].content)) return { content: JSON.stringify({ calendar: { day_hours: 24, months: [{ name: '서리달', days: 30 }], year_label: '', start_year: 1, start_month: '서리달', start_day: 5 } }) };
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
+  assert.equal(draft.calendar.dayHours, 28);
+  const r = await host.ask('u1', 'matchConfirm', { draft });
+  let g = await host.ask('u1', 'get', { id: r.id });
+  assert.match(g.c.theirNowLabel, /^312년 백무기 8일 .* \(만난 지 1일째\)$/);
+  assert.equal(g.c.waitHours, 10);
+  // 첫 편지 도착 → 푸시
+  now += 1 * H;
+  await host.ask('u1', 'load'); await settle();
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0][0].body, '미렌의 편지가 도착했어요');
+  assert.equal(pushes[0][1], 'u1');
+  // 답장 안 하고 그쪽 10시간 넘게 기다리면 → 예약 → 먼저 씀
+  const callsBefore = host.calls.length;
+  for (let i = 0; i < 4; i++) { now += 6 * H; await host.ask('u1', 'load'); await settle(); }
+  g = await host.ask('u1', 'get', { id: r.id });
+  const theirs = g.c.letters.filter((l) => l.from === 'them');
+  assert.equal(theirs.length, 2); // 첫 편지 + 먼저 쓴 편지
+  const initCall = host.calls.slice(callsBefore).find((c) => /initiative=yes/.test(c.messages[0].content));
+  assert.ok(initCall);
+  assert.match(initCall.messages[0].content, /their_now=312년 백무기/);
+  // 두 통 연달아면 더 안 씀(기본 2)
+  for (let i = 0; i < 4; i++) { now += 12 * H; await host.ask('u1', 'load'); await settle(); }
+  g = await host.ask('u1', 'get', { id: r.id });
+  assert.equal(g.c.letters.filter((l) => l.from === 'them').length, 2);
+  // 푸시 끄면 안 보냄
+  await host.ask('u1', 'saveSettings', { settings: { pushEnabled: false, initiativeEnabled: false } });
+  const pushCount = pushes.length;
+  await host.ask('u1', 'send', { id: r.id, body: '답장' });
+  for (let i = 0; i < 3; i++) { now += 3 * H; await host.ask('u1', 'load'); await settle(); }
+  assert.equal(pushes.length, pushCount);
+  // 달력 만들기(기존 상대용) + 표시 방식 바꾸기
+  const mc = await host.ask('u1', 'makeCalendar', { id: r.id });
+  assert.equal(mc.calendar.months[0].name, '서리달');
+  const sc = await host.ask('u1', 'setCalendar', { id: r.id, calendar: { style: 'calendar' } });
+  assert.equal(sc.calendar.style, 'calendar');
+  g = await host.ask('u1', 'get', { id: r.id });
+  assert.doesNotMatch(g.c.theirNowLabel, /만난 지/);
+});

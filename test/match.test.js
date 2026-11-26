@@ -19,6 +19,7 @@ const goodRaw = {
     { title: '', content: '제목 없음은 버림' },
   ],
   mail: { ratio: 7, ratio_reason: '느린 겨울', delivery_min: 30, delivery_max: 2, write_min: 6, write_max: 12, medium: '기름 먹인 양피지', image_keywords: ['oiled parchment', 'whale oil lamp'] },
+  calendar: { day_hours: 28, months: [{ name: '부상절', days: 40 }, { name: '백무기', days: 30 }, { name: '흑풍기', days: 35 }], year_label: '년', start_year: 312, start_month: '백무기', start_day: 8 },
   first_letter: { body: '누구냐.', envelope: { medium: '양피지' }, enclosures: [{ item: '조개' }] },
 };
 
@@ -59,7 +60,7 @@ test('사용자 범위로 비율·배송 시간 자르기', () => {
 });
 
 test('기존 상대 모드: 카드 없음, 이름은 원래 이름, 세계 개요 없어도 경고 없음', () => {
-  const d = X.cleanMatchDraft({ name: '', card: null, entries: goodRaw.entries.slice(1, 3), mail: goodRaw.mail }, { mode: 'existing', existingName: '진' });
+  const d = X.cleanMatchDraft({ name: '', card: null, entries: goodRaw.entries.slice(1, 3), mail: goodRaw.mail, calendar: goodRaw.calendar }, { mode: 'existing', existingName: '진' });
   assert.equal(d.card, null);
   assert.equal(d.name, '진');
   assert.deepEqual(d.warnings, []);
@@ -112,4 +113,19 @@ test('카드 → 편지용 설명, 항목 → 앱 입력', () => {
   const i = X.entryInput({ title: '등대', keys: ['등대'], content: 'c', constant: false }, 120);
   assert.deepEqual([i.comment, i.key, i.constant, i.use_regex, i.order_value], ['등대', ['등대'], false, false, 120]);
   assert.deepEqual(X.entryInput({ title: '개요', keys: ['x'], content: 'c', constant: true }).key, []);
+});
+
+test('달력: 생성 결과 → 정리, 미리보기에서 고친 달력도 그대로, 달력 프롬프트', () => {
+  const d = X.cleanMatchDraft(goodRaw, { mode: 'prompt' });
+  assert.equal(d.calendar.dayHours, 28);
+  assert.equal(d.calendar.start.month, 1);
+  assert.equal(d.calendar.start.day, 8);
+  assert.equal(d.calendar.yearLabel, '년');
+  assert.equal(d.mail.waitHours, 72);
+  const e = X.cleanEditedDraft({ ...d, calendar: { ...d.calendar, dayHours: 30 } });
+  assert.equal(e.calendar.dayHours, 30);
+  assert.ok(X.cleanMatchDraft({ ...goodRaw, calendar: null }, { mode: 'prompt' }).warnings.some((w) => w.includes('달력')));
+  const [, u] = X.buildCalendarMessages({ name: '칼렉' }, { loreText: '세 계절', letterDates: ['백무기, 반달 여드레'] });
+  assert.match(u.content, /세 계절/);
+  assert.match(u.content, /백무기, 반달 여드레/);
 });

@@ -36,6 +36,10 @@ export function cleanSettings(s) {
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
     showExactEta: !!s?.showExactEta,
+    initiativeEnabled: s?.initiativeEnabled !== false, // 먼저 오는 편지
+    initiativePerDay: Math.round(num(s?.initiativePerDay, 0, 50, 3)),
+    initiativeStreak: Math.round(num(s?.initiativeStreak, 1, 10, 2)),
+    pushEnabled: s?.pushEnabled !== false, // 편지 도착 푸시 알림
     organizeEnabled: s?.organizeEnabled !== false,
     organizeConnectionId: str(s?.organizeConnectionId, 200),
     organizeTemperature: num(s?.organizeTemperature, 0, 2, 0.3),
@@ -70,12 +74,76 @@ export function pickBetween(lo, hi, rand = Math.random) {
 }
 
 // 상대 쪽 시각을 사람이 읽는 말로: "만난 지 12일째 저녁"
-export function formatTheirTime(theirHours) {
+export function formatTheirTime(theirHours, dayHours = 24) {
+  const dh = dayHours || 24;
   const h = Math.max(0, theirHours);
-  const day = Math.floor(h / 24) + 1;
-  const hour = Math.floor(h % 24);
+  const day = Math.floor(h / dh) + 1;
+  const hour = Math.floor(((h % dh) / dh) * 24);
   const part = hour < 5 ? '깊은 밤' : hour < 9 ? '새벽' : hour < 12 ? '아침' : hour < 14 ? '한낮' : hour < 18 ? '오후' : hour < 21 ? '저녁' : '밤';
   return `만난 지 ${day}일째 ${part}`;
+}
+
+// ── 그쪽 달력 ──
+// calendar = { dayHours, months:[{name, days}], yearLabel, start:{year, month, day, hour}, style:'both'|'calendar'|'count' }
+// 그쪽 시각(만난 뒤 흐른 시간) → 그 세계의 날짜. 달력이 없으면 「만난 지 N일째」.
+export function cleanCalendar(cal) {
+  if (!cal || typeof cal !== 'object') return null;
+  const months = (Array.isArray(cal.months) ? cal.months : []).slice(0, 24)
+    .map((m) => ({ name: str(m?.name, 24).trim(), days: Math.round(num(m?.days, 1, 100, 30)) })).filter((m) => m.name);
+  if (!months.length) return null;
+  const st = cal.start || {};
+  const mi = typeof st.month === 'string' ? Math.max(0, months.findIndex((m) => m.name === st.month.trim())) : Math.round(num(st.month, 0, months.length - 1, 0));
+  return {
+    dayHours: num(cal.dayHours, 6, 100, 24),
+    months,
+    yearLabel: str(cal.yearLabel, 24).trim(),
+    start: { year: Math.round(num(st.year, -100000, 100000, 1)), month: mi, day: Math.round(num(st.day, 1, months[mi].days, 1)), hour: num(st.hour, 0, 100, 9) },
+    style: ['both', 'calendar', 'count'].includes(cal.style) ? cal.style : 'both',
+  };
+}
+
+export function calendarDate(cal, theirHours) {
+  const yearDays = cal.months.reduce((n, m) => n + m.days, 0);
+  let startDoy = 0;
+  for (let i = 0; i < cal.start.month; i++) startDoy += cal.months[i].days;
+  startDoy += cal.start.day - 1;
+  const total = startDoy * cal.dayHours + cal.start.hour + Math.max(0, theirHours);
+  const dayIndex = Math.floor(total / cal.dayHours);
+  const hour = total - dayIndex * cal.dayHours;
+  const year = cal.start.year + Math.floor(dayIndex / yearDays);
+  let doy = dayIndex % yearDays;
+  let m = 0;
+  while (doy >= cal.months[m].days) { doy -= cal.months[m].days; m++; }
+  return { year, month: m, monthName: cal.months[m].name, day: doy + 1, hour24: (hour / cal.dayHours) * 24 };
+}
+
+const partOfDay = (h24) => (h24 < 5 ? '깊은 밤' : h24 < 9 ? '새벽' : h24 < 12 ? '아침' : h24 < 14 ? '한낮' : h24 < 18 ? '오후' : h24 < 21 ? '저녁' : '밤');
+
+// 달력 시작을 그쪽 시간(hours)만큼 옮긴다(음수면 앞당김) — 「첫 편지 날짜」를 만난 시각 기준으로 맞출 때
+export function shiftCalendarStart(cal, hours) {
+  if (!cal) return cal;
+  const d = calendarDate({ ...cal }, 0);
+  const yearDays = cal.months.reduce((n, m) => n + m.days, 0);
+  let doy = 0;
+  for (let i = 0; i < d.month; i++) doy += cal.months[i].days;
+  doy += d.day - 1;
+  let total = (d.year * yearDays + doy) * cal.dayHours + cal.start.hour + hours;
+  const dayAll = Math.floor(total / cal.dayHours);
+  const hour = total - dayAll * cal.dayHours;
+  const year = Math.floor(dayAll / yearDays);
+  let rest = dayAll - year * yearDays;
+  let m = 0;
+  while (rest >= cal.months[m].days) { rest -= cal.months[m].days; m++; }
+  return { ...cal, start: { year, month: m, day: rest + 1, hour } };
+}
+
+// 상대의 달력으로 그쪽 시각 표기
+export function theirLabel(c, theirHours) {
+  const cal = c?.calendar;
+  if (!cal?.months?.length || cal.style === 'count') return formatTheirTime(theirHours, cal?.dayHours);
+  const d = calendarDate(cal, theirHours);
+  const date = `${cal.yearLabel ? `${d.year}${cal.yearLabel} ` : ''}${d.monthName} ${d.day}일 ${partOfDay(d.hour24)}`;
+  return cal.style === 'both' ? `${date} (만난 지 ${Math.floor(Math.max(0, theirHours) / cal.dayHours) + 1}일째)` : date;
 }
 
 // 흐른 시간 길이(시간 단위)를 말로
@@ -117,6 +185,9 @@ export function cleanCorrespondentInput(p) {
     worldBookId: str(p?.worldBookId, 200),
     origin: ['manual', 'prompt', 'random', 'existing'].includes(p?.origin) ? p.origin : 'manual',
     mail: cleanMail(p?.mail),
+    calendar: cleanCalendar(p?.calendar),
+    // 먼저 오는 편지: 내 답이 없을 때 그쪽 시간으로 이만큼 기다리면 먼저 쓴다(0이면 안 씀)
+    waitHours: num(p?.waitHours, 0, 24 * 3650, Math.max(72, num(p?.writeMax, 0, 24 * 365 * 2, 48) * 3)),
   };
 }
 
@@ -181,7 +252,7 @@ export function toInput(c) {
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
     maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
-    characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {},
+    characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {}, calendar: c.calendar || null, waitHours: c.waitHours ?? '',
   };
 }
 
@@ -221,7 +292,7 @@ export function sendLetter(c, { body, enclosure, personaName }, now = Date.now()
     theirArriveAt: theirNow(c, now + travel),
     state: 'in_transit',
   };
-  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...names.map((n, i) => makeItem(letter, n, '', i))] };
+  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...names.map((n, i) => makeItem(letter, n, '', i))], initiativeAt: 0 };
 }
 
 // 배송 중일 때만 회수
@@ -289,6 +360,31 @@ export function advance(c, now = Date.now(), rand = Math.random) {
   const r = out.reply;
   const generate = !!r && r.state === 'waiting' && now >= r.dueAt && now >= (r.nextTryAt || 0);
   return { c: out, generate, delivered };
+}
+
+// ── 먼저 오는 편지 ──
+// 내 답이 없는 채 그쪽 시간으로 waitHours가 지나면, 그 뒤 무작위 시점(기다림의 0~50%)에 상대가 먼저 쓴다.
+// 상대가 연달아 쓴 편지가 maxStreak통이면 더 쓰지 않는다(침묵도 연출). 반환: { c, start }
+export function initiativeCheck(c, now = Date.now(), { maxStreak = 2 } = {}, rand = Math.random) {
+  // 예전 상대(값 없음)는 답장 쓰는 시간 최대의 3배(최소 72시간)
+  const wait = c.waitHours ?? Math.max(72, (c.writeDelay?.max || 48) * 3);
+  if (!wait || c.reply) return { c, start: false };
+  if (c.letters.some((l) => l.state === 'in_transit')) return { c, start: false };
+  const lastTheirs = [...c.letters].reverse().find((l) => l.from === 'them');
+  if (!lastTheirs) return { c, start: false };
+  let streak = 0;
+  for (let i = c.letters.length - 1; i >= 0 && c.letters[i].from === 'them'; i--) streak++;
+  if (streak === 0 || streak >= maxStreak) return { c: c.initiativeAt ? { ...c, initiativeAt: 0 } : c, start: false };
+  const waited = theirNow(c, now) - lastTheirs.theirWrittenAt;
+  if (waited < wait) return { c, start: false };
+  if (!c.initiativeAt) {
+    const at = now + theirHoursToReal(c, wait * 0.5 * rand());
+    return { c: { ...c, initiativeAt: at }, start: now >= at };
+  }
+  return { c, start: now >= c.initiativeAt };
+}
+export function startInitiative(c, now = Date.now()) {
+  return { ...c, initiativeAt: 0, reply: { state: 'waiting', dueAt: now, attempts: 0, nextTryAt: 0, error: '', forLetterIds: [], initiative: true } };
 }
 
 // 생성 중에 서버가 꺼졌던 작업을 되돌린다(시작할 때 한 번)
@@ -375,11 +471,11 @@ export function cleanReply(raw) {
 
 const letterText = (l, c) => {
   if (l.from === 'me') {
-    const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${formatTheirTime(l.theirSentAt)} / 도착 ${formatTheirTime(l.theirArriveAt)}`;
+    const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${theirLabel(c, l.theirSentAt)} / 도착 ${theirLabel(c, l.theirArriveAt)}`;
     const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item).join(', ') : l.enclosure;
     return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}`;
   }
-  const head = `[${c.name} → {{user}}] 쓴 날 ${formatTheirTime(l.theirWrittenAt)}`;
+  const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
@@ -411,11 +507,12 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     c.mail?.medium ? `\n<your_letters>\nmedium=${c.mail.medium}${c.mail.texture ? `\ntexture=${c.mail.texture}` : ''}${c.mail.scent ? `\nscent=${c.mail.scent}` : ''}${c.mail.seal ? `\nseal=${c.mail.seal}` : ''}${c.mail.stampMotif ? `\nstamp=${c.mail.stampMotif}` : ''}\n(keep these unless events change them)\n</your_letters>` : '',
     '',
     '<correspondence>',
-    `their_now=${formatTheirTime(tNow)}`,
-    `days_since_first_contact=${Math.floor(tNow / 24) + 1}`,
+    `their_now=${theirLabel(c, tNow)}`,
+    `days_since_first_contact=${Math.floor(tNow / (c.calendar?.dayHours || 24)) + 1}${c.calendar?.dayHours && c.calendar.dayHours !== 24 ? ` (a day in your world is ${c.calendar.dayHours} hours)` : ''}`,
     `ratio=1:${c.ratio} (your time / {{user}}'s time; ${c.ratio > 1 ? `one day for {{user}} is ${formatSpan(24 * c.ratio)} for you` : c.ratio < 1 ? `one day for {{user}} is only ${formatSpan(24 * c.ratio)} for you` : 'same speed'})`,
-    `letters_arrived=${unanswered.length}통, first arrived ${formatTheirTime(firstArrival)}`,
+    `letters_arrived=${unanswered.length}통, first arrived ${theirLabel(c, firstArrival)}`,
     `time_since_arrival=${formatSpan(tNow - firstArrival)} (everything in \`between\` happened within this span)`,
+    c.reply?.initiative ? `initiative=yes: {{user}} has not written back since your last letter. You are writing again on your own, ${formatSpan(tNow - (lastTheirs?.theirWrittenAt || 0))} after your last letter (your time).` : '',
     lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
     gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
     `knows_about_user=only what their letters said; their name is ${userName}`,
@@ -429,10 +526,12 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     '<task>',
     '1. First write `between`: what happened to you from receiving the letter until finishing this reply, in your own time. Scale detail to the elapsed time; summarize long spans coarsely. Include at least one sensory detail per event.',
     '2. Then write the letter. Let only some of `between` show through, the way people actually write letters: hints, omissions, a shaky hand.',
-    '3. Respond to what {{user}} actually wrote. Answer or deliberately avoid their questions.',
+    c.reply?.initiative
+      ? '3. {{user}} has not replied. Write because you want to: share what happened, wonder about them, or keep a promise — in a way that fits your character and the relationship (pride, worry, teasing, restraint). Do not invent anything {{user}} said.'
+      : '3. Respond to what {{user}} actually wrote. Answer or deliberately avoid their questions.',
     '4. The letter must feel like a physical object from your world: describe `envelope` and any `enclosures` in concrete sensory terms.',
     '5. Stay consistent with the character and world above. New facts are allowed when they follow from events.',
-    '6. Time is fixed by <correspondence>. `read_at`, `written_at`, and every `their_date` must fall between the first arrival and their_now, written like their_now ("만난 지 N일째 …"). When mentioning how long you waited or how many days passed, use only those numbers.',
+    `6. Time is fixed by <correspondence>. \`read_at\`, \`written_at\`, and every \`their_date\` must fall between the first arrival and their_now, written in the same form as their_now ("${theirLabel(c, tNow)}"). When mentioning how long you waited or how many days passed, use only those numbers.`,
     'Output JSON only, in Korean, with this shape:',
     '{"between":[{"their_date":"","event":"","senses":"","open":false}],"read_at":"","written_at":"","envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}',
     '</task>',
@@ -462,7 +561,7 @@ export function summarize(c, now = Date.now()) {
   else if (lastLetter?.from === 'them' && lastLetter.state === 'in_transit') status = '답장이 오는 중';
   else if (lastThem && (!lastMine || lastMine.sentAt < lastThem.sentAt)) status = `그쪽은 ${formatSpan(tNow - lastThem.theirWrittenAt)}째 내 답장을 기다리는 중`;
   return {
-    id: c.id, name: c.name, ratio: c.ratio, theirNow: formatTheirTime(tNow),
+    id: c.id, name: c.name, ratio: c.ratio, theirNow: theirLabel(c, tNow),
     personaId: c.personaId || '', personaName: c.personaName || '',
     items: (c.items || []).filter((x) => x.state === 'arrived').length,
     unread, inTransit, status, failed: c.reply?.state === 'failed', error: c.reply?.error || '',
@@ -478,16 +577,16 @@ export function publicView(c, now = Date.now()) {
     ...c,
     items: c.items.filter((x) => !(x.from === 'them' && x.state === 'in_transit')).map((x) => {
       const l = letterOf.get(x.letterId);
-      return { ...x, theirLabel: l ? formatTheirTime(l.from === 'me' ? l.theirSentAt : l.theirWrittenAt) : '' };
+      return { ...x, theirLabel: l ? theirLabel(c, l.from === 'me' ? l.theirSentAt : l.theirWrittenAt) : '' };
     }),
-    theirNowLabel: formatTheirTime(theirNow(c, now)),
+    theirNowLabel: theirLabel(c, theirNow(c, now)),
     letters: c.letters.map((l) => {
       if (l.from === 'them' && l.state === 'in_transit') return { id: l.id, from: 'them', state: 'in_transit', sentAt: l.sentAt, arriveAt: l.arriveAt };
       if (l.from === 'them') {
         const { between, ...rest } = l; // 사이 일지는 상대의 사정 — 화면에는 내지 않는다(3단계 연대기에서 일부 공개)
-        return { ...rest, theirWrittenLabel: formatTheirTime(l.theirWrittenAt) };
+        return { ...rest, theirWrittenLabel: theirLabel(c, l.theirWrittenAt) };
       }
-      return { ...l, theirSentLabel: formatTheirTime(l.theirSentAt), theirArriveLabel: formatTheirTime(l.theirArriveAt) };
+      return { ...l, theirSentLabel: theirLabel(c, l.theirSentAt), theirArriveLabel: theirLabel(c, l.theirArriveAt) };
     }),
   };
 }
@@ -504,6 +603,7 @@ export function etaLabel(ms, exact) {
   if (h < 3) return '도착까지 두어 시간';
   return `도착까지 약 ${Math.round(h)}시간`;
 }
+
 
 
 
@@ -560,9 +660,11 @@ write_min / write_max = hours in THEIR time that {{char}} usually takes to answe
 medium = what a letter is in this world (paper is not the default: shell, leaf, oiled cloth, glass shard, map back...).
 stamp_motif, seal, scent, texture = typical look/feel of {{char}}'s letters.
 image_keywords = 6~10 English keywords for still-life illustrations of their letters and objects (materials, colors, light; no people).
+wait_hours = how many hours in THEIR time {{char}} would wait without a reply before writing again on their own (pride, loneliness, duty decide it).
+calendar = the world's calendar, consistent with the "달력과 시간" lore entry: day_hours (length of a day in hours), months (2~16 named months or seasons with day counts), year_label (suffix or era name after the year number, may be ""), start_year, start_month (one of the month names), start_day = the date of {{char}}'s first letter.
 </mail_format>`;
 
-const OUT_SHAPE = '{"name":"","card":{"description":"","personality":"","never":""},"world_title":"","entries":[{"title":"","keys":[""],"content":"","constant":false}],"mail":{"ratio":1,"ratio_reason":"","delivery_min":1,"delivery_max":24,"write_min":2,"write_max":48,"medium":"","stamp_motif":"","seal":"","scent":"","texture":"","image_keywords":[""]},"first_letter":null}';
+const OUT_SHAPE = '{"name":"","card":{"description":"","personality":"","never":""},"world_title":"","entries":[{"title":"","keys":[""],"content":"","constant":false}],"mail":{"ratio":1,"ratio_reason":"","delivery_min":1,"delivery_max":24,"write_min":2,"write_max":48,"medium":"","stamp_motif":"","seal":"","scent":"","texture":"","image_keywords":[""],"wait_hours":72},"calendar":{"day_hours":24,"months":[{"name":"","days":30}],"year_label":"","start_year":1,"start_month":"","start_day":1},"first_letter":null}';
 const LETTER_SHAPE = '{"envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}';
 
 const rangeText = (r) => {
@@ -706,7 +808,34 @@ export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '', p
       enclosures: (Array.isArray(f.enclosures) ? f.enclosures : []).slice(0, 5).map((x) => ({ item: s(x?.item, 200), note: s(x?.note, 500) })).filter((x) => x.item),
     };
   }
-  return { mode, name, card, worldTitle: s(raw?.world_title, 80) || `${name}의 세계`, entries, mail, firstLetter, warnings };
+  const cal = calendarFromRaw(raw?.calendar);
+  if (!cal) warnings.push('달력이 없습니다(「만난 지 N일째」로 표시).');
+  mail.waitHours = n(m.wait_hours, 0, 24 * 3650, Math.max(72, mail.writeMax * 3));
+  return { mode, name, card, worldTitle: s(raw?.world_title, 80) || `${name}의 세계`, entries, mail, calendar: cal, firstLetter, warnings };
+}
+
+// 생성 결과의 달력 → cleanCalendar 모양
+export function calendarFromRaw(c) {
+  if (!c || typeof c !== 'object') return null;
+  if (Array.isArray(c.months) && c.dayHours !== undefined) return cleanCalendar(c); // 이미 정리된 모양(미리보기에서 고친 것)
+  return cleanCalendar({
+    dayHours: c.day_hours, months: c.months, yearLabel: c.year_label,
+    start: { year: c.start_year, month: c.start_month, day: c.start_day, hour: 9 },
+    style: 'both',
+  });
+}
+
+// 기존 상대에 달력 붙이기: 로어북의 달력 항목과 편지에 쓴 날짜를 읽고 달력만 만든다(글 1회)
+export function buildCalendarMessages(c, { loreText = '', letterDates = [] } = {}) {
+  const system = 'You design the calendar of a fictional world from its lore. Output JSON only.';
+  const user = [
+    `World of ${c.name}.`,
+    loreText ? `<lore>\n${loreText}\n</lore>` : '',
+    letterDates.length ? `Dates ${c.name} has written in letters so far (oldest first):\n${letterDates.map((d) => `- ${d}`).join('\n')}` : '',
+    'Give: day_hours (length of a day in hours), months (2~16 named months or seasons, each with days), year_label (suffix or era name after the year number, may be ""), start_year, start_month (one of the month names), start_day = the date of the FIRST letter above (or a plausible date if unknown).',
+    'Keep names in Korean as the lore uses them. JSON only: {"calendar":{"day_hours":24,"months":[{"name":"","days":30}],"year_label":"","start_year":1,"start_month":"","start_day":1}}',
+  ].filter(Boolean).join('\n\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
 }
 
 // 미리보기에서 사람이 고친 초안을 다시 검사(같은 규칙, 경고는 버림)
@@ -722,7 +851,9 @@ export function cleanEditedDraft(d) {
       seal: d?.mail?.seal, scent: d?.mail?.scent, texture: d?.mail?.texture, image_keywords: d?.mail?.imageKeywords,
     },
     first_letter: d?.firstLetter,
+    calendar: d?.calendar,
   };
+  raw.mail.wait_hours = d?.mail?.waitHours;
   return cleanMatchDraft(raw, { mode: d?.mode, existingName: d?.name });
 }
 
@@ -924,7 +1055,7 @@ export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitl
   const letters = c.letters.filter((l) => set.has(l.id));
   const fmt = (l) => {
     const who = l.from === 'me' ? '{{user}}' : c.name;
-    const when = l.from === 'me' ? formatTheirTime(l.theirArriveAt) : formatTheirTime(l.theirWrittenAt);
+    const when = l.from === 'me' ? theirLabel(c, l.theirArriveAt) : theirLabel(c, l.theirWrittenAt);
     const between = l.from === 'them' && l.between?.length ? `\n(그사이 ${c.name}에게 일어난 일, 편지에는 일부만 드러남)\n${l.between.map((e) => `- [${e.when}] ${e.event}${e.open ? ' (진행 중)' : ''}`).join('\n')}` : '';
     const enc = (l.enclosures || []).map((x) => x.item).join(', ');
     return `<letter id="${l.id}" from="${who}" their_date="${when}">\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${enc ? `\n(동봉: ${enc})` : ''}${between}\n</letter>`;
@@ -1009,7 +1140,7 @@ export function applyMemory(c, org, { letterIds, now = Date.now() }) {
     const l = byId.get(s.letterId) || null;
     if (!l || !ids.has(l.id)) continue;
     const i = sums.findIndex((x) => x.letterId === l.id);
-    const row = { letterId: l.id, from: l.from, when: formatTheirTime(l.from === 'me' ? l.theirArriveAt : l.theirWrittenAt), text: s.text };
+    const row = { letterId: l.id, from: l.from, when: theirLabel(c, l.from === 'me' ? l.theirArriveAt : l.theirWrittenAt), text: s.text };
     if (i >= 0) sums[i] = row; else sums.push(row);
   }
   const L0 = m.ledger || emptyLedger();
@@ -1719,6 +1850,7 @@ export function start(api) {
         maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
         personaId: persona?.id || '', personaName: persona?.name || '',
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
+        calendar: d.calendar, waitHours: d.mail.waitHours,
       }, now);
       if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
       await serial(user, () => saveC(user, c));
@@ -1788,6 +1920,12 @@ export function start(api) {
       await mutate(user, id, async (cur) => {
         if (cur.reply?.state !== 'generating') return cur;
         const answered = cur.reply.forLetterIds || [];
+        if (cur.reply.initiative) {
+          serial(user, async () => {
+            const u = await readJson(INIT_USAGE, user, { day: '', count: 0 });
+            await api.userStorage.setJson(INIT_USAGE, { day: dayKey(), count: (u.day === dayKey() ? u.count : 0) + 1 }, { userId: user });
+          }).catch(() => {});
+        }
         const next = applyReply(cur, reply);
         const newId = next.letters[next.letters.length - 1].id;
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
@@ -1805,22 +1943,52 @@ export function start(api) {
     }
   };
 
+  // ── 푸시 알림(편지 도착) ──
+  const INIT_USAGE = 'initiative-usage.json';
+  const sendPush = async (user, arrivals) => {
+    if (!api.push?.send) return;
+    const total = arrivals.reduce((n, a) => n + a.count, 0);
+    const body = arrivals.length === 1
+      ? `${arrivals[0].name}의 편지${total > 1 ? ` ${total}통이` : '가'} 도착했어요`
+      : `편지 ${total}통이 도착했어요 — ${arrivals.map((a) => a.name).join(', ')}`;
+    try {
+      await api.push.send({ title: '이세계 우체통', body, tag: 'isekai-mailbox', url: '/', rawTitle: true, icon: arrivals[0].stampId ? `/api/v1/images/${arrivals[0].stampId}?size=sm` : undefined }, user);
+    } catch (e) { log('info', `푸시 알림 못 보냄: ${e?.message || e}`); }
+  };
+
   // ── 시간 진행 ──
   const tickUser = async (user) => {
     const ids = await listIds(user);
     const firstRun = !recovered.has(user);
     recovered.add(user);
     let delivered = 0;
+    const arrivals = []; // { name, stampId } — 푸시 알림용
     const toGenerate = [];
     const toOrganize = [];
+    const settings = await loadSettings(user);
+    let initLeft = 0;
+    if (settings.initiativeEnabled && settings.initiativePerDay > 0) {
+      const u = await readJson(INIT_USAGE, user, { day: '', count: 0 });
+      initLeft = Math.max(0, settings.initiativePerDay - (u.day === dayKey() ? u.count : 0));
+    }
     for (const id of ids) {
       if (busy.has(`${user}:${id}`)) continue;
       try {
         await mutate(user, id, (c) => {
           let base = firstRun ? recover(c) : c;
           if (firstRun && base.organize?.state === 'generating') base = { ...base, organize: { ...base.organize, state: 'waiting', nextTryAt: 0 } };
-          const r = advance(base, Date.now());
+          let r = advance(base, Date.now());
           delivered += r.delivered.length;
+          if (r.delivered.length) arrivals.push({ name: r.c.name, count: r.delivered.length, stampId: r.c.art?.stamp?.imageId || r.c.art?.seal?.imageId || '' });
+          // 먼저 오는 편지: 기다림이 찼고 오늘 남은 횟수가 있으면
+          if (!r.generate && settings.initiativeEnabled) {
+            const ic = initiativeCheck(r.c, Date.now(), { maxStreak: settings.initiativeStreak });
+            if (ic.start && initLeft > 0) {
+              initLeft--;
+              r = { ...r, c: startInitiative(ic.c, Date.now()), generate: true };
+              log('info', `먼저 오는 편지 시작(${r.c.name})`);
+            } else r = { ...r, c: ic.c };
+          }
           if (r.generate) toGenerate.push(id);
           const o = r.c.organize;
           if (o?.state === 'waiting' && Date.now() >= (o.nextTryAt || 0) && !r.generate) toOrganize.push(id);
@@ -1829,6 +1997,7 @@ export function start(api) {
       } catch (e) { log('warn', `진행 실패(${id}): ${e?.message || e}`); }
     }
     if (delivered) notify(user, { delivered });
+    if (arrivals.length && settings.pushEnabled) sendPush(user, arrivals).catch(() => {});
     // 생성은 기다리지 않는다(화면 요청이 생성 시간만큼 막히지 않게). 상대별 잠금은 busy가 맡는다.
     for (const id of toGenerate) generateReply(user, id).catch((e) => log('error', `생성 오류: ${e?.message || e}`));
     for (const id of toOrganize) runOrganize(user, id).catch((e) => log('error', `정리 오류: ${e?.message || e}`));
@@ -1995,6 +2164,29 @@ export function start(api) {
         const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
         if (!kinds.length) throw new Error('그릴 것이 없습니다.');
         return drawArt(user, c.id, kinds.map((kind) => ({ kind })));
+      }
+      case 'makeCalendar': {
+        // 기존 상대에 달력 붙이기: 로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 글 1회
+        const c = await loadC(user, p.id);
+        const lore = (await allLore(user, c).catch(() => [])).filter((e) => /달력|시간|계절|calendar/i.test(`${e.comment || ''} ${(e.key || []).join(' ')}`)).map((e) => `[${e.comment}]\n${e.content}`).join('\n\n').slice(0, 4000);
+        const dates = c.letters.filter((l) => l.from === 'them' && l.body).slice(0, 5).map((l) => l.writtenLabel || l.body.split('\n')[0].slice(0, 60));
+        const settings = await loadSettings(user);
+        const raw = await genJson(user, buildCalendarMessages(c, { loreText: lore, letterDates: dates }), { ...settings, createTemperature: 0.3 });
+        const cal = calendarFromRaw(raw?.calendar || raw);
+        if (!cal) throw new Error('달력을 만들지 못했습니다.');
+        // 첫 편지 날짜를 만난 날로: 첫 상대 편지가 쓰인 그쪽 시각만큼 시작을 앞당긴다
+        const firstTheirs = c.letters.find((l) => l.from === 'them');
+        const offset = firstTheirs?.theirWrittenAt || 0;
+        const shifted = shiftCalendarStart(cal, -offset);
+        const next = await mutate(user, p.id, (cur) => ({ ...cur, calendar: { ...shifted, style: cur.calendar?.style || 'both' } }));
+        return { calendar: next.calendar };
+      }
+      case 'setCalendar': {
+        const next = await mutate(user, p.id, (cur) => {
+          const cal = p.calendar === null ? null : cleanCalendar({ ...(cur.calendar || {}), ...(p.calendar || {}) });
+          return { ...cur, calendar: cal };
+        });
+        return { calendar: next.calendar };
       }
       case 'artDismiss': {
         await mutate(user, p.id, (c) => (c.artJob?.state === 'failed' ? { ...c, artJob: null } : c));

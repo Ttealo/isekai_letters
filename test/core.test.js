@@ -200,3 +200,44 @@ test('0.1.0 저장본 → 물품 장부 채우기', () => {
   assert.deepEqual(n.items.map((x) => [x.name, x.from, x.state]), [['은행잎 한 장', 'me', 'arrived'], ['조개', 'them', 'arrived'], ['깃털', 'them', 'in_transit']]);
   assert.equal(M.normalize(n), n);
 });
+
+test('달력 표기: 하루 28시간, 달 넘어가기, 해 넘어가기, 표시 방식', () => {
+  const cal = M.cleanCalendar({ dayHours: 28, months: [{ name: '부상절', days: 2 }, { name: '백무기', days: 3 }], yearLabel: '년', start: { year: 312, month: '백무기', day: 2, hour: 0 } });
+  const c = { calendar: cal };
+  assert.equal(M.theirLabel(c, 0), '312년 백무기 2일 깊은 밤 (만난 지 1일째)');
+  assert.equal(M.theirLabel(c, 28 + 14), '312년 백무기 3일 한낮 (만난 지 2일째)');
+  assert.equal(M.theirLabel(c, 28 * 2 + 1), '313년 부상절 1일 깊은 밤 (만난 지 3일째)');
+  assert.equal(M.theirLabel({ calendar: { ...cal, style: 'calendar' } }, 0), '312년 백무기 2일 깊은 밤');
+  assert.equal(M.theirLabel({ calendar: { ...cal, style: 'count' } }, 28 * 3), '만난 지 4일째 깊은 밤');
+  assert.equal(M.theirLabel({}, 24 + 19), '만난 지 2일째 저녁');
+  assert.equal(M.cleanCalendar({ months: [] }), null);
+});
+
+test('먼저 오는 편지: 기다림이 차면 무작위 시점에 시작, 내가 보내면 취소, 연달아 2통이면 멈춤', () => {
+  let c = M.createCorrespondent({ ...base, ratio: 1, waitHours: 10 }, 0, () => 0);
+  c = M.sendLetter(c, { body: 'x' }, 0, () => 0);
+  c = M.advance(c, 2 * H, () => 0).c;
+  c = M.applyReply(M.markGenerating(c), M.cleanReply({ body: 'y' }), 2 * H, () => 0); // 배송 2h
+  c = M.advance(c, 4 * H).c; // 도착
+  let r = M.initiativeCheck(c, 10 * H, {}, () => 0.5);
+  assert.equal(r.start, false); // 그쪽 쓴 뒤 8시간 < 10
+  r = M.initiativeCheck(c, 13 * H, {}, () => 0.5);
+  assert.equal(r.start, false); // 기다림 찼고, 예약 = 13h + 2.5h
+  assert.equal(r.c.initiativeAt, 13 * H + 2.5 * H);
+  r = M.initiativeCheck(r.c, 16 * H, {}, () => 0.5);
+  assert.equal(r.start, true);
+  const s = M.startInitiative(r.c, 16 * H);
+  assert.equal(s.reply.initiative, true);
+  assert.deepEqual(s.reply.forLetterIds, []);
+  const [sys] = M.buildReplyMessages(s, { now: 16 * H, personaName: '시드' });
+  assert.match(sys.content, /initiative=yes/);
+  assert.match(sys.content, /has not replied/);
+  // 내가 보내면 예약 취소
+  assert.equal(M.sendLetter(r.c, { body: 'z' }, 15 * H, () => 0).initiativeAt, 0);
+  // 상대가 연달아 2통이면 더 안 씀
+  let two = M.applyReply(M.markGenerating(s), M.cleanReply({ body: '또' }), 17 * H, () => 0);
+  two = M.advance(two, 30 * H).c;
+  assert.equal(M.initiativeCheck(two, 300 * H, { maxStreak: 2 }).start, false);
+  // 기다림 0이면 끔
+  assert.equal(M.initiativeCheck({ ...c, waitHours: 0 }, 999 * H).start, false);
+});

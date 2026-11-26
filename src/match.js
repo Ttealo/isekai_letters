@@ -1,5 +1,7 @@
 
 
+import { cleanCalendar } from './core.js';
+
 // 상대 자동 생성(매칭): 프롬프트, 결과 검사, 카드·로어북·우편 설정으로 나누기. 부수 효과 없음.
 // 카드 양식은 D:\AI\Marinara-Engine_설정\CHARACTER_CARD_COMPACT.md(압축판) 요약. 원본이 바뀌면 여기도 맞춘다.
 
@@ -53,9 +55,11 @@ write_min / write_max = hours in THEIR time that {{char}} usually takes to answe
 medium = what a letter is in this world (paper is not the default: shell, leaf, oiled cloth, glass shard, map back...).
 stamp_motif, seal, scent, texture = typical look/feel of {{char}}'s letters.
 image_keywords = 6~10 English keywords for still-life illustrations of their letters and objects (materials, colors, light; no people).
+wait_hours = how many hours in THEIR time {{char}} would wait without a reply before writing again on their own (pride, loneliness, duty decide it).
+calendar = the world's calendar, consistent with the "달력과 시간" lore entry: day_hours (length of a day in hours), months (2~16 named months or seasons with day counts), year_label (suffix or era name after the year number, may be ""), start_year, start_month (one of the month names), start_day = the date of {{char}}'s first letter.
 </mail_format>`;
 
-const OUT_SHAPE = '{"name":"","card":{"description":"","personality":"","never":""},"world_title":"","entries":[{"title":"","keys":[""],"content":"","constant":false}],"mail":{"ratio":1,"ratio_reason":"","delivery_min":1,"delivery_max":24,"write_min":2,"write_max":48,"medium":"","stamp_motif":"","seal":"","scent":"","texture":"","image_keywords":[""]},"first_letter":null}';
+const OUT_SHAPE = '{"name":"","card":{"description":"","personality":"","never":""},"world_title":"","entries":[{"title":"","keys":[""],"content":"","constant":false}],"mail":{"ratio":1,"ratio_reason":"","delivery_min":1,"delivery_max":24,"write_min":2,"write_max":48,"medium":"","stamp_motif":"","seal":"","scent":"","texture":"","image_keywords":[""],"wait_hours":72},"calendar":{"day_hours":24,"months":[{"name":"","days":30}],"year_label":"","start_year":1,"start_month":"","start_day":1},"first_letter":null}';
 const LETTER_SHAPE = '{"envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}';
 
 const rangeText = (r) => {
@@ -199,7 +203,34 @@ export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '', p
       enclosures: (Array.isArray(f.enclosures) ? f.enclosures : []).slice(0, 5).map((x) => ({ item: s(x?.item, 200), note: s(x?.note, 500) })).filter((x) => x.item),
     };
   }
-  return { mode, name, card, worldTitle: s(raw?.world_title, 80) || `${name}의 세계`, entries, mail, firstLetter, warnings };
+  const cal = calendarFromRaw(raw?.calendar);
+  if (!cal) warnings.push('달력이 없습니다(「만난 지 N일째」로 표시).');
+  mail.waitHours = n(m.wait_hours, 0, 24 * 3650, Math.max(72, mail.writeMax * 3));
+  return { mode, name, card, worldTitle: s(raw?.world_title, 80) || `${name}의 세계`, entries, mail, calendar: cal, firstLetter, warnings };
+}
+
+// 생성 결과의 달력 → cleanCalendar 모양
+export function calendarFromRaw(c) {
+  if (!c || typeof c !== 'object') return null;
+  if (Array.isArray(c.months) && c.dayHours !== undefined) return cleanCalendar(c); // 이미 정리된 모양(미리보기에서 고친 것)
+  return cleanCalendar({
+    dayHours: c.day_hours, months: c.months, yearLabel: c.year_label,
+    start: { year: c.start_year, month: c.start_month, day: c.start_day, hour: 9 },
+    style: 'both',
+  });
+}
+
+// 기존 상대에 달력 붙이기: 로어북의 달력 항목과 편지에 쓴 날짜를 읽고 달력만 만든다(글 1회)
+export function buildCalendarMessages(c, { loreText = '', letterDates = [] } = {}) {
+  const system = 'You design the calendar of a fictional world from its lore. Output JSON only.';
+  const user = [
+    `World of ${c.name}.`,
+    loreText ? `<lore>\n${loreText}\n</lore>` : '',
+    letterDates.length ? `Dates ${c.name} has written in letters so far (oldest first):\n${letterDates.map((d) => `- ${d}`).join('\n')}` : '',
+    'Give: day_hours (length of a day in hours), months (2~16 named months or seasons, each with days), year_label (suffix or era name after the year number, may be ""), start_year, start_month (one of the month names), start_day = the date of the FIRST letter above (or a plausible date if unknown).',
+    'Keep names in Korean as the lore uses them. JSON only: {"calendar":{"day_hours":24,"months":[{"name":"","days":30}],"year_label":"","start_year":1,"start_month":"","start_day":1}}',
+  ].filter(Boolean).join('\n\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
 }
 
 // 미리보기에서 사람이 고친 초안을 다시 검사(같은 규칙, 경고는 버림)
@@ -215,7 +246,9 @@ export function cleanEditedDraft(d) {
       seal: d?.mail?.seal, scent: d?.mail?.scent, texture: d?.mail?.texture, image_keywords: d?.mail?.imageKeywords,
     },
     first_letter: d?.firstLetter,
+    calendar: d?.calendar,
   };
+  raw.mail.wait_hours = d?.mail?.waitHours;
   return cleanMatchDraft(raw, { mode: d?.mode, existingName: d?.name });
 }
 

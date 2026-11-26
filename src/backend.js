@@ -1,17 +1,17 @@
 import {
   cleanSettings, createCorrespondent, updateCorrespondent, toInput, sendLetter, recallLetter, markOpened,
-  advance, recover, markGenerating, markFailed, retryReply, applyReply,
+  advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart,
   parseJsonLoose, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
 import {
-  MATCH_MODES, GENRE_DICE, buildMatchMessages, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
+  MATCH_MODES, GENRE_DICE, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
 } from './match.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
 } from './memory.js';
 import {
-  ART_KINDS, artParamAttempts, isParamRejection, modelFor, cleanArt, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
+  ART_KINDS, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
 } from './art.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -481,6 +481,7 @@ export function start(api) {
         maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
         personaId: persona?.id || '', personaName: persona?.name || '',
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
+        calendar: d.calendar, waitHours: d.mail.waitHours,
       }, now);
       if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
       await serial(user, () => saveC(user, c));
@@ -550,6 +551,12 @@ export function start(api) {
       await mutate(user, id, async (cur) => {
         if (cur.reply?.state !== 'generating') return cur;
         const answered = cur.reply.forLetterIds || [];
+        if (cur.reply.initiative) {
+          serial(user, async () => {
+            const u = await readJson(INIT_USAGE, user, { day: '', count: 0 });
+            await api.userStorage.setJson(INIT_USAGE, { day: dayKey(), count: (u.day === dayKey() ? u.count : 0) + 1 }, { userId: user });
+          }).catch(() => {});
+        }
         const next = applyReply(cur, reply);
         const newId = next.letters[next.letters.length - 1].id;
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
@@ -567,22 +574,52 @@ export function start(api) {
     }
   };
 
+  // ── 푸시 알림(편지 도착) ──
+  const INIT_USAGE = 'initiative-usage.json';
+  const sendPush = async (user, arrivals) => {
+    if (!api.push?.send) return;
+    const total = arrivals.reduce((n, a) => n + a.count, 0);
+    const body = arrivals.length === 1
+      ? `${arrivals[0].name}의 편지${total > 1 ? ` ${total}통이` : '가'} 도착했어요`
+      : `편지 ${total}통이 도착했어요 — ${arrivals.map((a) => a.name).join(', ')}`;
+    try {
+      await api.push.send({ title: '이세계 우체통', body, tag: 'isekai-mailbox', url: '/', rawTitle: true, icon: arrivals[0].stampId ? `/api/v1/images/${arrivals[0].stampId}?size=sm` : undefined }, user);
+    } catch (e) { log('info', `푸시 알림 못 보냄: ${e?.message || e}`); }
+  };
+
   // ── 시간 진행 ──
   const tickUser = async (user) => {
     const ids = await listIds(user);
     const firstRun = !recovered.has(user);
     recovered.add(user);
     let delivered = 0;
+    const arrivals = []; // { name, stampId } — 푸시 알림용
     const toGenerate = [];
     const toOrganize = [];
+    const settings = await loadSettings(user);
+    let initLeft = 0;
+    if (settings.initiativeEnabled && settings.initiativePerDay > 0) {
+      const u = await readJson(INIT_USAGE, user, { day: '', count: 0 });
+      initLeft = Math.max(0, settings.initiativePerDay - (u.day === dayKey() ? u.count : 0));
+    }
     for (const id of ids) {
       if (busy.has(`${user}:${id}`)) continue;
       try {
         await mutate(user, id, (c) => {
           let base = firstRun ? recover(c) : c;
           if (firstRun && base.organize?.state === 'generating') base = { ...base, organize: { ...base.organize, state: 'waiting', nextTryAt: 0 } };
-          const r = advance(base, Date.now());
+          let r = advance(base, Date.now());
           delivered += r.delivered.length;
+          if (r.delivered.length) arrivals.push({ name: r.c.name, count: r.delivered.length, stampId: r.c.art?.stamp?.imageId || r.c.art?.seal?.imageId || '' });
+          // 먼저 오는 편지: 기다림이 찼고 오늘 남은 횟수가 있으면
+          if (!r.generate && settings.initiativeEnabled) {
+            const ic = initiativeCheck(r.c, Date.now(), { maxStreak: settings.initiativeStreak });
+            if (ic.start && initLeft > 0) {
+              initLeft--;
+              r = { ...r, c: startInitiative(ic.c, Date.now()), generate: true };
+              log('info', `먼저 오는 편지 시작(${r.c.name})`);
+            } else r = { ...r, c: ic.c };
+          }
           if (r.generate) toGenerate.push(id);
           const o = r.c.organize;
           if (o?.state === 'waiting' && Date.now() >= (o.nextTryAt || 0) && !r.generate) toOrganize.push(id);
@@ -591,6 +628,7 @@ export function start(api) {
       } catch (e) { log('warn', `진행 실패(${id}): ${e?.message || e}`); }
     }
     if (delivered) notify(user, { delivered });
+    if (arrivals.length && settings.pushEnabled) sendPush(user, arrivals).catch(() => {});
     // 생성은 기다리지 않는다(화면 요청이 생성 시간만큼 막히지 않게). 상대별 잠금은 busy가 맡는다.
     for (const id of toGenerate) generateReply(user, id).catch((e) => log('error', `생성 오류: ${e?.message || e}`));
     for (const id of toOrganize) runOrganize(user, id).catch((e) => log('error', `정리 오류: ${e?.message || e}`));
@@ -757,6 +795,29 @@ export function start(api) {
         const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
         if (!kinds.length) throw new Error('그릴 것이 없습니다.');
         return drawArt(user, c.id, kinds.map((kind) => ({ kind })));
+      }
+      case 'makeCalendar': {
+        // 기존 상대에 달력 붙이기: 로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 글 1회
+        const c = await loadC(user, p.id);
+        const lore = (await allLore(user, c).catch(() => [])).filter((e) => /달력|시간|계절|calendar/i.test(`${e.comment || ''} ${(e.key || []).join(' ')}`)).map((e) => `[${e.comment}]\n${e.content}`).join('\n\n').slice(0, 4000);
+        const dates = c.letters.filter((l) => l.from === 'them' && l.body).slice(0, 5).map((l) => l.writtenLabel || l.body.split('\n')[0].slice(0, 60));
+        const settings = await loadSettings(user);
+        const raw = await genJson(user, buildCalendarMessages(c, { loreText: lore, letterDates: dates }), { ...settings, createTemperature: 0.3 });
+        const cal = calendarFromRaw(raw?.calendar || raw);
+        if (!cal) throw new Error('달력을 만들지 못했습니다.');
+        // 첫 편지 날짜를 만난 날로: 첫 상대 편지가 쓰인 그쪽 시각만큼 시작을 앞당긴다
+        const firstTheirs = c.letters.find((l) => l.from === 'them');
+        const offset = firstTheirs?.theirWrittenAt || 0;
+        const shifted = shiftCalendarStart(cal, -offset);
+        const next = await mutate(user, p.id, (cur) => ({ ...cur, calendar: { ...shifted, style: cur.calendar?.style || 'both' } }));
+        return { calendar: next.calendar };
+      }
+      case 'setCalendar': {
+        const next = await mutate(user, p.id, (cur) => {
+          const cal = p.calendar === null ? null : cleanCalendar({ ...(cur.calendar || {}), ...(p.calendar || {}) });
+          return { ...cur, calendar: cal };
+        });
+        return { calendar: next.calendar };
       }
       case 'artDismiss': {
         await mutate(user, p.id, (c) => (c.artJob?.state === 'failed' ? { ...c, artJob: null } : c));
