@@ -1,20 +1,23 @@
 import { etaLabel, formatSpan } from './core.js';
 
-// 이세계 우체통 프런트 — 서랍 탭 하나.
-// 화면: 우편함(상대 목록) / 상대(편지 묶음 + 쓰기) / 편지 열기(봉투 → 본문) / 새 상대·수정 / 설정
+// 이세계 우체통 프런트
+// 1) 서랍 탭: 페르소나별 상대 목록, 새 상대·수정, 편지 쓰기, 설정
+// 2) 우체통 위젯(플로트, ui_panels): 새 편지면 깃발과 숫자. 누르면 보조창을 열고 닫음
+// 3) 보조창(오른쪽 도크, ui_panels): 페르소나 → 상대 → 편지첩 / 물품 / 모음
 // 모든 글은 textContent로만 넣는다(생성된 글에 HTML이 섞여도 실행되지 않게).
 
 const CSS = `
-.im-tab{display:flex;flex-direction:column;gap:12px;padding:12px;color:var(--lumiverse-text);font-size:13px;line-height:1.6}
-.im-tab h3{margin:0;font-size:15px}
-.im-tab h4{margin:4px 0 0;font-size:13px}
+.im-tab,.im-panel{display:flex;flex-direction:column;gap:12px;padding:12px;color:var(--lumiverse-text);font-size:13px;line-height:1.6;box-sizing:border-box}
+.im-panel{height:100%;overflow:auto;padding:12px 14px 20px}
+.im-tab h3,.im-panel h3{margin:0;font-size:15px}
+.im-tab h4,.im-panel h4{margin:4px 0 0;font-size:13px}
 .im-muted{color:var(--lumiverse-text-muted);font-size:12px}
 .im-err{color:var(--lumiverse-danger);font-size:12px}
 .im-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.im-grow{flex:1}
-.im-tab textarea,.im-tab input,.im-tab select{width:100%;box-sizing:border-box;background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:var(--lumiverse-radius,6px);padding:6px 8px;font:inherit}
-.im-tab textarea{min-height:90px;resize:vertical}
-.im-tab label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--lumiverse-text-muted)}
+.im-grow{flex:1;min-width:0}
+.im-tab textarea,.im-tab input,.im-tab select,.im-panel textarea,.im-panel input,.im-panel select{width:100%;box-sizing:border-box;background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:var(--lumiverse-radius,6px);padding:6px 8px;font:inherit}
+.im-tab textarea,.im-panel textarea{min-height:90px;resize:vertical}
+.im-tab label,.im-panel label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--lumiverse-text-muted)}
 .im-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .im-btn{background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:var(--lumiverse-radius,6px);padding:5px 12px;cursor:pointer;font:inherit}
 .im-btn.im-primary{background:var(--lumiverse-primary);color:#fff;border-color:transparent}
@@ -24,15 +27,55 @@ const CSS = `
 .im-card:hover{border-color:var(--lumiverse-primary)}
 .im-badge{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:var(--lumiverse-primary);color:#fff;font-size:11px;text-align:center}
 .im-letter{border:1px solid var(--lumiverse-border);border-radius:var(--lumiverse-radius,8px);padding:10px 12px;display:flex;flex-direction:column;gap:4px}
-.im-letter.im-mine{margin-left:18px;opacity:.92}
-.im-letter.im-theirs{margin-right:18px}
-.im-paper{font-family:"Nanum Myeongjo","Noto Serif KR",Georgia,serif;white-space:pre-wrap;font-size:14px;line-height:1.85;padding:16px 18px;border-radius:var(--lumiverse-radius,8px);background:color-mix(in srgb,var(--lumiverse-fill) 70%,#c8a46a 12%);border:1px solid color-mix(in srgb,var(--lumiverse-border) 60%,#c8a46a 40%)}
-.im-envelope{display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:var(--lumiverse-radius,8px);border:1px dashed color-mix(in srgb,var(--lumiverse-border) 50%,#c8a46a 50%);background:color-mix(in srgb,var(--lumiverse-fill) 80%,#c8a46a 8%)}
-.im-envelope dt{font-size:11px;color:var(--lumiverse-text-muted)}
+.im-letter.im-mine{margin-left:18px}
+.im-letter.im-theirs{margin-right:18px;cursor:pointer}
+.im-chips{display:flex;gap:6px;flex-wrap:wrap}
+.im-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;border:1px solid var(--lumiverse-border);border-radius:999px;background:var(--lumiverse-fill);color:var(--lumiverse-text);cursor:pointer;font:inherit;font-size:12px}
+.im-chip.im-on{border-color:var(--lumiverse-primary);box-shadow:0 0 0 1px var(--lumiverse-primary) inset}
+.im-chip.im-plain{padding:3px 10px}
+.im-ava{width:22px;height:22px;border-radius:50%;object-fit:cover;background:var(--lumiverse-fill-subtle,#8884);display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex:none}
+.im-tabs{display:flex;gap:2px;border-bottom:1px solid var(--lumiverse-border)}
+.im-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--lumiverse-text-muted);padding:6px 12px;cursor:pointer;font:inherit}
+.im-tabs button.im-on{color:var(--lumiverse-text);border-bottom-color:var(--lumiverse-primary)}
+.im-paper{position:relative;font-family:"Nanum Myeongjo","Noto Serif KR","Batang",Georgia,serif;white-space:pre-wrap;font-size:14.5px;line-height:1.9;padding:18px 20px 16px;border-radius:4px;color:#3b2f22;background:#f4ead6;background-image:repeating-linear-gradient(transparent 0 27px,#d9c7a455 27px 28px);border:1px solid #d6c3a0;box-shadow:0 1px 0 #c9b38c,0 6px 14px -8px #0006}
+.im-paper.im-mine{color:#26313b;background:#eef1f4;background-image:repeating-linear-gradient(transparent 0 27px,#b8c4d055 27px 28px);border-color:#c5ced8;box-shadow:0 1px 0 #b8c2cc,0 6px 14px -8px #0005;margin-left:22px}
+.im-paper.im-theirs{margin-right:22px}
+.im-paper .im-meta{font-family:system-ui,sans-serif;font-size:11px;color:#7a6a52;white-space:normal;margin:0 54px 8px 0;line-height:1.5}
+.im-paper.im-mine .im-meta{color:#5d6b78;margin-right:0}
+.im-stamp{position:absolute;right:12px;top:12px;width:38px;height:46px;border:2px dashed #b08a5a;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-family:system-ui,sans-serif;font-size:9px;line-height:1.2;color:#8a6a40;padding:2px;box-sizing:border-box;overflow:hidden;background:#efe2c6}
+.im-stamp img{width:100%;height:100%;object-fit:cover}
+.im-encl{font-family:system-ui,sans-serif;white-space:normal;margin-top:10px;padding-top:8px;border-top:1px dashed #c9b38c;font-size:12px;color:#6b5a40}
+.im-paper.im-mine .im-encl{border-color:#b8c2cc;color:#55626e}
+.im-envelope{display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:6px;border:1px solid #cdb68e;background:#e9d9b8;color:#3b2f22;margin-right:22px;position:relative}
+.im-envelope dt{font-size:11px;color:#7a6a52}
 .im-envelope dd{margin:0 0 4px}
+.im-envelope .im-btn{align-self:flex-start;background:#8a5a2b;color:#fff;border-color:transparent}
+.im-transit{border:1px dashed var(--lumiverse-border);border-radius:6px;padding:8px 12px;color:var(--lumiverse-text-muted);font-size:12px}
+.im-transit.im-mine{margin-left:22px;text-align:right}
+.im-transit.im-theirs{margin-right:22px}
+.im-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.im-item{border:1px solid var(--lumiverse-border);border-radius:8px;overflow:hidden;background:var(--lumiverse-fill-subtle,transparent);display:flex;flex-direction:column}
+.im-item .im-pic{aspect-ratio:1/1;background:#efe2c6;display:flex;align-items:center;justify-content:center;color:#a88a5e}
+.im-item .im-pic img{width:100%;height:100%;object-fit:cover}
+.im-item .im-cap{padding:6px 8px;font-size:12px;line-height:1.4}
+.im-item .im-cap b{display:block;font-size:12.5px}
+.im-bundle{display:flex;gap:10px;align-items:center;border:1px solid var(--lumiverse-border);border-radius:8px;padding:10px;cursor:pointer;background:var(--lumiverse-fill-subtle,transparent)}
+.im-bundle:hover{border-color:var(--lumiverse-primary)}
+.im-bundle .im-stack{width:44px;height:36px;position:relative;flex:none}
+.im-bundle .im-stack i{position:absolute;inset:0;border:1px solid #cdb68e;background:#f4ead6;border-radius:2px}
+.im-bundle .im-stack i:nth-child(1){transform:rotate(-8deg)}
+.im-bundle .im-stack i:nth-child(2){transform:rotate(5deg)}
 .im-sep{border:none;border-top:1px solid var(--lumiverse-border);margin:4px 0}
+.im-box{cursor:pointer;user-select:none;width:76px;height:96px;display:block}
+.im-box svg{display:block;filter:drop-shadow(0 3px 4px #0005)}
+.im-note{position:absolute;right:0;bottom:100%;margin-bottom:6px;white-space:nowrap;background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:6px;padding:4px 8px;font-size:11px;pointer-events:none}
 `;
 const ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 8l9 6 9-6"/><path d="M15 3.5l2 1.2"/></svg>';
+const PIC = '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2 8 12.7 4 8.8l5.5-.8z"/></svg>';
+const NO_PERSONA = '__none__';
+const ALL = '__all__';
+const LS_PERSONA = 'isekai_mailbox.persona';
+const LS_PANEL = 'isekai_mailbox.panel';
 
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -40,7 +83,9 @@ function el(tag, props = {}, children = []) {
     if (v === undefined || v === null || v === false) continue;
     if (k === 'class') node.className = v;
     else if (k === 'text') node.textContent = v;
+    else if (k === 'html') node.innerHTML = v; // 우리 코드의 고정 SVG에만 쓴다
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else if (k === 'style') node.setAttribute('style', v);
     else if (k in node) node[k] = v;
     else node.setAttribute(k, v);
   }
@@ -51,12 +96,24 @@ const btn = (text, onclick, opts = {}) => el('button', { class: `im-btn${opts.pr
 const link = (text, onclick) => el('button', { class: 'im-link', type: 'button', text, onclick });
 const field = (label, input) => el('label', {}, [label, input]);
 const when = (ms) => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const imgUrl = (id, size = 'sm') => `/api/v1/images/${encodeURIComponent(id)}?size=${size}`;
+const lsGet = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const short = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
+
+// 배송 시간을 실제(가속 반영) 시간으로
+function deliveryLabel(c) {
+  const s = Math.max(1, Number(c.timeScale) || 1);
+  const f = (h) => formatSpan(h / s);
+  return s > 1 ? `배송 ${f(c.delivery.min)}~${f(c.delivery.max)} (시험 가속 ${s}배)` : `배송 ${c.delivery.min}~${c.delivery.max}시간`;
+}
 
 export function setup(ctx) {
+  // ── 백엔드 요청 ──
   const waits = new Map();
   let seq = 0;
   const offBack = ctx.onBackendMessage((msg) => {
-    if (msg?.type === 'changed' && !msg.requestId) { onChanged(msg); return; }
+    if (msg?.type === 'changed' && !msg.requestId) { refreshSoon(); return; }
     const w = msg && waits.get(msg.requestId);
     if (!w) return;
     waits.delete(msg.requestId);
@@ -69,6 +126,77 @@ export function setup(ctx) {
     setTimeout(() => { if (waits.delete(requestId)) reject(new Error('응답 없음')); }, timeout);
   });
 
+  // ── 공용 상태 ──
+  const S = {
+    list: [], all: [], settings: null, personas: [], activePersonaId: '',
+    persona: lsGet(LS_PERSONA, ALL), // 보고 있는 페르소나(서랍·보조창 공유)
+    error: '',
+  };
+  const views = new Set(); // 다시 그릴 화면들
+  const renderAll = () => { for (const v of views) v.render(); };
+  const byId = (id) => S.all.find((c) => c.id === id) || null;
+  const personaOf = (id) => S.personas.find((p) => p.id === id) || null;
+  const inPersona = (x) => S.persona === ALL || (S.persona === NO_PERSONA ? !x.personaId : x.personaId === S.persona);
+  const setPersona = (id) => { S.persona = id; lsSet(LS_PERSONA, id); renderAll(); };
+
+  async function refresh() {
+    try {
+      const [r, p] = await Promise.all([ask('all'), S.personas.length ? null : ask('personas').catch(() => null)]);
+      S.all = r.all;
+      S.settings = r.settings;
+      if (p) { S.personas = p.personas; S.activePersonaId = p.activeId; }
+      const l = await ask('load');
+      S.list = l.list;
+      S.error = '';
+    } catch (e) { S.error = e.message || String(e); }
+    const unread = S.list.reduce((n, x) => n + x.unread, 0);
+    tab.setBadge(unread ? String(unread) : null);
+    renderAll();
+  }
+  let soon = null;
+  const refreshSoon = () => { clearTimeout(soon); soon = setTimeout(refresh, 300); };
+  const reloadPersonas = async () => { try { const p = await ask('personas'); S.personas = p.personas; S.activePersonaId = p.activeId; } catch {} };
+
+  // 페르소나 고르기 줄(서랍·보조창 공용)
+  function personaChips() {
+    const used = new Set(S.list.map((x) => x.personaId || NO_PERSONA));
+    const chips = [el('button', { class: `im-chip im-plain${S.persona === ALL ? ' im-on' : ''}`, type: 'button', text: '모두', onclick: () => setPersona(ALL) })];
+    for (const p of S.personas) {
+      const count = S.list.filter((x) => x.personaId === p.id).length;
+      if (!count && p.id !== S.persona) continue; // 편지 상대가 있는 페르소나만(고른 것은 유지)
+      chips.push(el('button', { class: `im-chip${S.persona === p.id ? ' im-on' : ''}`, type: 'button', title: p.title || p.name, onclick: () => setPersona(p.id) }, [
+        p.imageId ? el('img', { class: 'im-ava', src: imgUrl(p.imageId), alt: '' }) : el('span', { class: 'im-ava', text: p.name.slice(0, 1) }),
+        `${p.name} · ${count}`,
+      ]));
+    }
+    if (used.has(NO_PERSONA)) chips.push(el('button', { class: `im-chip im-plain${S.persona === NO_PERSONA ? ' im-on' : ''}`, type: 'button', text: '페르소나 없음', onclick: () => setPersona(NO_PERSONA) }));
+    return el('div', { class: 'im-chips' }, chips);
+  }
+
+  // 편지 쓰기 칸(서랍·보조창 공용)
+  const drafts = new Map(); // 상대 id → { body, enclosure }
+  function composeBox(c, { busyRef, act, onSent }) {
+    const d = drafts.get(c.id) || { body: '', enclosure: '' };
+    drafts.set(c.id, d);
+    const sender = c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
+    return el('div', { class: 'im-letter' }, [
+      el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })]),
+      el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
+      el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
+      el('div', { class: 'im-row' }, [
+        el('span', { class: 'im-muted im-grow', text: `${deliveryLabel(c)}. 도착 전에는 회수할 수 있습니다.` }),
+        btn(busyRef() ? '보내는 중…' : '보내기', () => act(async () => {
+          if (!d.body.trim()) throw new Error('본문을 적어 주세요.');
+          await ask('send', { id: c.id, body: d.body, enclosure: d.enclosure });
+          drafts.set(c.id, { body: '', enclosure: '' });
+          await refresh();
+          onSent?.();
+        }), { primary: true, disabled: busyRef() }),
+      ]),
+    ]);
+  }
+
+  // ══════════════ 서랍 탭 ══════════════
   const tab = ctx.ui.registerDrawerTab({
     id: 'isekai-mailbox', title: '이세계 우체통', shortName: '우체통',
     description: '다른 세계의 누군가와 주고받는 편지',
@@ -80,279 +208,423 @@ export function setup(ctx) {
   const root = el('div', { class: 'im-tab' });
   tab.root.append(root);
 
-  // 상태
-  let view = { name: 'home' };
-  let list = [];
-  let settings = null;
-  let current = null; // 열려 있는 상대(publicView)
-  let currentInput = null;
-  let error = '';
-  let busy = false;
-  let draft = { body: '', enclosure: '' };
+  const drawer = (() => {
+    let view = { name: 'home' };
+    let busy = false;
+    let error = '';
+    let connections = null;
+    const go = (v) => { view = v; error = ''; render(); if (v.name === 'home' || v.name === 'c') refresh(); };
+    const act = async (fn) => {
+      if (busy) return;
+      busy = true; error = ''; render();
+      try { await fn(); } catch (e) { error = e.message || String(e); }
+      busy = false; render();
+    };
 
-  const setError = (e) => { error = e ? (e.message || String(e)) : ''; };
-  const go = (v) => { view = v; error = ''; render(); };
+    function render() {
+      const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView }[view.name]?.() || [];
+      const err = error || S.error;
+      root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean));
+    }
 
-  async function loadHome() {
-    try {
-      const r = await ask('load');
-      list = r.list;
-      settings = r.settings;
-      const unread = list.reduce((n, x) => n + x.unread, 0);
-      tab.setBadge(unread ? String(unread) : null);
-    } catch (e) { setError(e); }
-  }
-  async function loadC(id) {
-    try {
-      const r = await ask('get', { id });
-      current = r.c;
-      currentInput = r.input;
-    } catch (e) { setError(e); }
-  }
-  async function refresh() {
-    await loadHome();
-    if ((view.name === 'c' || view.name === 'letter') && view.id) await loadC(view.id);
-    render();
-  }
-  function onChanged() { refresh(); }
-  const offActivate = tab.onActivate(() => refresh());
-  const timer = setInterval(() => { if (view.name === 'c' || view.name === 'home') refresh(); }, 60 * 1000);
-
-  const act = async (fn) => {
-    if (busy) return;
-    busy = true; setError(null); render();
-    try { await fn(); } catch (e) { setError(e); }
-    busy = false; render();
-  };
-
-  // ── 화면 ──
-  function render() {
-    const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView }[view.name]?.() || [];
-    root.replaceChildren(...[].concat(body, error ? el('div', { class: 'im-err', text: error }) : null).filter(Boolean));
-  }
-
-  function homeView() {
-    return [
-      el('div', { class: 'im-row' }, [
-        el('h3', { class: 'im-grow', text: '우편함' }),
-        btn('새 상대', () => { currentInput = null; go({ name: 'form' }); }, { primary: true }),
-        btn('설정', () => go({ name: 'settings' })),
-      ]),
-      list.length ? null : el('div', { class: 'im-muted', text: '아직 편지를 주고받는 상대가 없습니다. 「새 상대」에서 누구에게 편지를 보낼지 적어 주세요.' }),
-      ...list.map((x) => el('div', { class: 'im-card', onclick: () => openC(x.id) }, [
-        el('div', { class: 'im-row' }, [
-          el('b', { class: 'im-grow', text: x.name }),
-          x.unread ? el('span', { class: 'im-badge', text: String(x.unread) }) : null,
-        ]),
-        el('div', { class: 'im-muted', text: `그쪽은 지금 ${x.theirNow} · 시간 1:${x.ratio}` }),
-        el('div', { class: x.failed ? 'im-err' : 'im-muted', text: x.status }),
-      ])),
-    ];
-  }
-
-  async function openC(id) {
-    view = { name: 'c', id };
-    draft = { body: '', enclosure: '' };
-    await loadC(id);
-    render();
-  }
-
-  function cView() {
-    const c = current;
-    if (!c || c.id !== view.id) return [el('div', { class: 'im-muted', text: '불러오는 중…' })];
-    const now = Date.now();
-    const exact = !!settings?.showExactEta;
-    const items = c.letters.slice().reverse().map((l) => {
-      if (l.from === 'me') {
-        return el('div', { class: 'im-letter im-mine' }, [
-          el('div', { class: 'im-muted', text: `보낸 편지 · ${when(l.sentAt)} · 그쪽 ${l.theirSentLabel}` }),
-          el('div', { text: l.body.length > 140 ? `${l.body.slice(0, 140)}…` : l.body }),
-          l.state === 'in_transit'
-            ? el('div', { class: 'im-row' }, [el('span', { class: 'im-muted im-grow', text: etaLabel(l.arriveAt - now, exact) }), link('회수하기', () => act(async () => {
-              if (!confirm('이 편지를 회수할까요? 상대에게 가지 않습니다.')) return;
-              current = (await ask('recall', { id: c.id, letterId: l.id })).c;
-              await loadHome();
-            }))])
-            : el('div', { class: 'im-muted', text: `도착함 · 그쪽 ${l.theirArriveLabel}` }),
-        ]);
-      }
-      if (l.state === 'in_transit') {
-        return el('div', { class: 'im-letter im-theirs' }, [
-          el('div', { class: 'im-muted', text: `${c.name}의 편지가 오는 중` }),
-          el('div', { text: exact ? etaLabel(l.arriveAt - now, true) : '어딘가를 건너는 중…' }),
-        ]);
-      }
-      return el('div', { class: 'im-letter im-theirs', onclick: () => openLetter(l.id) }, [
-        el('div', { class: 'im-row' }, [
-          el('b', { class: 'im-grow', text: l.state === 'delivered' ? '새 편지' : `${c.name}의 편지` }),
-          l.state === 'delivered' ? el('span', { class: 'im-badge', text: '!' }) : null,
-        ]),
-        el('div', { class: 'im-muted', text: `도착 ${when(l.arriveAt)} · 그쪽 ${l.theirWrittenLabel}에 씀` }),
-        l.state === 'opened' ? el('div', { text: l.body.length > 100 ? `${l.body.slice(0, 100)}…` : l.body }) : el('div', { class: 'im-muted', text: l.envelope?.medium ? `봉투: ${l.envelope.medium}` : '봉투가 닫혀 있습니다' }),
-      ]);
-    });
-    const s = list.find((x) => x.id === c.id);
-    return [
-      el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' })), el('span', { class: 'im-grow' }), link('상대 정보 수정', () => go({ name: 'form', id: c.id }))]),
-      el('h3', { text: c.name }),
-      el('div', { class: 'im-muted', text: `그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio} (나의 하루 = 그쪽 ${formatSpan(24 * c.ratio)})` }),
-      s ? el('div', { class: s.failed ? 'im-err' : 'im-muted', text: s.status }) : null,
-      c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [
-        el('span', { class: 'im-err im-grow', text: `사유: ${c.reply.error || '알 수 없음'}` }),
-        btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); })),
-      ]) : null,
-      composeView(c),
-      el('hr', { class: 'im-sep' }),
-      ...(items.length ? items : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다.' })]),
-    ];
-  }
-
-  function composeView(c) {
-    const ta = el('textarea', { value: draft.body, placeholder: `${c.name}에게 쓰는 편지`, rows: 7, oninput: (e) => { draft.body = e.target.value; } });
-    const enc = el('input', { value: draft.enclosure, placeholder: '동봉할 것(선택) — 예: 말린 네잎클로버 한 장', oninput: (e) => { draft.enclosure = e.target.value; } });
-    return el('div', { class: 'im-letter' }, [
-      el('h4', { text: '편지 쓰기' }),
-      ta, enc,
-      el('div', { class: 'im-row' }, [
-        el('span', { class: 'im-muted im-grow', text: `배송 ${c.delivery.min}~${c.delivery.max}시간. 도착 전에는 회수할 수 있습니다.` }),
-        btn(busy ? '보내는 중…' : '보내기', () => act(async () => {
-          if (!draft.body.trim()) throw new Error('본문을 적어 주세요.');
-          current = (await ask('send', { id: c.id, body: draft.body, enclosure: draft.enclosure })).c;
-          draft = { body: '', enclosure: '' };
-          await loadHome();
-        }), { primary: true, disabled: busy }),
-      ]),
-    ]);
-  }
-
-  async function openLetter(letterId) {
-    view = { name: 'letter', id: current.id, letterId, step: 'envelope' };
-    render();
-  }
-
-  function letterView() {
-    const c = current;
-    const l = c?.letters.find((x) => x.id === view.letterId);
-    if (!l) return [link('← 돌아가기', () => openC(view.id))];
-    const back = el('div', { class: 'im-row' }, [link(`← ${c.name}`, () => openC(c.id))]);
-    const e = l.envelope || {};
-    if (view.step === 'envelope' && l.state === 'delivered') {
-      const rows = [['매체', e.medium], ['손끝에 닿는 것', e.texture], ['냄새', e.scent], ['흔적', e.marks], ['봉인', e.seal], ['우표', e.stamp]].filter(([, v]) => v);
+    function homeView() {
+      const shown = S.list.filter(inPersona);
       return [
-        back,
-        el('div', { class: 'im-envelope' }, [
-          el('div', { class: 'im-muted', text: `${when(l.arriveAt)}에 도착한 편지` }),
-          el('dl', {}, rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })])),
-          l.enclosures?.length ? el('div', { class: 'im-muted', text: `안에 무언가 더 들어 있는 것 같습니다 (${l.enclosures.length})` }) : null,
+        el('div', { class: 'im-row' }, [
+          el('h3', { class: 'im-grow', text: '우편함' }),
+          btn('새 상대', async () => { await reloadPersonas(); go({ name: 'form' }); }, { primary: true }),
+          btn('설정', () => go({ name: 'settings' })),
         ]),
-        btn('봉투 열기', () => act(async () => {
-          current = (await ask('open', { id: c.id, letterId: l.id })).c;
-          view = { ...view, step: 'body' };
-          await loadHome();
+        S.list.length ? personaChips() : null,
+        panel ? link(panel.isCollapsed() ? '보조창(편지첩) 열기' : '보조창 닫기', () => togglePanel()) : el('div', { class: 'im-muted', text: '우체통 위젯과 보조창은 확장 패널에서 ui_panels 권한을 승인하면 나타납니다.' }),
+        S.list.length ? null : el('div', { class: 'im-muted', text: '아직 편지를 주고받는 상대가 없습니다. 「새 상대」에서 누구에게 편지를 보낼지 적어 주세요.' }),
+        ...shown.map((x) => el('div', { class: 'im-card', onclick: () => go({ name: 'c', id: x.id }) }, [
+          el('div', { class: 'im-row' }, [
+            el('b', { class: 'im-grow', text: x.name }),
+            x.unread ? el('span', { class: 'im-badge', text: String(x.unread) }) : null,
+          ]),
+          el('div', { class: 'im-muted', text: `${x.personaName ? `${x.personaName}의 상대 · ` : ''}그쪽은 지금 ${x.theirNow} · 시간 1:${x.ratio}` }),
+          el('div', { class: x.failed ? 'im-err' : 'im-muted', text: x.status }),
+        ])),
+      ];
+    }
+
+    function cView() {
+      const c = byId(view.id);
+      if (!c) return [link('← 우편함', () => go({ name: 'home' })), el('div', { class: 'im-muted', text: '불러오는 중…' })];
+      const now = Date.now();
+      const exact = !!S.settings?.showExactEta;
+      const s = S.list.find((x) => x.id === c.id);
+      const items = c.letters.slice().reverse().map((l) => {
+        if (l.from === 'me') {
+          return el('div', { class: 'im-letter im-mine' }, [
+            el('div', { class: 'im-muted', text: `보낸 편지 · ${when(l.sentAt)} · 그쪽 ${l.theirSentLabel}` }),
+            el('div', { text: short(l.body, 140) }),
+            l.state === 'in_transit'
+              ? el('div', { class: 'im-row' }, [el('span', { class: 'im-muted im-grow', text: etaLabel(l.arriveAt - now, exact) }), link('회수하기', () => act(async () => {
+                if (!confirm('이 편지를 회수할까요? 상대에게 가지 않습니다.')) return;
+                await ask('recall', { id: c.id, letterId: l.id });
+                await refresh();
+              }))])
+              : el('div', { class: 'im-muted', text: `도착함 · 그쪽 ${l.theirArriveLabel}` }),
+          ]);
+        }
+        if (l.state === 'in_transit') {
+          return el('div', { class: 'im-letter' }, [
+            el('div', { class: 'im-muted', text: `${c.name}의 편지가 오는 중` }),
+            el('div', { text: exact ? etaLabel(l.arriveAt - now, true) : '어딘가를 건너는 중…' }),
+          ]);
+        }
+        return el('div', { class: 'im-letter im-theirs', onclick: () => { view = { name: 'letter', id: c.id, letterId: l.id }; render(); } }, [
+          el('div', { class: 'im-row' }, [
+            el('b', { class: 'im-grow', text: l.state === 'delivered' ? '새 편지' : `${c.name}의 편지` }),
+            l.state === 'delivered' ? el('span', { class: 'im-badge', text: '!' }) : null,
+          ]),
+          el('div', { class: 'im-muted', text: `도착 ${when(l.arriveAt)} · 그쪽 ${l.theirWrittenLabel}에 씀` }),
+          l.state === 'opened' ? el('div', { text: short(l.body, 100) }) : el('div', { class: 'im-muted', text: l.envelope?.medium ? `봉투: ${l.envelope.medium}` : '봉투가 닫혀 있습니다' }),
+        ]);
+      });
+      return [
+        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' })), el('span', { class: 'im-grow' }), panel ? link('편지첩으로 보기', () => openPanelFor(c.id)) : null, link('상대 정보 수정', async () => { await reloadPersonas(); go({ name: 'form', id: c.id }); })]),
+        el('h3', { text: c.name }),
+        el('div', { class: 'im-muted', text: `그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio} (나의 하루 = 그쪽 ${formatSpan(24 * c.ratio)})` }),
+        s ? el('div', { class: s.failed ? 'im-err' : 'im-muted', text: s.status }) : null,
+        c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [
+          el('span', { class: 'im-err im-grow', text: `사유: ${c.reply.error || '알 수 없음'}` }),
+          btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); })),
+        ]) : null,
+        composeBox(c, { busyRef: () => busy, act }),
+        el('hr', { class: 'im-sep' }),
+        ...(items.length ? items : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다.' })]),
+      ];
+    }
+
+    function letterView() {
+      const c = byId(view.id);
+      const l = c?.letters.find((x) => x.id === view.letterId);
+      if (!l) return [link('← 돌아가기', () => go({ name: 'c', id: view.id }))];
+      return [
+        el('div', { class: 'im-row' }, [link(`← ${c.name}`, () => go({ name: 'c', id: c.id }))]),
+        theirLetterNode(c, l, { act }),
+      ];
+    }
+
+    // 새 상대 / 수정
+    function formView() {
+      const editing = !!view.id;
+      const cur = editing ? byId(view.id) : null;
+      const v = cur ? {
+        name: cur.name, brief: cur.brief, world: cur.world, ratio: cur.ratio, deliveryMin: cur.delivery.min, deliveryMax: cur.delivery.max,
+        writeMin: cur.writeDelay.min, writeMax: cur.writeDelay.max, maxReplyRealHours: cur.maxReplyRealHours, timeScale: cur.timeScale || 1, personaId: cur.personaId || '',
+      } : {
+        name: '', brief: '', world: '', ratio: 1, deliveryMin: 1, deliveryMax: 24, writeMin: 2, writeMax: 48, maxReplyRealHours: 24, timeScale: 1,
+        personaId: S.persona !== ALL && S.persona !== NO_PERSONA ? S.persona : S.activePersonaId,
+      };
+      const inputs = {};
+      const text = (k, ph, rows) => (inputs[k] = rows ? el('textarea', { value: v[k] || '', placeholder: ph, rows }) : el('input', { value: v[k] ?? '', placeholder: ph }));
+      const numIn = (k, step = 'any') => (inputs[k] = el('input', { type: 'number', step, min: '0', value: String(v[k] ?? '') }));
+      inputs.personaId = el('select', {}, [
+        el('option', { value: '', text: '페르소나 없음(보낼 때 활성 페르소나)' }),
+        ...S.personas.map((p) => el('option', { value: p.id, text: p.title ? `${p.name} — ${p.title}` : p.name, selected: p.id === v.personaId })),
+      ]);
+      const read = () => Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value]));
+      return [
+        el('div', { class: 'im-row' }, [link('← 돌아가기', () => (editing ? go({ name: 'c', id: view.id }) : go({ name: 'home' })))]),
+        el('h3', { text: editing ? '상대 정보 수정' : '새 상대' }),
+        field('편지를 쓰는 나 (페르소나)', inputs.personaId),
+        el('div', { class: 'im-muted', text: '상대를 직접 적습니다. 캐릭터 카드·로어북 자동 생성과 무작위 매칭은 다음 단계에서 붙습니다.' }),
+        field('이름', text('name', '예: 하르텐')),
+        field('상대 설명 (성격·말투·처지 — 캐릭터 카드처럼 적어도 됩니다)', text('brief', '눈 덮인 곶의 등대지기. 무뚝뚝하지만 편지는 꼬박꼬박 길게 쓴다…', 6)),
+        field('그쪽 세계 (선택)', text('world', '바다가 얼어붙는 북쪽 해안. 우편은 철새 다리에 묶어 보낸다…', 4)),
+        el('h4', { text: '시간' }),
+        el('div', { class: 'im-pair' }, [
+          field('시간 비율 (나의 1 = 그쪽 ?)', numIn('ratio')),
+          field('답장까지 현실 최대(시간)', numIn('maxReplyRealHours')),
+          field('배송 최소(현실 시간)', numIn('deliveryMin')),
+          field('배송 최대(현실 시간)', numIn('deliveryMax')),
+          field('답장 쓰는 데 최소(그쪽 시간)', numIn('writeMin')),
+          field('답장 쓰는 데 최대(그쪽 시간)', numIn('writeMax')),
+        ]),
+        el('details', {}, [
+          el('summary', { class: 'im-muted', text: '시험용' }),
+          field('시간 가속 (1=실제, 60=현실 1분이 1시간)', numIn('timeScale')),
+        ]),
+        el('div', { class: 'im-row' }, [
+          btn(editing ? '저장' : '만들기', () => act(async () => {
+            if (editing) {
+              await ask('update', { id: view.id, input: read() });
+              await refresh();
+              go({ name: 'c', id: view.id });
+            } else {
+              const r = await ask('create', { input: read() });
+              const pid = inputs.personaId.value;
+              if (pid && S.persona !== ALL) setPersona(pid);
+              await refresh();
+              go({ name: 'c', id: r.id });
+            }
+          }), { primary: true, disabled: busy }),
+          editing ? btn('상대 지우기', () => act(async () => {
+            if (!confirm('이 상대와 주고받은 편지·물품 기록을 모두 지울까요? 되돌릴 수 없습니다.')) return;
+            await ask('delete', { id: view.id });
+            await refresh();
+            go({ name: 'home' });
+          })) : null,
+        ]),
+      ];
+    }
+
+    function settingsView() {
+      const s = { ...(S.settings || {}) };
+      if (!connections) {
+        connections = [];
+        ask('connections').then((r) => { connections = r.connections; render(); }).catch((e) => { error = e.message; render(); });
+      }
+      const sel = el('select', {}, [
+        el('option', { value: '', text: '기본 연결 사용' }),
+        ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}${x.is_default ? ' (기본)' : ''}`, selected: x.id === s.replyConnectionId })),
+      ]);
+      const temp = el('input', { type: 'number', step: '0.05', min: '0', max: '2', value: String(s.temperature ?? 0.9) });
+      const maxT = el('input', { type: 'number', step: '100', min: '500', value: String(s.maxTokens ?? 6000) });
+      const recent = el('input', { type: 'number', step: '1', min: '1', max: '20', value: String(s.recentLetters ?? 6) });
+      const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta, style: 'width:auto' });
+      return [
+        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
+        el('h3', { text: '설정' }),
+        field('답장 쓰기 연결', sel),
+        el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
+        field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
+        el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
+        btn('저장', () => act(async () => {
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
+          go({ name: 'home' });
         }), { primary: true }),
       ];
     }
-    const meta = [e.medium, e.scent].filter(Boolean).join(' · ');
-    return [
-      back,
-      el('div', { class: 'im-muted', text: `${l.writtenLabel || l.theirWrittenLabel}${meta ? ` · ${meta}` : ''}` }),
-      el('div', { class: 'im-paper', text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
-      ...(l.enclosures || []).map((x) => el('div', { class: 'im-envelope' }, [el('b', { text: `동봉: ${x.item}` }), x.note ? el('div', { text: x.note }) : null])),
-      el('div', { class: 'im-muted', text: `받은 시각 ${when(l.arriveAt)}` }),
-    ];
-  }
 
-  // 새 상대 / 수정
-  function formView() {
-    const editing = !!view.id;
-    const v = editing && currentInput ? { ...currentInput } : {
-      name: '', brief: '', world: '', ratio: 1, deliveryMin: 1, deliveryMax: 24, writeMin: 2, writeMax: 48, maxReplyRealHours: 24, timeScale: 1, personaId: '',
-    };
-    const inputs = {};
-    const text = (k, ph, rows) => (inputs[k] = rows ? el('textarea', { value: v[k] || '', placeholder: ph, rows }) : el('input', { value: v[k] ?? '', placeholder: ph }));
-    const numIn = (k, step = 'any') => (inputs[k] = el('input', { type: 'number', step, min: '0', value: String(v[k] ?? '') }));
-    const read = () => Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value]));
-    return [
-      el('div', { class: 'im-row' }, [link('← 돌아가기', () => (editing ? openC(view.id) : go({ name: 'home' })))]),
-      el('h3', { text: editing ? '상대 정보 수정' : '새 상대' }),
-      el('div', { class: 'im-muted', text: '1단계 버전: 상대를 직접 적습니다. 캐릭터 카드·로어북 자동 생성과 무작위 매칭은 다음 단계에서 붙습니다.' }),
-      field('이름', text('name', '예: 하르텐')),
-      field('상대 설명 (성격·말투·처지 — 캐릭터 카드처럼 적어도 됩니다)', text('brief', '눈 덮인 곶의 등대지기. 무뚝뚝하지만 편지는 꼬박꼬박 길게 쓴다…', 6)),
-      field('그쪽 세계 (선택)', text('world', '바다가 얼어붙는 북쪽 해안. 우편은 철새 다리에 묶어 보낸다…', 4)),
-      el('h4', { text: '시간' }),
-      el('div', { class: 'im-pair' }, [
-        field('시간 비율 (나의 1 = 그쪽 ?)', numIn('ratio')),
-        field('답장까지 현실 최대(시간)', numIn('maxReplyRealHours')),
-        field('배송 최소(현실 시간)', numIn('deliveryMin')),
-        field('배송 최대(현실 시간)', numIn('deliveryMax')),
-        field('답장 쓰는 데 최소(그쪽 시간)', numIn('writeMin')),
-        field('답장 쓰는 데 최대(그쪽 시간)', numIn('writeMax')),
-      ]),
-      el('details', {}, [
-        el('summary', { class: 'im-muted', text: '시험용' }),
-        field('시간 가속 (1=실제, 60=현실 1분이 1시간)', numIn('timeScale')),
-      ]),
-      el('div', { class: 'im-row' }, [
-        btn(editing ? '저장' : '만들기', () => act(async () => {
-          if (editing) {
-            current = (await ask('update', { id: view.id, input: read() })).c;
-            await loadHome();
-            await openC(view.id);
-          } else {
-            const r = await ask('create', { input: read() });
-            await loadHome();
-            await openC(r.id);
-          }
-        }), { primary: true, disabled: busy }),
-        editing ? btn('상대 지우기', () => act(async () => {
-          if (!confirm('이 상대와 주고받은 편지를 모두 지울까요? 되돌릴 수 없습니다.')) return;
-          await ask('delete', { id: view.id });
-          await loadHome();
-          go({ name: 'home' });
-        })) : null,
-      ]),
-    ];
-  }
+    return { render, go };
+  })();
+  views.add(drawer);
 
-  let connections = null;
-  function settingsView() {
-    const s = { ...(settings || {}) };
-    if (!connections) {
-      connections = [];
-      ask('connections').then((r) => { connections = r.connections; render(); }).catch((e) => { setError(e); render(); });
+  // 상대 편지 한 통(봉투 → 편지지). 서랍·보조창 공용
+  function theirLetterNode(c, l, { act }) {
+    const e = l.envelope || {};
+    if (l.state === 'delivered') {
+      const rows = [['매체', e.medium], ['손끝에 닿는 것', e.texture], ['냄새', e.scent], ['흔적', e.marks], ['봉인', e.seal], ['우표', e.stamp]].filter(([, v]) => v);
+      return el('div', { class: 'im-envelope' }, [
+        el('div', { style: 'font-size:12px;color:#7a6a52', text: `${c.name}에게서 · ${when(l.arriveAt)} 도착` }),
+        el('dl', { style: 'margin:0' }, rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })])),
+        l.enclosures?.length ? el('div', { style: 'font-size:12px;color:#7a6a52', text: `안에 무언가 더 들어 있는 것 같습니다 (${l.enclosures.length})` }) : null,
+        btn('봉투 열기', () => act(async () => { await ask('open', { id: c.id, letterId: l.id }); await refresh(); })),
+      ]);
     }
-    const sel = el('select', {}, [
-      el('option', { value: '', text: '기본 연결 사용' }),
-      ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}${x.is_default ? ' (기본)' : ''}`, selected: x.id === s.replyConnectionId })),
+    const meta = [l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · ');
+    return el('div', { class: 'im-paper im-theirs' }, [
+      el('div', { class: 'im-stamp', title: e.stamp || '' }, [l.stampImageId ? el('img', { src: imgUrl(l.stampImageId), alt: '' }) : el('span', { text: short(e.stamp || e.seal || '✉', 14) })]),
+      el('div', { class: 'im-meta', text: `${c.name}의 편지 · ${meta}` }),
+      el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
+      l.enclosures?.length ? el('div', { class: 'im-encl' }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
+      el('div', { class: 'im-meta', style: 'margin:8px 0 0', text: `받은 시각 ${when(l.arriveAt)}` }),
     ]);
-    const temp = el('input', { type: 'number', step: '0.05', min: '0', max: '2', value: String(s.temperature ?? 0.9) });
-    const maxT = el('input', { type: 'number', step: '100', min: '500', value: String(s.maxTokens ?? 6000) });
-    const recent = el('input', { type: 'number', step: '1', min: '1', max: '20', value: String(s.recentLetters ?? 6) });
-    const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta });
+  }
+
+  // ══════════════ 보조창(도크) + 우체통 위젯 ══════════════
+  let panel = null;
+  let widget = null;
+  const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '' };
+  const panelRoot = el('div', { class: 'im-panel' });
+  try {
+    panel = ctx.ui.requestDockPanel({ edge: 'right', title: '이세계 우체통 · 편지첩', size: 440, minSize: 320, maxSize: 760, resizable: true, startCollapsed: true });
+    panel.root.append(panelRoot);
+    if (!removeStyle) panel.root.append(el('style', { text: CSS }));
+    panel.onVisibilityChange?.((visible) => { if (visible) refresh(); renderWidget(); drawer.render(); });
+  } catch { panel = null; }
+
+  function togglePanel(force) {
+    if (!panel) return;
+    const open = force ?? panel.isCollapsed();
+    if (open) { panel.expand(); refresh(); } else panel.collapse();
+    renderWidget();
+    drawer.render();
+  }
+  function openPanelFor(id) {
+    P.id = id; P.tab = 'book'; lsSet(`${LS_PANEL}.id`, id); lsSet(`${LS_PANEL}.tab`, 'book');
+    togglePanel(true);
+  }
+
+  const panelView = {
+    render() {
+      if (!panel) return;
+      const pact = async (fn) => {
+        if (P.busy) return;
+        P.busy = true; P.error = ''; panelView.render();
+        try { await fn(); } catch (e) { P.error = e.message || String(e); }
+        P.busy = false; panelView.render();
+      };
+      const mine = S.all.filter(inPersona);
+      if (!mine.some((c) => c.id === P.id)) P.id = mine[0]?.id || '';
+      const c = byId(P.id);
+      const setTab = (t) => { P.tab = t; lsSet(`${LS_PANEL}.tab`, t); panelView.render(); };
+      const people = el('div', { class: 'im-chips' }, mine.map((x) => {
+        const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
+        return el('button', { class: `im-chip im-plain${x.id === P.id ? ' im-on' : ''}`, type: 'button', onclick: () => { P.id = x.id; lsSet(`${LS_PANEL}.id`, x.id); panelView.render(); } }, [x.name, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]);
+      }));
+      const tabs = el('div', { class: 'im-tabs' }, [['book', '편지첩'], ['items', '물품'], ['album', '모음']].map(([k, t]) => el('button', { type: 'button', class: P.tab === k ? 'im-on' : '', text: t, onclick: () => setTab(k) })));
+      let body = [];
+      if (P.tab === 'album') body = albumView(mine);
+      else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
+      else if (P.tab === 'items') body = itemsView(c);
+      else body = bookView(c, pact);
+      panelRoot.replaceChildren(...[
+        personaChips(),
+        mine.length ? people : null,
+        tabs,
+        ...body,
+        P.error || S.error ? el('div', { class: 'im-err', text: P.error || S.error }) : null,
+      ].filter(Boolean));
+    },
+  };
+  views.add(panelView);
+
+  // 편지첩: 오래된 편지부터 아래로, 맨 아래에 쓰기
+  function bookView(c, act) {
+    const now = Date.now();
+    const exact = !!S.settings?.showExactEta;
+    const nodes = c.letters.map((l) => {
+      if (l.from === 'me') {
+        if (l.state === 'in_transit') {
+          return el('div', { class: 'im-transit im-mine' }, [
+            el('div', { text: `내 편지가 가는 중 · ${etaLabel(l.arriveAt - now, exact)}` }),
+            el('div', { text: short(l.body, 60) }),
+            link('회수하기', () => act(async () => {
+              if (!confirm('이 편지를 회수할까요? 상대에게 가지 않습니다.')) return;
+              await ask('recall', { id: c.id, letterId: l.id });
+              await refresh();
+            })),
+          ]);
+        }
+        const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item) : (l.enclosure ? [l.enclosure] : []);
+        return el('div', { class: 'im-paper im-mine' }, [
+          el('div', { class: 'im-meta', text: `${l.personaName || '나'}의 편지 · ${when(l.sentAt)} 보냄 · 그쪽 ${l.theirArriveLabel} 도착` }),
+          el('div', { text: l.body }),
+          enc.length ? el('div', { class: 'im-encl' }, enc.map((x) => el('div', { text: `동봉 · ${x}` }))) : null,
+        ]);
+      }
+      if (l.state === 'in_transit') return el('div', { class: 'im-transit im-theirs', text: `${c.name}의 편지가 ${exact ? etaLabel(l.arriveAt - now, true).replace('도착까지', '도착까지') : '어딘가를 건너는 중…'}` });
+      return theirLetterNode(c, l, { act });
+    });
     return [
-      el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
-      el('h3', { text: '설정' }),
-      field('답장 쓰기 연결', sel),
-      el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
-      field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
-      el('label', { class: 'im-row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
-      el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
-      btn('저장', () => act(async () => {
-        settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
-        go({ name: 'home' });
-      }), { primary: true }),
+      el('div', { class: 'im-muted', text: `${c.personaName ? `${c.personaName} ↔ ` : ''}${c.name} · 그쪽은 지금 ${c.theirNowLabel} · 1:${c.ratio}` }),
+      c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [el('span', { class: 'im-err im-grow', text: `우편 사고: ${c.reply.error || ''}` }), btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); }))]) : null,
+      c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs', text: `${c.name}이(가) 답장을 쓰고 있는 듯합니다` }) : null,
+      ...(nodes.length ? nodes : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다. 첫 편지를 써 보세요.' })]),
+      el('details', { open: !c.letters.length }, [
+        el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '편지 쓰기' }),
+        composeBox(c, { busyRef: () => P.busy, act }),
+      ]),
     ];
   }
 
-  loadHome().then(render);
-  render();
+  const itemCard = (x, who) => el('div', { class: 'im-item', title: x.note || x.name }, [
+    el('div', { class: 'im-pic' }, [x.imageId ? el('img', { src: imgUrl(x.imageId, 'lg'), alt: x.name }) : el('span', { html: PIC })]),
+    el('div', { class: 'im-cap' }, [
+      el('b', { text: x.name }),
+      x.note ? el('div', { class: 'im-muted', text: short(x.note, 60) }) : null,
+      el('div', { class: 'im-muted', text: `${who} · ${x.state === 'in_transit' ? '가는 중' : `그쪽 ${x.theirLabel || ''}`}` }),
+    ]),
+  ]);
+
+  // 물품: 받은 것 / 보낸 것
+  function itemsView(c) {
+    const got = c.items.filter((x) => x.from === 'them');
+    const gave = c.items.filter((x) => x.from === 'me');
+    return [
+      el('h4', { text: `받은 것 · ${got.length}` }),
+      got.length ? el('div', { class: 'im-grid' }, got.slice().reverse().map((x) => itemCard(x, `${c.name}에게서`))) : el('div', { class: 'im-muted', text: '아직 받은 물건이 없습니다.' }),
+      el('h4', { text: `보낸 것 · ${gave.length}` }),
+      gave.length ? el('div', { class: 'im-grid' }, gave.slice().reverse().map((x) => itemCard(x, `${c.name}에게`))) : el('div', { class: 'im-muted', text: '편지를 쓸 때 「동봉할 것」에 적으면 여기에 남습니다.' }),
+      el('div', { class: 'im-muted', text: '물건 그림은 이미지 단계(NanoGPT)가 붙으면 채워집니다.' }),
+    ];
+  }
+
+  // 모음: 페르소나의 모든 편지 묶음 + 모든 물품
+  function albumView(list) {
+    const items = list.flatMap((c) => c.items.filter((x) => x.state === 'arrived' || x.from === 'me').map((x) => ({ x, c })));
+    items.sort((a, b) => (b.x.arriveAt || 0) - (a.x.arriveAt || 0));
+    return [
+      el('h4', { text: `편지 묶음 · ${list.length}` }),
+      ...list.map((c) => {
+        const ls = c.letters.filter((l) => !(l.from === 'them' && l.state === 'in_transit'));
+        const first = ls[0];
+        const last = ls[ls.length - 1];
+        return el('div', { class: 'im-bundle', onclick: () => { P.id = c.id; P.tab = 'book'; lsSet(`${LS_PANEL}.id`, c.id); lsSet(`${LS_PANEL}.tab`, 'book'); panelView.render(); } }, [
+          el('div', { class: 'im-stack' }, [el('i'), el('i'), el('i')]),
+          el('div', { class: 'im-grow' }, [
+            el('b', { text: c.name }),
+            el('div', { class: 'im-muted', text: `${ls.length}통 · 물건 ${c.items.length}개${first ? ` · ${when(first.sentAt)} ~ ${when(last.sentAt)}` : ''}` }),
+            el('div', { class: 'im-muted', text: c.personaName ? `${c.personaName}의 편지 상대` : '페르소나 없음' }),
+          ]),
+        ]);
+      }),
+      el('h4', { text: `모든 물건 · ${items.length}` }),
+      items.length ? el('div', { class: 'im-grid' }, items.map(({ x, c }) => itemCard(x, x.from === 'me' ? `→ ${c.name}` : `${c.name} →`))) : el('div', { class: 'im-muted', text: '아직 오간 물건이 없습니다.' }),
+    ];
+  }
+
+  // 우체통 위젯
+  const box = el('div', { class: 'im-box', title: '이세계 우체통' });
+  let lastDrag = 0;
+  try {
+    widget = ctx.ui.createFloatWidget({ width: 76, height: 96, initialPosition: { x: Math.max(12, window.innerWidth - 110), y: Math.max(12, window.innerHeight - 190) }, snapToEdge: false, tooltip: '이세계 우체통', chromeless: true });
+    widget.root.append(box);
+    if (!removeStyle) widget.root.append(el('style', { text: CSS }));
+    widget.onDragEnd?.(() => { lastDrag = Date.now(); });
+    box.addEventListener('click', () => {
+      if (Date.now() - lastDrag < 350) return;
+      // 열 때 새 편지가 있으면 그 상대의 편지첩으로
+      const fresh = panel?.isCollapsed() && S.all.find((c) => c.letters.some((l) => l.from === 'them' && l.state === 'delivered'));
+      if (fresh) {
+        if (!inPersona(fresh)) setPersona(ALL);
+        openPanelFor(fresh.id);
+      } else togglePanel();
+    });
+  } catch { widget = null; }
+
+  function renderWidget() {
+    if (!widget) return;
+    const unread = S.list.reduce((n, x) => n + x.unread, 0);
+    const flagUp = unread > 0;
+    const open = panel && !panel.isCollapsed();
+    // 고정 SVG(사용자 글 없음). 숫자만 textContent로 넣는다.
+    box.innerHTML = `<svg width="76" height="96" viewBox="0 0 76 96" aria-hidden="true">
+      <rect x="33" y="58" width="9" height="36" rx="1" fill="#6b5a48"/>
+      <rect x="22" y="90" width="31" height="5" rx="2" fill="#4f4235"/>
+      <path d="M8 34a22 22 0 0 1 44 0v26H8z" fill="#c8553a"/>
+      <path d="M8 34a22 22 0 0 1 44 0" fill="none" stroke="#9e3d27" stroke-width="2"/>
+      <rect x="8" y="50" width="44" height="10" fill="#b44a31"/>
+      <rect x="15" y="38" width="30" height="5" rx="2.5" fill="#5a2516"/>
+      <rect x="${open ? 50 : 53}" y="${flagUp ? 12 : 36}" width="3.5" height="${flagUp ? 30 : 8}" fill="#57524c"/>
+      <path d="${flagUp ? 'M53.5 12h15l-3 5 3 5h-15z' : 'M53.5 36h4v14h-4z'}" fill="#f0a53a"/>
+    </svg>`;
+    if (unread) box.append(el('span', { text: String(unread), style: 'position:absolute;left:30px;top:4px;min-width:20px;height:20px;border-radius:10px;background:#534ab7;color:#fff;font:600 11px/20px system-ui,sans-serif;text-align:center;padding:0 5px;box-sizing:border-box' }));
+    box.style.position = 'relative';
+    widget.root.title = unread ? `새 편지 ${unread}통` : '이세계 우체통';
+  }
+  views.add({ render: renderWidget });
+
+  const offActivate = tab.onActivate(() => refresh());
+  const timer = setInterval(refresh, 60 * 1000);
+  refresh();
+  renderAll();
 
   return () => {
     clearInterval(timer);
+    clearTimeout(soon);
     offActivate?.();
     offBack?.();
     removeStyle?.();
+    widget?.destroy?.();
+    panel?.destroy?.();
     tab.destroy();
   };
 }
-

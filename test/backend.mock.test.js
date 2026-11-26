@@ -156,3 +156,30 @@ test('재시작 복구: generating으로 남은 작업을 다시 생성', async 
   const g = await host2.ask('u1', 'get', { id });
   assert.equal(g.c.letters.length, 2);
 });
+
+test('페르소나: 상대에 묶으면 편지·프롬프트가 그 이름을 쓰고, 목록·모음 요청이 동작', async (t) => {
+  const realNow = Date.now;
+  let now = 4_000_000_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const host = fakeHost();
+  host.api.personas.get = async (id) => (id === 'p1' ? { id: 'p1', name: '시드' } : null);
+  host.api.personas.list = async () => ({ data: [{ id: 'p1', name: '시드', title: '반마', image_id: 'img1' }], total: 1 });
+  const stop = start(host.api);
+  t.after(stop);
+  const ps = await host.ask('u1', 'personas');
+  assert.deepEqual(ps.personas[0], { id: 'p1', name: '시드', title: '반마', imageId: 'img1' });
+  await assert.rejects(host.ask('u1', 'create', { input: { name: 'A', brief: 'b', personaId: 'nope' } }), /페르소나/);
+  const { id } = await host.ask('u1', 'create', { input: { name: 'A', brief: 'b', personaId: 'p1', deliveryMin: 1, deliveryMax: 1, writeMin: 0, writeMax: 0 } });
+  await host.ask('u1', 'send', { id, body: 'x', enclosure: '은행잎\n클로버' });
+  const all = await host.ask('u1', 'all');
+  assert.equal(all.all[0].personaName, '시드');
+  assert.equal(all.all[0].letters[0].personaName, '시드');
+  assert.equal(all.all[0].items.length, 2);
+  now += 1 * H;
+  await host.ask('u1', 'load');
+  await settle();
+  assert.match(host.calls[0].messages[0].content, /their name is 시드/);
+  const home = await host.ask('u1', 'load');
+  assert.equal(home.list[0].personaId, 'p1');
+});

@@ -70,13 +70,26 @@ export function start(api) {
   };
 
   // ── 답장 생성 ──
+  // 보내는 사람 이름: 상대에 묶인 페르소나(지금 이름) → 저장해 둔 이름 → 마지막 편지의 이름 → 활성 페르소나
   const personaNameFor = async (user, c) => {
+    try {
+      if (c.personaId) {
+        const p = await api.personas.get(c.personaId, user);
+        if (p?.name) return p.name;
+      }
+    } catch {}
+    if (c.personaName) return c.personaName;
     const lastMine = [...c.letters].reverse().find((l) => l.from === 'me' && l.personaName);
     if (lastMine) return lastMine.personaName;
+    try { return (await api.personas.getActive(user))?.name || ''; } catch { return ''; }
+  };
+  const withPersonaName = async (user, input) => {
+    if (!input?.personaId) return { ...input, personaName: '' };
     try {
-      const p = c.personaId ? await api.personas.get(c.personaId, user) : await api.personas.getActive(user);
-      return p?.name || '';
-    } catch { return ''; }
+      const p = await api.personas.get(input.personaId, user);
+      if (!p) throw new Error('고른 페르소나를 찾지 못했습니다.');
+      return { ...input, personaName: p.name };
+    } catch (e) { throw new Error(e?.message || '페르소나를 읽지 못했습니다.'); }
   };
 
   const generateReply = async (user, id) => {
@@ -161,15 +174,32 @@ export function start(api) {
         list.sort((a, b) => b.lastAt - a.lastAt);
         return { settings: await loadSettings(user), list };
       }
-      case 'get':
-        return { c: publicView(await loadC(user, p.id), now), input: toInput(await loadC(user, p.id)) };
+      case 'get': {
+        await tickUser(user).catch(() => {});
+        const c = await loadC(user, p.id);
+        return { c: publicView(c, Date.now()), input: toInput(c) };
+      }
+      case 'all': {
+        // 보조창(편지첩·물품·모음)용: 모든 상대의 화면 사본
+        await tickUser(user).catch(() => {});
+        const out = [];
+        for (const id of await listIds(user)) { try { out.push(publicView(await loadC(user, id), Date.now())); } catch {} }
+        return { all: out, settings: await loadSettings(user) };
+      }
+      case 'personas': {
+        const r = await api.personas.list({ limit: 200, userId: user });
+        let activeId = '';
+        try { activeId = (await api.personas.getActive(user))?.id || ''; } catch {}
+        return { activeId, personas: (r?.data || []).map((x) => ({ id: x.id, name: x.name, title: x.title || '', imageId: x.image_id || '' })) };
+      }
       case 'create': {
-        const c = createCorrespondent(p.input, now);
+        const c = createCorrespondent(await withPersonaName(user, p.input), now);
         await serial(user, () => saveC(user, c));
         return { id: c.id };
       }
       case 'update': {
-        const c = await mutate(user, p.id, (c) => updateCorrespondent(c, p.input, now));
+        const input = p.input && 'personaId' in p.input ? await withPersonaName(user, p.input) : p.input;
+        const c = await mutate(user, p.id, (c) => updateCorrespondent(c, input, now));
         return { c: publicView(c, now) };
       }
       case 'delete': {
@@ -177,12 +207,7 @@ export function start(api) {
         return {};
       }
       case 'send': {
-        const cur = await loadC(user, p.id);
-        let personaName = '';
-        try {
-          const persona = cur.personaId ? await api.personas.get(cur.personaId, user) : await api.personas.getActive(user);
-          personaName = persona?.name || '';
-        } catch {}
+        const personaName = await personaNameFor(user, await loadC(user, p.id));
         const c = await mutate(user, p.id, (c) => sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now));
         return { c: publicView(c, now) };
       }

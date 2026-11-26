@@ -162,3 +162,41 @@ test('시간 표기', () => {
   assert.equal(M.etaLabel(5 * H, false), '도착까지 약 5시간');
   assert.equal(M.etaLabel(90 * M.MINUTE, true), '도착까지 1시간 30분');
 });
+
+test('물품 장부: 내 동봉물 여러 개 → 도착, 상대 동봉물 → 배송 중엔 숨김 → 도착', () => {
+  let c = M.createCorrespondent({ ...base, personaId: 'p1', personaName: '시드' }, 0, () => 0);
+  c = M.sendLetter(c, { body: 'x', enclosure: '은행잎 한 장\n\n  말린 클로버 ' }, 0, () => 0);
+  assert.deepEqual(c.items.map((x) => [x.name, x.from, x.state]), [['은행잎 한 장', 'me', 'in_transit'], ['말린 클로버', 'me', 'in_transit']]);
+  assert.equal(c.letters[0].enclosure, '은행잎 한 장, 말린 클로버');
+  c = M.advance(c, 2 * H, () => 0).c;
+  assert.ok(c.items.every((x) => x.state === 'arrived'));
+  c = M.applyReply(M.markGenerating(c), M.cleanReply({ body: 'y', enclosures: [{ item: '조개', note: '얼음 틈에서' }] }), 3 * H, () => 0);
+  assert.equal(M.publicView(c, 3 * H).items.length, 2); // 상대 물품은 아직 안 보임
+  c = M.advance(c, 99 * H).c;
+  const v = M.publicView(c, 99 * H);
+  assert.equal(v.items.length, 3);
+  assert.equal(v.items[2].note, '얼음 틈에서');
+  const [sys] = M.buildReplyMessages(c, { now: 99 * H });
+  assert.match(sys.content, /their name is 시드/);
+  assert.match(sys.content, /시드 → you: 은행잎 한 장/);
+  assert.match(sys.content, /you → 시드: 조개 \(얼음 틈에서\)/);
+  assert.match(sys.content, /Time is fixed/);
+});
+
+test('회수하면 그 편지의 물품도 빠진다', () => {
+  let c = M.createCorrespondent(base, 0, () => 0);
+  c = M.sendLetter(c, { body: 'x', enclosure: '깃털' }, 0, () => 0);
+  c = M.recallLetter(c, c.letters[0].id, 1 * H);
+  assert.equal(c.items.length, 0);
+});
+
+test('0.1.0 저장본 → 물품 장부 채우기', () => {
+  const old = { letters: [
+    { id: 'a', from: 'me', enclosure: '은행잎 한 장', state: 'arrived', sentAt: 1, arriveAt: 2 },
+    { id: 'b', from: 'them', enclosures: [{ item: '조개', note: 'n' }], state: 'opened', sentAt: 3, arriveAt: 4 },
+    { id: 'c', from: 'them', enclosures: [{ item: '깃털' }], state: 'in_transit', sentAt: 5, arriveAt: 6 },
+  ] };
+  const n = M.normalize(old);
+  assert.deepEqual(n.items.map((x) => [x.name, x.from, x.state]), [['은행잎 한 장', 'me', 'arrived'], ['조개', 'them', 'arrived'], ['깃털', 'them', 'in_transit']]);
+  assert.equal(M.normalize(n), n);
+});

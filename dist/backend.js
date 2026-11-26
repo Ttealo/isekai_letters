@@ -102,6 +102,38 @@ export function cleanCorrespondentInput(p) {
     maxReplyRealHours: num(p?.maxReplyRealHours, 0.1, 168, 24),
     timeScale: num(p?.timeScale, 1, 3600, 1),
     personaId: str(p?.personaId, 200),
+    personaName: str(p?.personaName, 80),
+  };
+}
+
+// 동봉물: 한 줄에 하나(최대 5개)
+export function splitEnclosures(v) {
+  const list = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/\r?\n/) : [];
+  return list.map((x) => str(typeof x === 'string' ? x : x?.item, 200).trim()).filter(Boolean).slice(0, 5);
+}
+
+// 예전(0.1.0) 저장본에 물품 장부를 채우고 기본값을 맞춘다. 이미 있으면 그대로.
+export function normalize(c) {
+  if (Array.isArray(c.items)) return c;
+  const items = [];
+  for (const l of c.letters || []) {
+    const names = l.from === 'me' ? splitEnclosures(l.enclosures?.length ? l.enclosures : l.enclosure) : (l.enclosures || []).map((x) => x.item);
+    const notes = l.from === 'me' ? [] : (l.enclosures || []).map((x) => x.note || '');
+    names.forEach((name, i) => items.push(makeItem(l, name, notes[i] || '', i)));
+  }
+  return { ...c, items };
+}
+
+function makeItem(l, name, note, i) {
+  return {
+    id: `${l.id}_${i}`,
+    name, note,
+    from: l.from,
+    letterId: l.id,
+    sentAt: l.sentAt,
+    arriveAt: l.arriveAt,
+    state: l.state === 'in_transit' ? 'in_transit' : 'arrived',
+    imageId: null,
   };
 }
 
@@ -114,6 +146,7 @@ export function createCorrespondent(input, now = Date.now(), rand = Math.random)
     anchor: { realAt: now, theirAt: pickBetween(8, 20, rand) }, // 그쪽은 1일째 아침~저녁 어딘가에서 시작
     createdAt: now,
     letters: [],
+    items: [],
     reply: null, // { state:'waiting'|'generating'|'failed', dueAt, attempts, nextTryAt, error, forLetterIds }
   };
 }
@@ -124,7 +157,7 @@ export function toInput(c) {
     name: c.name, brief: c.brief, world: c.world, ratio: c.ratio,
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
-    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId,
+    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
   };
 }
 
@@ -148,20 +181,23 @@ export function cleanLetterBody(v) {
 
 // 내가 보내는 편지
 export function sendLetter(c, { body, enclosure, personaName }, now = Date.now(), rand = Math.random) {
+  c = normalize(c);
   const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const names = splitEnclosures(enclosure);
   const letter = {
     id: newId('l', now, rand),
     from: 'me',
     personaName: str(personaName, 80),
     body: cleanLetterBody(body),
-    enclosure: str(enclosure, 500).trim(),
+    enclosure: names.join(', '),
+    enclosures: names.map((item) => ({ item, note: '' })),
     sentAt: now,
     arriveAt: now + travel,
     theirSentAt: theirNow(c, now),
     theirArriveAt: theirNow(c, now + travel),
     state: 'in_transit',
   };
-  return { ...c, letters: [...c.letters, letter] };
+  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...names.map((n, i) => makeItem(letter, n, '', i))] };
 }
 
 // 배송 중일 때만 회수
@@ -169,7 +205,7 @@ export function recallLetter(c, letterId, now = Date.now()) {
   const l = c.letters.find((x) => x.id === letterId);
   if (!l || l.from !== 'me') throw new Error('회수할 편지를 찾지 못했습니다.');
   if (l.state !== 'in_transit' || now >= l.arriveAt) throw new Error('이미 도착한 편지는 회수할 수 없습니다.');
-  return { ...c, letters: c.letters.filter((x) => x.id !== letterId) };
+  return { ...c, letters: c.letters.filter((x) => x.id !== letterId), items: (c.items || []).filter((x) => x.letterId !== letterId) };
 }
 
 export function markOpened(c, letterId, now = Date.now()) {
@@ -182,6 +218,7 @@ export function markOpened(c, letterId, now = Date.now()) {
 // ── 시간 진행: 저장된 상대 하나를 지금 시각까지 진행시킨다 ──
 // 반환: { c, generate: bool(답장 생성이 필요), delivered: [letterId] }
 export function advance(c, now = Date.now(), rand = Math.random) {
+  c = normalize(c);
   let out = c;
   const delivered = [];
   // 1) 내 편지 도착
@@ -220,6 +257,11 @@ export function advance(c, now = Date.now(), rand = Math.random) {
       return l;
     }),
   };
+  // 4) 물품: 실린 편지가 도착했으면 물품도 도착
+  const landed = new Set(out.letters.filter((l) => l.state !== 'in_transit').map((l) => l.id));
+  if (out.items.some((x) => x.state === 'in_transit' && landed.has(x.letterId))) {
+    out = { ...out, items: out.items.map((x) => (x.state === 'in_transit' && landed.has(x.letterId) ? { ...x, state: 'arrived' } : x)) };
+  }
   const r = out.reply;
   const generate = !!r && r.state === 'waiting' && now >= r.dueAt && now >= (r.nextTryAt || 0);
   return { c: out, generate, delivered };
@@ -252,6 +294,7 @@ export function retryReply(c, now = Date.now()) {
 
 // 생성 결과를 상대 편지로 넣고 배송을 시작한다
 export function applyReply(c, reply, now = Date.now(), rand = Math.random) {
+  c = normalize(c);
   const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
   const letter = {
     id: newId('l', now, rand),
@@ -269,7 +312,8 @@ export function applyReply(c, reply, now = Date.now(), rand = Math.random) {
     arriveAt: now + travel,
     state: 'in_transit',
   };
-  return { ...c, letters: [...c.letters, letter], reply: null };
+  const items = (reply.enclosures || []).map((x, i) => makeItem(letter, x.item, x.note || '', i));
+  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...items], reply: null };
 }
 
 // ── 생성 결과 읽기 ──
@@ -308,14 +352,18 @@ export function cleanReply(raw) {
 const letterText = (l, c) => {
   if (l.from === 'me') {
     const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${formatTheirTime(l.theirSentAt)} / 도착 ${formatTheirTime(l.theirArriveAt)}`;
-    return `${head}\n${l.body}${l.enclosure ? `\n(동봉: ${l.enclosure})` : ''}`;
+    const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item).join(', ') : l.enclosure;
+    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}`;
   }
   const head = `[${c.name} → {{user}}] 쓴 날 ${formatTheirTime(l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
 export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS } = {}) {
-  const userName = personaName || '편지의 주인';
+  c = normalize(c);
+  const userName = personaName || c.personaName || '편지의 주인';
+  const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
+    .map((x) => `${x.from === 'me' ? '{{user}} → you' : 'you → {{user}}'}: ${x.name}${x.note ? ` (${x.note})` : ''}`);
   const answered = new Set(c.reply?.forLetterIds || []);
   const unanswered = c.letters.filter((l) => l.from === 'me' && answered.has(l.id));
   const firstArrival = unanswered.length ? Math.min(...unanswered.map((l) => l.theirArriveAt)) : theirNow(c, now);
@@ -339,9 +387,11 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     '',
     '<correspondence>',
     `their_now=${formatTheirTime(tNow)}`,
+    `days_since_first_contact=${Math.floor(tNow / 24) + 1}`,
     `ratio=1:${c.ratio} (your time / {{user}}'s time; ${c.ratio > 1 ? `one day for {{user}} is ${formatSpan(24 * c.ratio)} for you` : c.ratio < 1 ? `one day for {{user}} is only ${formatSpan(24 * c.ratio)} for you` : 'same speed'})`,
     `letters_arrived=${unanswered.length}통, first arrived ${formatTheirTime(firstArrival)}`,
-    lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)}` : 'first_reply=yes (this is your first letter to {{user}})',
+    lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
+    gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
     `knows_about_user=only what their letters said; their name is ${userName}`,
     omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here)` : '',
     '</correspondence>',
@@ -352,6 +402,7 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     '3. Respond to what {{user}} actually wrote. Answer or deliberately avoid their questions.',
     '4. The letter must feel like a physical object from your world: describe `envelope` and any `enclosures` in concrete sensory terms.',
     '5. Stay consistent with the character and world above. New facts are allowed when they follow from events.',
+    '6. Time is fixed by <correspondence>. `read_at`, `written_at`, and every `their_date` must fall between the first arrival and their_now, written like their_now ("만난 지 N일째 …"). When mentioning how long you waited or how many days passed, use only those numbers.',
     'Output JSON only, in Korean, with this shape:',
     '{"between":[{"their_date":"","event":"","senses":"","open":false}],"read_at":"","written_at":"","envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}',
     '</task>',
@@ -382,6 +433,8 @@ export function summarize(c, now = Date.now()) {
   else if (lastThem && (!lastMine || lastMine.sentAt < lastThem.sentAt)) status = `그쪽은 ${formatSpan(tNow - lastThem.theirWrittenAt)}째 내 답장을 기다리는 중`;
   return {
     id: c.id, name: c.name, ratio: c.ratio, theirNow: formatTheirTime(tNow),
+    personaId: c.personaId || '', personaName: c.personaName || '',
+    items: (c.items || []).filter((x) => x.state === 'arrived').length,
     unread, inTransit, status, failed: c.reply?.state === 'failed', error: c.reply?.error || '',
     lastAt: lastLetter ? lastLetter.sentAt : c.createdAt,
   };
@@ -389,8 +442,14 @@ export function summarize(c, now = Date.now()) {
 
 // 상대에게 보이지 않는 정보(생성 전 답장, 배송 중 답장의 본문)를 가린 사본
 export function publicView(c, now = Date.now()) {
+  c = normalize(c);
+  const letterOf = new Map(c.letters.map((l) => [l.id, l]));
   return {
     ...c,
+    items: c.items.filter((x) => !(x.from === 'them' && x.state === 'in_transit')).map((x) => {
+      const l = letterOf.get(x.letterId);
+      return { ...x, theirLabel: l ? formatTheirTime(l.from === 'me' ? l.theirSentAt : l.theirWrittenAt) : '' };
+    }),
     theirNowLabel: formatTheirTime(theirNow(c, now)),
     letters: c.letters.map((l) => {
       if (l.from === 'them' && l.state === 'in_transit') return { id: l.id, from: 'them', state: 'in_transit', sentAt: l.sentAt, arriveAt: l.arriveAt };
@@ -483,13 +542,26 @@ export function start(api) {
   };
 
   // ── 답장 생성 ──
+  // 보내는 사람 이름: 상대에 묶인 페르소나(지금 이름) → 저장해 둔 이름 → 마지막 편지의 이름 → 활성 페르소나
   const personaNameFor = async (user, c) => {
+    try {
+      if (c.personaId) {
+        const p = await api.personas.get(c.personaId, user);
+        if (p?.name) return p.name;
+      }
+    } catch {}
+    if (c.personaName) return c.personaName;
     const lastMine = [...c.letters].reverse().find((l) => l.from === 'me' && l.personaName);
     if (lastMine) return lastMine.personaName;
+    try { return (await api.personas.getActive(user))?.name || ''; } catch { return ''; }
+  };
+  const withPersonaName = async (user, input) => {
+    if (!input?.personaId) return { ...input, personaName: '' };
     try {
-      const p = c.personaId ? await api.personas.get(c.personaId, user) : await api.personas.getActive(user);
-      return p?.name || '';
-    } catch { return ''; }
+      const p = await api.personas.get(input.personaId, user);
+      if (!p) throw new Error('고른 페르소나를 찾지 못했습니다.');
+      return { ...input, personaName: p.name };
+    } catch (e) { throw new Error(e?.message || '페르소나를 읽지 못했습니다.'); }
   };
 
   const generateReply = async (user, id) => {
@@ -574,15 +646,32 @@ export function start(api) {
         list.sort((a, b) => b.lastAt - a.lastAt);
         return { settings: await loadSettings(user), list };
       }
-      case 'get':
-        return { c: publicView(await loadC(user, p.id), now), input: toInput(await loadC(user, p.id)) };
+      case 'get': {
+        await tickUser(user).catch(() => {});
+        const c = await loadC(user, p.id);
+        return { c: publicView(c, Date.now()), input: toInput(c) };
+      }
+      case 'all': {
+        // 보조창(편지첩·물품·모음)용: 모든 상대의 화면 사본
+        await tickUser(user).catch(() => {});
+        const out = [];
+        for (const id of await listIds(user)) { try { out.push(publicView(await loadC(user, id), Date.now())); } catch {} }
+        return { all: out, settings: await loadSettings(user) };
+      }
+      case 'personas': {
+        const r = await api.personas.list({ limit: 200, userId: user });
+        let activeId = '';
+        try { activeId = (await api.personas.getActive(user))?.id || ''; } catch {}
+        return { activeId, personas: (r?.data || []).map((x) => ({ id: x.id, name: x.name, title: x.title || '', imageId: x.image_id || '' })) };
+      }
       case 'create': {
-        const c = createCorrespondent(p.input, now);
+        const c = createCorrespondent(await withPersonaName(user, p.input), now);
         await serial(user, () => saveC(user, c));
         return { id: c.id };
       }
       case 'update': {
-        const c = await mutate(user, p.id, (c) => updateCorrespondent(c, p.input, now));
+        const input = p.input && 'personaId' in p.input ? await withPersonaName(user, p.input) : p.input;
+        const c = await mutate(user, p.id, (c) => updateCorrespondent(c, input, now));
         return { c: publicView(c, now) };
       }
       case 'delete': {
@@ -590,12 +679,7 @@ export function start(api) {
         return {};
       }
       case 'send': {
-        const cur = await loadC(user, p.id);
-        let personaName = '';
-        try {
-          const persona = cur.personaId ? await api.personas.get(cur.personaId, user) : await api.personas.getActive(user);
-          personaName = persona?.name || '';
-        } catch {}
+        const personaName = await personaNameFor(user, await loadC(user, p.id));
         const c = await mutate(user, p.id, (c) => sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now));
         return { c: publicView(c, now) };
       }
