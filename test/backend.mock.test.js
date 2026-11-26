@@ -383,3 +383,75 @@ test('정리 단계: 답장 뒤 자동 정리 → 기억·로어북·카드 반�
   // 지금 정리하기: 정리할 편지 없음
   await assert.rejects(host.ask('u1', 'organizeNow', { id: r.id }), /정리할 편지가 없습니다/);
 });
+
+test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 → WebP로 바꿔 끼우고 원본 삭제, 상한 넘으면 거절', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  const images = new Map(); let n = 0; const deleted = [];
+  const genCalls = [];
+  host.api.imageGen = {
+    generate: async (req) => { genCalls.push(req); const id = `img${n++}`; images.set(id, { mime: 'image/png' }); return { imageId: id, imageUrl: `/x/${id}` }; },
+    listConnections: async () => [{ id: 'ic1', name: '이미지 · Chroma', provider: 'nanogpt', model: 'chroma', is_default: false }],
+  };
+  host.api.images = {
+    upload: async (input) => { const id = `webp${n++}`; images.set(id, { mime: input.mime_type, size: input.data.length }); return { id }; },
+    delete: async (id) => { deleted.push(id); return images.delete(id); },
+  };
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/You write short English prompts/.test(req.messages[0].content)) {
+      const keys = [...req.messages[1].content.matchAll(/key=(k\d+)/g)].map((m) => m[1]);
+      return { content: JSON.stringify({ prompts: keys.map((k) => ({ key: k, prompt: `subject ${k}` })) }) };
+    }
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  await host.ask('u1', 'saveSettings', { settings: { art: { connectionId: 'ic1', perDay: 4, size: '1024x1024', paperSize: '768x1024' } } });
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
+  const r = await host.ask('u1', 'matchConfirm', { draft });
+  const ic = await host.ask('u1', 'imageConnections');
+  assert.equal(ic.connections[0].model, 'chroma');
+  const res = await host.ask('u1', 'drawSet', { id: r.id });
+  assert.equal(res.started, 3);
+  await settle(); await settle();
+  assert.equal(genCalls.length, 3);
+  assert.equal(genCalls[0].connection_id, 'ic1');
+  assert.equal(genCalls[0].parameters.size, '768x1024'); // 편지지
+  assert.equal(genCalls[1].parameters.size, '1024x1024');
+  assert.equal(genCalls[0].includeDataUrl, false);
+  assert.match(genCalls[0].negativePrompt, /people/);
+  assert.equal(genCalls[0].owner_character_id, r.characterId);
+  let g = await host.ask('u1', 'get', { id: r.id });
+  assert.ok(g.c.art.paper.imageId && g.c.art.stamp.imageId && g.c.art.seal.imageId);
+  assert.equal(g.c.artJob, null);
+  let st = await host.ask('u1', 'artStatus');
+  assert.equal(st.left, 1);
+  await assert.rejects(host.ask('u1', 'drawSet', { id: r.id }), /1장 남았습니다/);
+  // WebP: 대기열 → 바꿔 끼우기
+  const q = await host.ask('u1', 'webpQueue');
+  assert.equal(q.queue.length, 3);
+  const old = g.c.art.paper.imageId;
+  const fake = Buffer.alloc(500, 7).toString('base64');
+  const done = await host.ask('u1', 'webpDone', { imageId: old, data: fake, originalBytes: 2000 });
+  assert.equal(done.after, 500);
+  g = await host.ask('u1', 'get', { id: r.id });
+  assert.equal(g.c.art.paper.imageId, done.id);
+  assert.equal(images.get(done.id).mime, 'image/webp');
+  assert.ok(deleted.includes(old));
+  assert.equal((await host.ask('u1', 'webpQueue')).queue.length, 2);
+  // 실패 3번이면 대기열에서 빠지고 png는 그대로
+  const keep = g.c.art.stamp.imageId;
+  for (let i = 0; i < 3; i++) await host.ask('u1', 'webpFail', { imageId: keep });
+  assert.equal((await host.ask('u1', 'webpQueue')).queue.length, 1);
+  assert.ok(images.has(keep));
+  // 물건 하나 그리기
+  await host.ask('u1', 'send', { id: r.id, body: 'x', enclosure: '은행잎' });
+  g = await host.ask('u1', 'get', { id: r.id });
+  await host.ask('u1', 'drawItem', { id: r.id, itemId: g.c.items[0].id });
+  await settle(); await settle();
+  g = await host.ask('u1', 'get', { id: r.id });
+  assert.ok(g.c.items[0].imageId);
+  st = await host.ask('u1', 'artStatus');
+  assert.equal(st.left, 0);
+});

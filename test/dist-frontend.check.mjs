@@ -18,6 +18,7 @@ const mk = (id, name, personaId, personaName, extra = {}) => ({
   letters: [], items: [], ...extra,
 });
 const miren = mk('c1', '미렌', 'p1', '시드', {
+  art: { paper: { imageId: 'pp' }, stamp: { imageId: 'st' } },
   letters: [
     { id: 'l1', from: 'me', personaName: '시드', body: '처음 편지', enclosures: [{ item: '은행잎 한 장' }], sentAt: now - 9e6, arriveAt: now - 8e6, state: 'arrived', theirSentLabel: '1일째', theirArriveLabel: '2일째' },
     { id: 'l2', from: 'them', state: 'opened', body: '<b>편지</b> 잘 받았네.', ps: '춥군.', envelope: { medium: '기름 먹인 천', scent: '소금', stamp: '등대 도장' }, enclosures: [{ item: '조개', note: '얼음 틈에서' }], sentAt: now - 4e6, arriveAt: now - 3e6, theirWrittenLabel: '3일째', writtenLabel: '만난 지 3일째 새벽' },
@@ -59,6 +60,11 @@ const replies = {
     report: [{ layer: '상대 카드', chars: 900, tokens: 530, note: '' }, { layer: '편지 요약', chars: 40, tokens: 24, note: '1/1통' }], totalChars: 5000, totalTokens: 2941, prompt: '[system]\n<relationship>',
   }),
   change: (m) => { sentLog.push(m); return { change: {} }; },
+  artStatus: () => ({ left: 5, perDay: 6 }),
+  webpQueue: () => ({ queue: [] }),
+  drawSet: (m) => { sentLog.push(m); return { started: m.kinds.length }; },
+  drawItem: (m) => { sentLog.push(m); return { started: 1 }; },
+  imageConnections: () => ({ connections: [{ id: 'ic1', name: '이미지 · Chroma', model: 'chroma' }] }),
   setRules: (m) => { sentLog.push(m); return { locks: m.locks, applyMode: m.applyMode }; },
 };
 let badge = null;
@@ -109,6 +115,11 @@ ok('편지첩: 상대 편지 편지지', !!panelRoot.querySelector('.im-paper.im
 ok('편지첩: 내 편지 편지지', !!panelRoot.querySelector('.im-paper.im-mine'));
 ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') && panelRoot.textContent.includes('<b>편지</b>'));
 ok('편지첩: 우표 칸(설명은 툴팁)', panelRoot.querySelector('.im-stamp')?.getAttribute('title')?.includes('등대 도장'));
+ok('그림: 편지지 배경', panelRoot.querySelector('.im-paper.im-has-paper')?.getAttribute('style')?.includes('/api/v1/images/pp?size=lg'));
+ok('그림: 우표 그림', !!panelRoot.querySelector('.im-stamp img[src="/api/v1/images/st?size=sm"]'));
+ok('그림: 세트 상태·남은 장수', panelRoot.textContent.includes('그림 세트 2/3 · 오늘 남은 그림 5장') && panelRoot.textContent.includes('그림 세트 만들기(1장)'));
+clickIn(panelRoot, 'button', '그림 세트 만들기'); await tick(6);
+ok('그림: 빠진 것만 그리기 요청', sentLog.some((x) => x.type === 'drawSet' && x.kinds.join() === 'seal'));
 ok('편지첩: 동봉 줄', panelRoot.textContent.includes('동봉 · 조개 — 얼음 틈에서'));
 ok('편지첩: 안 연 봉투', !!panelRoot.querySelector('.im-envelope') && panelRoot.textContent.includes('거칠다'));
 ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 편지가 가는 중'));
@@ -118,6 +129,10 @@ ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-paper.im-theirs
 clickIn(panelRoot, '.im-tabs button', '물품'); await tick();
 ok('물품: 받은 것 2 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 2') && panelRoot.textContent.includes('보낸 것 · 1'));
 ok('물품: 카드 3개', panelRoot.querySelectorAll('.im-item').length === 3);
+const drawBtns = [...panelRoot.querySelectorAll('.im-item button')].filter((b) => b.textContent === '그리기');
+ok('물품: 그림 없는 물건마다 그리기', drawBtns.length === 3);
+drawBtns[0].dispatchEvent(new window.Event('click')); await tick(6);
+ok('물품: 그리기 요청', sentLog.some((x) => x.type === 'drawItem' && x.id === 'c1'));
 // 모음
 clickIn(panelRoot, '.im-tabs button', '모음'); await tick();
 ok('모음: 편지 묶음 2', panelRoot.querySelectorAll('.im-bundle').length === 2);
@@ -131,7 +146,8 @@ const tas = panelRoot.querySelectorAll('details textarea');
 tas[0].value = '세 번째 편지'; tas[0].dispatchEvent(new window.Event('input'));
 tas[1].value = '말린 꽃\n작은 종'; tas[1].dispatchEvent(new window.Event('input'));
 clickIn(panelRoot, 'details button', '보내기'); await tick(8);
-ok('보조창에서 보내기(동봉 2줄)', sentLog.length === 1 && sentLog[0].body === '세 번째 편지' && sentLog[0].enclosure === '말린 꽃\n작은 종');
+const sendMsg = sentLog.filter((x) => x.type === 'send');
+ok('보조창에서 보내기(동봉 2줄)', sendMsg.length === 1 && sendMsg[0].body === '세 번째 편지' && sendMsg[0].enclosure === '말린 꽃\n작은 종');
 // 새 상대(매칭)
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '새 상대'); await tick(6);

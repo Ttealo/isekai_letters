@@ -39,6 +39,7 @@ export function cleanSettings(s) {
     organizeEnabled: s?.organizeEnabled !== false,
     organizeConnectionId: str(s?.organizeConnectionId, 200),
     organizeTemperature: num(s?.organizeTemperature, 0, 2, 0.3),
+    art: s?.art && typeof s.art === 'object' && !Array.isArray(s.art) ? s.art : {},
     budgets: s?.budgets && typeof s.budgets === 'object' && !Array.isArray(s.budgets) ? Object.fromEntries(Object.entries(s.budgets).slice(0, 20).map(([k, v]) => [String(k).slice(0, 40), Number(v)])) : {},
   };
 }

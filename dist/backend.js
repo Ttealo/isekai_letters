@@ -39,6 +39,7 @@ export function cleanSettings(s) {
     organizeEnabled: s?.organizeEnabled !== false,
     organizeConnectionId: str(s?.organizeConnectionId, 200),
     organizeTemperature: num(s?.organizeTemperature, 0, 2, 0.3),
+    art: s?.art && typeof s.art === 'object' && !Array.isArray(s.art) ? s.art : {},
     budgets: s?.budgets && typeof s.budgets === 'object' && !Array.isArray(s.budgets) ? Object.fromEntries(Object.entries(s.budgets).slice(0, 20).map(([k, v]) => [String(k).slice(0, 40), Number(v)])) : {},
   };
 }
@@ -1112,6 +1113,107 @@ export function queueOrganize(c, letterIds) {
 
 export function describeTime(hours) { return formatSpan(hours); }
 
+// 이미지(소품 일러스트): 설정 정리, 그림 프롬프트 만들기, 하루 상한. 부수 효과 없음.
+// 사람·얼굴·손·글자는 그리지 않는다. 편지지·우표·봉인은 상대마다 한 세트, 물건은 하나씩.
+
+export const ART_KINDS = ['paper', 'stamp', 'seal'];
+export const ART_LABEL = { paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
+
+export const DEFAULT_STYLE = 'delicate storybook illustration, soft watercolor and gouache, fine ink linework, gentle diffused light, muted pastel palette with one warm accent, paper grain texture, quiet still life, intimate and nostalgic mood';
+export const NEGATIVE = 'people, person, face, hands, fingers, human figure, silhouette, text, letters, writing, words, numbers, watermark, signature, logo, frame border, photorealistic, 3d render';
+
+export const DEFAULT_ART = {
+  connectionId: '', // 비면 앱 기본 이미지 연결
+  model: '',
+  style: DEFAULT_STYLE,
+  size: '1024x1024',
+  paperSize: '1024x1024',
+  perDay: 6, // 하루 전체 장수(세트 포함)
+  autoItems: 'off', // 'off' | 'all' — 상대가 보낸 물건을 도착할 때 자동으로 그리기
+};
+
+const astr = (v, max, d = '') => (typeof v === 'string' ? v.trim().slice(0, max) : d);
+const asize = (v, d) => (typeof v === 'string' && /^\d{3,4}x\d{3,4}$/.test(v.trim()) ? v.trim() : d);
+
+export function cleanArt(a) {
+  const n = Number(a?.perDay);
+  return {
+    connectionId: astr(a?.connectionId, 200),
+    model: astr(a?.model, 200),
+    style: astr(a?.style, 1500) || DEFAULT_STYLE,
+    size: asize(a?.size, DEFAULT_ART.size),
+    paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
+    perDay: Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : DEFAULT_ART.perDay,
+    autoItems: a?.autoItems === 'all' ? 'all' : 'off',
+  };
+}
+
+// 하루 사용량(기기와 무관하게 서버 날짜 기준 YYYY-MM-DD)
+export function dayKey(now = Date.now()) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+export function quotaLeft(usage, art, now = Date.now()) {
+  const used = usage?.day === dayKey(now) ? usage.count || 0 : 0;
+  return Math.max(0, art.perDay - used);
+}
+export function useQuota(usage, n, now = Date.now()) {
+  const day = dayKey(now);
+  const count = (usage?.day === day ? usage.count || 0 : 0) + n;
+  return { day, count };
+}
+
+// 글 생성 1회로 그림 주제(영어)를 받는다. jobs: [{key, kind, name?, note?}]
+export function buildArtPromptMessages(c, jobs) {
+  const m = c.mail || {};
+  const lines = jobs.map((j) => {
+    if (j.kind === 'paper') return `- key=${j.key}: a sheet of ${m.medium || 'letter paper'} from ${c.name}'s world, seen from above, empty center for writing, details only at the edges (texture: ${m.texture || '-'})`;
+    if (j.kind === 'stamp') return `- key=${j.key}: a single postage stamp or postal mark of that world (motif: ${m.stampMotif || '-'})`;
+    if (j.kind === 'seal') return `- key=${j.key}: the seal that closes ${c.name}'s letters, close-up (seal: ${m.seal || '-'})`;
+    return `- key=${j.key}: the object "${j.name}"${j.note ? ` (${j.note})` : ''} as a small still life`;
+  });
+  const system = [
+    'You write short English prompts for still-life illustrations of objects from a fictional world.',
+    'Never include people, faces, hands, body parts, text, letters, numbers or logos in the scene.',
+    'Describe material, color, light and a simple background. 25-50 words each. No style words (the style is added later).',
+  ].join('\n');
+  const user = [
+    `World and correspondent (for context only): ${c.name}. Letter medium: ${m.medium || '-'}; scent: ${m.scent || '-'}.`,
+    m.imageKeywords?.length ? `World keywords: ${m.imageKeywords.join(', ')}` : '',
+    'Write one prompt for each:',
+    ...lines,
+    'Output JSON only: {"prompts":[{"key":"","prompt":""}]}',
+  ].filter(Boolean).join('\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+
+export function cleanArtPrompts(raw, keys) {
+  const list = Array.isArray(raw?.prompts) ? raw.prompts : [];
+  const out = {};
+  for (const p of list) {
+    const k = astr(p?.key, 80);
+    const t = astr(p?.prompt, 800);
+    if (keys.includes(k) && t) out[k] = t;
+  }
+  return out;
+}
+
+// 그림 주제 + 종류별 구도 + 화풍 → 최종 프롬프트
+export function composePrompt(kind, subject, art) {
+  const comp = {
+    paper: 'top-down flat lay, the sheet fills most of the frame, plain empty center, decorative wear only along the edges',
+    stamp: 'single postage stamp centered on a plain soft background, perforated edges, small emblem illustration inside',
+    seal: 'macro close-up of a seal impression, centered, soft shallow depth of field',
+    item: 'single object centered, small still life on a plain soft background',
+  }[kind] || '';
+  return [subject, comp, art.style || DEFAULT_STYLE, 'no people, no text'].filter(Boolean).join(', ');
+}
+
+// 상대 안의 그림 기록(없으면 빈 칸)
+export function ensureArt(c) {
+  if (c.art && typeof c.art === 'object') return c;
+  return { ...c, art: {} };
+}
+
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
 // 저장: userStorage  settings.json / c/<상대 id>.json   공용 storage  users.json(예약 실행이 돌 사용자 목록)
@@ -1283,6 +1385,103 @@ export function start(api) {
         }
       });
     }
+  };
+
+  // ── 그림(소품 일러스트) ──
+  const USAGE = 'art-usage.json';
+  const WEBP = 'webp-queue.json';
+  const drawing = new Set();
+  const readUsage = async (user) => readJson(USAGE, user, { day: '', count: 0 });
+  const pushWebp = (user, rows) => serial(user, async () => {
+    const q = await readJson(WEBP, user, []);
+    await api.userStorage.setJson(WEBP, [...q, ...rows].slice(-200), { userId: user });
+  });
+  // jobs: [{kind:'paper'|'stamp'|'seal'|'item', itemId?}] — 글 1회로 주제를 받고 그림을 차례로. 백그라운드로 돈다.
+  const drawArt = async (user, id, jobs, { quiet = false } = {}) => {
+    const key = `${user}:${id}:art`;
+    if (drawing.has(key)) throw new Error('이 상대의 그림을 이미 그리는 중입니다.');
+    const settings = await loadSettings(user);
+    const art = cleanArt(settings.art);
+    const left = quotaLeft(await readUsage(user), art);
+    if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장). 설정에서 하루 상한을 바꿀 수 있습니다.`);
+    drawing.add(key);
+    await mutate(user, id, (c) => ({ ...ensureArt(c), artJob: { state: 'running', total: jobs.length, done: 0, error: '', at: Date.now() } }));
+    notify(user, { id });
+    const run = async () => {
+      let done = 0;
+      const errors = [];
+      try {
+        const c0 = await loadC(user, id);
+        const named = jobs.map((j, i) => {
+          const it = j.kind === 'item' ? (c0.items || []).find((x) => x.id === j.itemId) : null;
+          return { ...j, key: `k${i}`, name: it?.name, note: it?.note };
+        });
+        const raw = await genJson(user, buildArtPromptMessages(c0, named), { ...settings, createConnectionId: settings.organizeConnectionId || settings.createConnectionId, createTemperature: 0.7 });
+        const prompts = cleanArtPrompts(raw, named.map((j) => j.key));
+        for (const j of named) {
+          const subject = prompts[j.key] || (j.kind === 'item' ? j.name : '');
+          if (!subject) { errors.push(`${j.kind}: 주제를 못 받음`); continue; }
+          const prompt = composePrompt(j.kind, subject, art);
+          try {
+            const res = await api.imageGen.generate({
+              prompt, negativePrompt: NEGATIVE, connection_id: art.connectionId || undefined, model: art.model || undefined,
+              parameters: { size: j.kind === 'paper' ? art.paperSize : art.size }, includeDataUrl: false,
+              owner_character_id: c0.characterId || undefined, userId: user,
+            });
+            if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
+            await serial(user, async () => {
+              await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
+            });
+            await mutate(user, id, (c) => {
+              c = ensureArt(c);
+              const rec = { imageId: res.imageId, prompt, at: Date.now() };
+              const next = j.kind === 'item'
+                ? { ...c, items: c.items.map((x) => (x.id === j.itemId ? { ...x, imageId: res.imageId, imagePrompt: prompt } : x)) }
+                : { ...c, art: { ...c.art, [j.kind]: rec } };
+              return { ...next, artJob: { ...(c.artJob || {}), done: ++done } };
+            });
+            await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0 }]);
+            notify(user, { id });
+          } catch (e) {
+            errors.push(`${j.kind}: ${e?.message || e}`);
+          }
+        }
+      } catch (e) {
+        errors.push(String(e?.message || e));
+      } finally {
+        drawing.delete(key);
+        await mutate(user, id, (c) => ({ ...c, artJob: errors.length ? { state: 'failed', total: jobs.length, done, error: errors.join(' / ').slice(0, 500), at: Date.now() } : null })).catch(() => {});
+        if (errors.length) log('warn', `그림 일부 실패: ${errors.join(' / ')}`);
+        notify(user, { id });
+      }
+    };
+    run();
+    return { started: jobs.length, left: left - jobs.length, quiet };
+  };
+  // 프런트가 WebP로 바꿔 보낸 바이트로 바꿔 끼우고 원본(png)을 지운다
+  const webpDone = async (user, p) => {
+    const q = await readJson(WEBP, user, []);
+    const row = q.find((x) => x.imageId === p.imageId);
+    if (!row) return { skipped: true };
+    const bytes = Uint8Array.from(Buffer.from(String(p.data || ''), 'base64'));
+    if (bytes.length < 100 || bytes.length > 8 * 1024 * 1024) throw new Error('WebP 크기가 이상합니다.');
+    const c0 = await loadC(user, row.cid).catch(() => null);
+    const up = await api.images.upload({ data: bytes, filename: `isekai-${p.imageId}.webp`, mime_type: 'image/webp', owner_character_id: c0?.characterId || undefined }, user);
+    if (c0) {
+      await mutate(user, row.cid, (c) => {
+        c = ensureArt(c);
+        const art = Object.fromEntries(Object.entries(c.art).map(([k, v]) => [k, v?.imageId === p.imageId ? { ...v, imageId: up.id, webp: true } : v]));
+        const items = (c.items || []).map((x) => (x.imageId === p.imageId ? { ...x, imageId: up.id } : x));
+        return { ...c, art, items };
+      });
+    }
+    try { await api.images.delete(p.imageId, user); } catch {}
+    await serial(user, async () => {
+      const cur = await readJson(WEBP, user, []);
+      await api.userStorage.setJson(WEBP, cur.filter((x) => x.imageId !== p.imageId), { userId: user });
+    });
+    if (c0) notify(user, { id: row.cid });
+    return { id: up.id, before: Number(p.originalBytes) || 0, after: bytes.length };
   };
 
   // ── 정리 단계 ──
@@ -1502,6 +1701,12 @@ export function start(api) {
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
       });
       log('info', `답장 생성 완료 — 배송 시작(${c.name})`);
+      if (cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
+        const cur = await loadC(user, id);
+        const last = cur.letters[cur.letters.length - 1];
+        const its = (cur.items || []).filter((x) => x.letterId === last.id && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
+        if (its.length) drawArt(user, id, its).catch((e) => log('info', `물건 자동 그림 건너뜀: ${e?.message || e}`));
+      }
       notify(user, { id });
     } finally {
       busy.delete(key);
@@ -1674,6 +1879,39 @@ export function start(api) {
         });
         tickUser(user).catch(() => {});
         return { queued: c.organize.forLetterIds.length };
+      }
+      case 'imageConnections': {
+        const list = await api.imageGen.listConnections(user);
+        return { connections: (list || []).map((x) => ({ id: x.id, name: x.name, provider: x.provider, model: x.model, is_default: !!x.is_default })) };
+      }
+      case 'artStatus': {
+        const art = cleanArt((await loadSettings(user)).art);
+        return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
+      }
+      case 'drawSet': {
+        const c = ensureArt(await loadC(user, p.id));
+        const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
+        if (!kinds.length) throw new Error('그릴 것이 없습니다.');
+        return drawArt(user, c.id, kinds.map((kind) => ({ kind })));
+      }
+      case 'drawItem': {
+        const c = await loadC(user, p.id);
+        const it = (c.items || []).find((x) => x.id === p.itemId);
+        if (!it) throw new Error('물건을 찾지 못했습니다.');
+        if (it.from === 'them' && it.state === 'in_transit') throw new Error('아직 도착하지 않은 물건입니다.');
+        return drawArt(user, c.id, [{ kind: 'item', itemId: it.id }]);
+      }
+      case 'webpQueue':
+        return { queue: (await readJson(WEBP, user, [])).slice(0, 10) };
+      case 'webpDone':
+        return webpDone(user, p);
+      case 'webpFail': {
+        await serial(user, async () => {
+          const q = await readJson(WEBP, user, []);
+          const next = q.map((x) => (x.imageId === p.imageId ? { ...x, tries: (x.tries || 0) + 1 } : x)).filter((x) => (x.tries || 0) < 3);
+          await api.userStorage.setJson(WEBP, next, { userId: user });
+        });
+        return {};
       }
       case 'retry': {
         await mutate(user, p.id, (c) => retryReply(c, now));
