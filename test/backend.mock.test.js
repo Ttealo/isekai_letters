@@ -716,3 +716,37 @@ test('백업: 내보내고 다른 서버에 되살리면 캐릭터·로어북을
   assert.ok(c.characterId && c.characterId === [...lib.chars.keys()][0]);
   await assert.rejects(b.ask('u1', 'importAll', { backup: { kind: 'x' } }), /백업 파일이 아닙니다/);
 });
+
+test('초상화: NovelAI 연결로 그리고 WebP 뒤 아바타로', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  const gens = []; let n = 0; const avatars = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/NovelAI image prompts/.test(req.messages[0].content)) return { content: JSON.stringify({ character: '1girl, solo, black hair', scene: 'upper body', character_uc: '' }) };
+    return quiet(req);
+  };
+  host.api.imageGen = { generate: async (req) => { gens.push(req); return { imageId: `img${n++}` }; }, listConnections: async () => [] };
+  host.api.images = { upload: async () => ({ id: `webp${n++}` }), delete: async () => true };
+  host.api.characters.setAvatar = async (id, av) => { avatars.push([id, av.mime_type]); return {}; };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const { id } = await host.ask('u1', 'matchConfirm', { draft });
+  await assert.rejects(host.ask('u1', 'drawPortrait', { id }), /NovelAI 이미지 연결/);
+  const s = (await host.ask('u1', 'load')).settings;
+  await host.ask('u1', 'saveSettings', { settings: { ...s, art: { ...(s.art || {}), perDay: 5, portrait: { connectionId: 'nai1' } } } });
+  assert.equal((await host.ask('u1', 'drawPortrait', { id })).started, true);
+  for (let i = 0; i < 50 && !(await host.ask('u1', 'get', { id })).c.art?.portrait; i++) await new Promise((r) => setTimeout(r, 20));
+  const c = (await host.ask('u1', 'get', { id })).c;
+  assert.equal(c.art.portrait.imageId, 'img0');
+  assert.equal(c.portraitJob, null);
+  assert.equal(gens[0].connection_id, 'nai1');
+  assert.equal(gens[0].model, 'nai-diffusion-4-5-full');
+  assert.deepEqual(gens[0].parameters.characterTags, [{ tags: '1girl, solo, black hair' }]);
+  assert.equal(gens[0].parameters.resolution, '832x1216');
+  assert.match(gens[0].prompt, /artist:ramsrar.*upper body$/s);
+  await host.ask('u1', 'webpDone', { imageId: 'img0', data: Buffer.alloc(200, 1).toString('base64'), originalBytes: 1000 });
+  assert.equal(avatars.length, 1);
+  assert.equal(avatars[0][1], 'image/webp');
+});

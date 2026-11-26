@@ -655,6 +655,17 @@ export function setup(ctx) {
       const isize = el('input', { value: A.size, placeholder: '1024x1024' });
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
+      const PP = A.portrait || {};
+      const psel = el('select', {}, [
+        el('option', { value: '', text: '(고르기 — NovelAI 연결)' }),
+        ...imageConns.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === PP.connectionId })),
+      ]);
+      const pmodel = el('input', { value: PP.model || 'nai-diffusion-4-5-full', placeholder: 'nai-diffusion-4-5-full' });
+      const pbase = el('textarea', { value: PP.base || '', rows: 5, placeholder: '비우면 기본(받은 화풍·품질 프롬프트)' });
+      const pneg = el('textarea', { value: PP.negative || '', rows: 4, placeholder: '비우면 기본(받은 네거티브)' });
+      const psize = el('input', { value: PP.size || '832x1216', placeholder: '832x1216' });
+      const pav = el('input', { type: 'checkbox', style: 'width:auto', checked: PP.avatar !== false });
+      const pavx = el('input', { type: 'checkbox', style: 'width:auto', checked: !!PP.avatarExisting });
       const iauto = el('select', {}, [el('option', { value: 'all', text: '켬', selected: A.autoItems !== 'off' }), el('option', { value: 'off', text: '끔', selected: A.autoItems === 'off' })]);
       const CHG = [['event', '사건이 있을 때 (계절 변화 포함)'], ['season', '그쪽 계절이 바뀔 때만'], ['off', '끄기']];
       const ipch = el('select', {}, CHG.map(([v, t]) => el('option', { value: v, text: t, selected: (A.paperChange || 'event') === v })));
@@ -713,6 +724,14 @@ export function setup(ctx) {
         el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
         el('div', { class: 'im-muted', text: '편지지·우표가 바뀌면 그 편지부터 새 그림을 쓰고, 예전 편지는 그때 그림을 그대로 가집니다. 바뀔 때마다 그림 1~2장 + 글 1회, 하루 최대 장수 안에서만. 「사건」은 정리 단계가 편지 내용에서 찾습니다(정리 단계를 끄면 계절 바뀜만).' }),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
+        el('h4', { text: '초상화 (NovelAI V4.5 Full)' }),
+        el('div', { class: 'im-muted', text: '상대의 카드를 읽어 글 생성이 NovelAI 태그 프롬프트(외형 고정 → 캐릭터 칸, 구도·배경 → 기본 칸)를 쓰고, 아래 화풍 프롬프트와 합쳐 그립니다. 상대 서류함의 「초상화 그리기」로 시작합니다. 글 1회 + 그림 1장.' }),
+        field('NovelAI 이미지 연결', psel),
+        el('div', { class: 'im-pair' }, [field('모델', pmodel), field('크기', psize)]),
+        field('화풍·품질 프롬프트 (기본 칸 앞에 붙음 — 인원 태그는 캐릭터 쪽이 정함)', pbase),
+        field('네거티브', pneg),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [pav, '매칭으로 만든 캐릭터의 아바타로 쓰기']),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [pavx, '원래 있던 캐릭터(기존 캐릭터로 시작)도 아바타 바꾸기']),
         el('h4', { text: '먼저 오는 편지' }),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [initOn, '내가 오래 답장하지 않으면 상대가 먼저 쓰기']),
         el('div', { class: 'im-pair' }, [field('하루 최대(전체)', initDay), field('답 없이 연달아 쓰는 최대 통수', initStreak)]),
@@ -761,7 +780,7 @@ export function setup(ctx) {
         ]),
         el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -984,6 +1003,24 @@ export function setup(ctx) {
         // 그림
         el('h4', { text: `그림${S.art?.left !== undefined ? ` · 오늘 남은 ${S.art.left}장` : ''}` }),
         c ? artBar(c, doAct) : null,
+        c ? (() => {
+          const pimg = c.art?.portrait?.imageId;
+          const job = c.portraitJob;
+          const sec = job?.startedAt ? Math.max(0, Math.round((Date.now() - job.startedAt) / 1000)) : 0;
+          const st = job?.state === 'drawing' ? `그리는 중… ${sec < 60 ? `${sec}초째` : `${Math.floor(sec / 60)}분 ${sec % 60}초째`}` : job?.state === 'failed' ? `실패 — ${short(job.error || '', 80)}` : '';
+          return el('div', { class: 'im-row', style: 'align-items:flex-start;gap:12px;margin:6px 0 10px' }, [
+            el('div', { class: 'im-pic', style: 'width:120px;aspect-ratio:832/1216;flex:none' }, [pimg ? el('img', { src: imgUrl(pimg, 'lg'), alt: `${c.name} 초상화`, style: 'cursor:zoom-in;object-fit:cover;width:100%;height:100%', onclick: () => openImage(pimg, `${c.name} · 초상화`, c.art.portrait.character || '') }) : el('span', { html: PIC })]),
+            el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, [
+              el('b', { text: '초상화 (NovelAI)' }),
+              st ? el('div', { class: job.state === 'failed' ? 'im-err' : 'im-muted', text: st }) : null,
+              btn(pimg ? '초상화 다시 그리기' : '초상화 그리기', () => doAct(async () => {
+                if (!confirm(`${c.name}의 초상화를 ${pimg ? '다시 ' : ''}그립니다. 글 생성 1회 + 그림 1장(NovelAI). 계속할까요?`)) return;
+                await ask('drawPortrait', { id: view.id });
+              }), { disabled: job?.state === 'drawing' }),
+              c.art?.portrait?.character ? el('details', {}, [el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '쓴 프롬프트' }), el('div', { class: 'im-muted', style: 'font-size:11px;white-space:pre-wrap', text: `[캐릭터]\n${c.art.portrait.character}\n\n[기본]\n${c.art.portrait.prompt}` })]) : null,
+            ]),
+          ]);
+        })() : null,
         el('div', { class: 'im-grid' }, ['paper', 'stamp', 'seal'].map((k) => {
           const img = c?.art?.[k]?.imageId;
           const label = { paper: '편지지', stamp: '우표', seal: '봉인' }[k];
@@ -1544,7 +1581,7 @@ export function setup(ctx) {
 
   const offActivate = tab.onActivate(() => refresh());
   const timer = setInterval(refresh, 60 * 1000);
-  const tickArt = setInterval(() => { if (S.all.some((c) => c.artJob?.state === 'running')) refresh(); }, 15 * 1000);
+  const tickArt = setInterval(() => { if (S.all.some((c) => c.artJob?.state === 'running' || c.portraitJob?.state === 'drawing')) refresh(); }, 15 * 1000);
   refresh();
   renderAll();
 

@@ -61,6 +61,7 @@ export function cleanArt(a) {
     paperBorder: anum(a?.paperBorder, 0, 200, DEFAULT_ART.paperBorder),
     paperSlice: anum(a?.paperSlice, 1, 45, DEFAULT_ART.paperSlice),
     kinds,
+    portrait: a?.portrait && typeof a.portrait === 'object' ? a.portrait : {}, // 초상화 설정(portrait.js의 cleanPortrait로 정리)
   };
 }
 

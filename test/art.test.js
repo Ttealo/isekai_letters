@@ -79,3 +79,23 @@ test('편지지·우표 바뀜 고르기: 사건/계절/끄기, 기본 세트 �
   assert.deepEqual(A.artChangeJobs(seasonOnly, { seasonChanged: true, hasSet: has }).map((x) => x.kind), ['paper']);
   assert.deepEqual(A.artChangeJobs(art, { seasonChanged: true, hasSet: { paper: false, stamp: true } }).map((x) => x.kind), ['stamp']);
 });
+
+test('초상화: NAI 프롬프트 정리·합치기, 한글 제거, 기본 화풍', async () => {
+  const P = await import('../src/portrait.js');
+  const cfg = P.cleanPortrait({});
+  assert.equal(cfg.model, 'nai-diffusion-4-5-full');
+  assert.equal(cfg.size, '832x1216');
+  assert.match(cfg.base, /artist:ramsrar/);
+  assert.doesNotMatch(cfg.base, /1man/);
+  assert.match(cfg.negative, /6::artist name::/);
+  const pp = P.cleanPortraitPrompt({ character: '1girl, solo, 은발 silver hair,\nlong hair 😀', scene: 'upper body, holding letter', character_uc: 'youthful facial features' });
+  assert.equal(pp.character, '1girl, solo, silver hair, long hair');
+  const r = P.composePortrait(cfg, pp);
+  assert.match(r.prompt, /bokeh, upper body, holding letter$/);
+  assert.match(r.negative, /youthful facial features$/);
+  assert.deepEqual(r.characterTags, [{ tags: pp.character }]);
+  const [sys, user] = P.buildPortraitMessages({ name: '레아', brief: '# 레아 / 30 / 여성' }, { world: '섬' });
+  assert.match(sys.content, /V4.5 Full/);
+  assert.match(user.content, /# 레아/);
+  assert.throws(() => P.cleanPortraitPrompt({ character: '한글만' }), /비어 있습니다/);
+});

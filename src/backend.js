@@ -6,6 +6,7 @@ import {
 import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
 } from './match.js';
+import { cleanPortrait, buildPortraitMessages, cleanPortraitPrompt, composePortrait } from './portrait.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
@@ -345,6 +346,62 @@ export function start(api) {
     drawArtWhenFree(user, id, jobs).catch((e) => log('warn', `대기 중이던 그리기 실패: ${e?.message || e}`));
     return { started: jobs.length, queued: true, left: left - jobs.length };
   };
+  // 초상화(NovelAI): 글 1회로 태그 프롬프트, 그림 1장. 백그라운드로 돈다.
+  const drawPortrait = async (user, id) => {
+    const key = `${user}:${id}:portrait`;
+    if (drawing.has(key)) throw new Error('초상화를 이미 그리는 중입니다.');
+    const settings = await loadSettings(user);
+    const art = cleanArt(settings.art);
+    const P = cleanPortrait(art.portrait);
+    if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
+    if (quotaLeft(await readUsage(user), art) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다. 설정에서 하루 상한을 바꿀 수 있습니다.');
+    drawing.add(key);
+    const t0 = Date.now();
+    await mutate(user, id, (c) => ({ ...c, portraitJob: { state: 'drawing', startedAt: t0, error: '' } }));
+    notify(user, { id });
+    (async () => {
+      const c = await loadC(user, id);
+      try {
+        const card = await cardOf(user, c);
+        const world = (await allLore(user, c).catch(() => [])).filter((e) => /세계 개요|overview/i.test(e.comment || '')).map((e) => e.content).join('\n');
+        const raw = await genJson(user, buildPortraitMessages(c, { cardText: cardTextOf(card), world: world || c.world }), { ...settings, createTemperature: 0.6, createConnectionId: settings.createConnectionId });
+        const pp = cleanPortraitPrompt(raw);
+        const req = composePortrait(P, pp);
+        log('info', `초상화 시작(${c.name}) 모델=${P.model}`);
+        let timer;
+        const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${ART_TIMEOUT_MIN}분 동안 응답이 없어 그만뒀어요`)), ART_TIMEOUT_MIN * 60000); });
+        let res;
+        try {
+          res = await Promise.race([api.imageGen.generate({
+            prompt: req.prompt, connection_id: P.connectionId, model: P.model || undefined,
+            parameters: { negativePrompt: req.negative, resolution: P.size, characterTags: req.characterTags },
+            includeDataUrl: false, owner_character_id: c.characterId || undefined, userId: user,
+          }), timeout]);
+        } finally { clearTimeout(timer); }
+        if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
+        await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
+        let old = '';
+        await mutate(user, id, (x) => {
+          x = ensureArt(x);
+          old = x.art?.portrait?.imageId || '';
+          return { ...x, portraitJob: null, art: { ...x.art, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now() } } };
+        });
+        if (old) { try { await api.images.delete(old, user); } catch {} }
+        await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0, kind: 'portrait' }]);
+        log('info', `초상화 완성(${c.name}) ${Math.round((Date.now() - t0) / 1000)}초`);
+        api.toast?.success?.(`${c.name}: 초상화 완성`, { title: '이세계 우체통', userId: user });
+      } catch (e) {
+        const msg = String(e?.message || e).slice(0, 300);
+        log('warn', `초상화 실패(${c.name}): ${msg}`);
+        await mutate(user, id, (x) => ({ ...x, portraitJob: { state: 'failed', startedAt: t0, error: msg } })).catch(() => {});
+        api.toast?.error?.(`${c.name}: 초상화 실패 — ${msg.slice(0, 120)}`, { title: '이세계 우체통', userId: user });
+      } finally {
+        drawing.delete(key);
+        notify(user, { id });
+      }
+    })();
+    return { started: true };
+  };
   // 프런트가 WebP로 바꿔 보낸 바이트로 바꿔 끼우고 원본(png)을 지운다
   const webpDone = async (user, p) => {
     const q = await readJson(WEBP, user, []);
@@ -363,6 +420,12 @@ export function start(api) {
           ? { ...l, art: Object.fromEntries(Object.entries(l.art).map(([k, v]) => [k, v === p.imageId ? up.id : v])) } : l));
         return { ...c, art, items, letters };
       });
+    }
+    if (c0 && row.kind === 'portrait' && c0.characterId && api.characters?.setAvatar) {
+      const P = cleanPortrait(cleanArt((await loadSettings(user)).art).portrait);
+      if (P.avatar && (c0.origin !== 'existing' || P.avatarExisting)) {
+        try { await api.characters.setAvatar(c0.characterId, { data: bytes, mime_type: 'image/webp', filename: `${c0.name}.webp` }, user); log('info', `아바타 바꿈(${c0.name})`); } catch (e) { log('warn', `아바타 바꾸기 실패: ${e?.message || e}`); }
+      }
     }
     try { await api.images.delete(p.imageId, user); } catch {}
     await serial(user, async () => {
@@ -709,6 +772,7 @@ export function start(api) {
         await mutate(user, id, (c) => {
           let base = firstRun ? recover(c) : c;
           if (firstRun && base.organize?.state === 'generating') base = { ...base, organize: { ...base.organize, state: 'waiting', nextTryAt: 0 } };
+          if (firstRun && base.portraitJob?.state === 'drawing' && !drawing.has(`${user}:${id}:portrait`)) base = { ...base, portraitJob: { ...base.portraitJob, state: 'failed', error: '확장이 다시 시작돼 그리기가 끊겼어요. 다시 그려 주세요.' } };
           if (firstRun && base.artJob?.state === 'running' && !drawing.has(`${user}:${id}:art`)) {
             const t = (base.artJob.targets || []).map((x) => (x.state === 'done' ? x : { ...x, state: 'failed', error: '확장이 다시 시작돼 그리기가 끊겼어요. 다시 그려 주세요.' }));
             base = { ...base, artJob: { ...base.artJob, state: 'failed', targets: t, error: '확장이 다시 시작돼 그리기가 끊겼어요.' } };
@@ -941,6 +1005,7 @@ export function start(api) {
         const art = cleanArt((await loadSettings(user)).art);
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
+      case 'drawPortrait': return drawPortrait(user, p.id);
       case 'drawSet': {
         const c = ensureArt(await loadC(user, p.id));
         const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
