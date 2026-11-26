@@ -124,7 +124,7 @@ const CSS2 = `
 .im-compose>summary{list-style:none;display:inline-flex;align-items:center;gap:6px;padding:7px 18px;border-radius:999px;background:var(--im-ink);color:var(--lumiverse-bg-elevated,#fff);cursor:pointer;font-family:var(--im-serif);font-size:13.5px;margin-top:6px}
 .im-compose>summary::-webkit-details-marker{display:none}
 .im-compose[open]>summary{background:transparent;color:var(--im-ink);border:1px solid var(--im-line)}
-.im-panel .im-letter textarea:first-of-type{font-family:var(--im-serif);font-size:14.5px;line-height:28px;background:var(--im-cream) repeating-linear-gradient(transparent 0 27px,color-mix(in srgb,var(--im-line) 70%,transparent) 27px 28px);background-attachment:local;border-color:var(--im-line);min-height:200px;padding:8px 12px}
+.im-panel .im-letter textarea:first-of-type{font-family:var(--im-serif);font-size:14.5px;line-height:28px;background:var(--im-cream) repeating-linear-gradient(transparent 0 27px,color-mix(in srgb,var(--im-line) 70%,transparent) 27px 28px);background-attachment:local;border-color:var(--im-line);min-height:200px;padding:2px 12px 8px;background-position:0 2px}
 .im-panel .im-btn.im-primary{background:var(--im-wax);border-radius:999px;padding:6px 20px;font-family:var(--im-serif)}
 .im-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
 .im-item{border:none;border-radius:6px;background:var(--lumiverse-bg-elevated,#fff);padding:8px 8px 0;box-shadow:var(--lumiverse-shadow-sm,0 2px 8px #0002);transition:transform .15s,box-shadow .15s}
@@ -1076,7 +1076,7 @@ export function setup(ctx) {
         sealImg ? el('img', { class: 'im-seal', src: imgUrl(sealImg, 'sm'), alt: '' }) : el('span', { class: 'im-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) }),
         el('div', { class: 'im-grow' }, [
           el('div', { class: 'im-name', text: c.name }),
-          el('div', { class: 'im-muted', text: `${c.personaName ? `${c.personaName}와(과)의 편지 · ` : ''}그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio}` }),
+          el('div', { class: 'im-muted', text: `${c.personaName ? `${c.personaName}의 편지 상대 · ` : ''}그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio}` }),
         ]),
       ]),
       artBar(c, act),
