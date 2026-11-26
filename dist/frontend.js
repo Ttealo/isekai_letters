@@ -564,6 +564,12 @@ const CSS = `
 .im-item{border:1px solid var(--lumiverse-border);border-radius:8px;overflow:hidden;background:var(--lumiverse-fill-subtle,transparent);display:flex;flex-direction:column}
 .im-item .im-pic{aspect-ratio:1/1;background:#efe2c6;display:flex;align-items:center;justify-content:center;color:#a88a5e}
 .im-item .im-pic img{width:100%;height:100%;object-fit:cover}
+.im-item .im-pic{position:relative}
+.im-state{position:absolute;left:0;right:0;bottom:0;padding:4px 6px;font-size:11px;line-height:1.35;text-align:center;color:#fff;background:rgba(40,30,20,.72)}
+.im-state.im-bad{background:rgba(150,40,30,.85)}
+.im-spin{display:inline-block;width:9px;height:9px;margin-right:5px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:im-spin 1s linear infinite;vertical-align:-1px}
+@keyframes im-spin{to{transform:rotate(360deg)}}
+.im-pill{position:absolute;left:-6px;top:58px;padding:1px 6px;border-radius:9px;font:600 10px/16px system-ui,sans-serif;color:#fff;white-space:nowrap}
 .im-item .im-cap{padding:6px 8px;font-size:12px;line-height:1.4}
 .im-item .im-cap b{display:block;font-size:12.5px}
 .im-bundle{display:flex;gap:10px;align-items:center;border:1px solid var(--lumiverse-border);border-radius:8px;padding:10px;cursor:pointer;background:var(--lumiverse-fill-subtle,transparent)}
@@ -1227,13 +1233,12 @@ export function setup(ctx) {
         el('div', { class: 'im-row' }, [btn('아직 정리 안 된 편지 정리하기(생성 1회)', () => doAct(() => ask('organizeNow', { id: view.id })))]),
         // 그림
         el('h4', { text: `그림${S.art?.left !== undefined ? ` · 오늘 남은 ${S.art.left}장` : ''}` }),
-        c?.artJob?.state === 'running' ? el('div', { class: 'im-muted', text: `그리는 중… ${c.artJob.done}/${c.artJob.total}` }) : null,
-        c?.artJob?.state === 'failed' ? el('div', { class: 'im-err', text: `지난 그리기 실패: ${c.artJob.error}` }) : null,
+        c ? artBar(c, doAct) : null,
         el('div', { class: 'im-grid' }, ['paper', 'stamp', 'seal'].map((k) => {
           const img = c?.art?.[k]?.imageId;
           const label = { paper: '편지지', stamp: '우표', seal: '봉인' }[k];
           return el('div', { class: 'im-item' }, [
-            el('div', { class: 'im-pic' }, [img ? el('a', { href: `/api/v1/images/${img}`, target: '_blank', rel: 'noopener' }, [el('img', { src: imgUrl(img, 'lg'), alt: label, loading: 'lazy' })]) : el('span', { html: PIC })]),
+            el('div', { class: 'im-pic' }, [img ? el('a', { href: `/api/v1/images/${img}`, target: '_blank', rel: 'noopener' }, [el('img', { src: imgUrl(img, 'lg'), alt: label, loading: 'lazy' })]) : el('span', { html: PIC }), stateOverlay(artTarget(c, k))]),
             el('div', { class: 'im-cap' }, [el('b', { text: label }), link(img ? '다시 그리기' : '그리기', () => doAct(async () => {
               if (!confirm(`${label}을(를) ${img ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
               await ask('drawSet', { id: view.id, kinds: [k] });
@@ -1429,31 +1434,53 @@ export function setup(ctx) {
     ];
   }
 
+  // 그림 작업 상태: 대상(편지지·우표·봉인·물건)마다 waiting/drawing/done/failed
+  const artTarget = (c, kind, itemId = '') => (c?.artJob?.targets || []).find((t) => t.kind === kind && (t.itemId || '') === (itemId || '')) || null;
+  const STATE_TEXT = { waiting: '기다리는 중', drawing: '그리는 중…', failed: '실패' };
+  const stateOverlay = (t) => {
+    if (!t || t.state === 'done') return null;
+    return el('div', { class: `im-state${t.state === 'failed' ? ' im-bad' : ''}`, title: t.error || '' }, [
+      t.state === 'drawing' ? el('span', { class: 'im-spin' }) : null,
+      t.state === 'failed' ? `실패 — ${short(t.error || '', 40)}` : STATE_TEXT[t.state],
+    ]);
+  };
   // 그림 세트(편지지·우표·봉인) 상태와 버튼
   function artBar(c, act) {
     const have = ['paper', 'stamp', 'seal'].filter((k) => c.art?.[k]?.imageId);
     const job = c.artJob;
     const left = S.art?.left;
-    if (job?.state === 'running') return el('div', { class: 'im-muted', text: `그림을 그리는 중… ${job.done}/${job.total}` });
+    if (job?.state === 'running') {
+      const ts = job.targets || [];
+      return el('div', { class: 'im-transit' }, [
+        el('div', {}, [el('span', { class: 'im-spin' }), `그림을 그리는 중 ${job.done || 0}/${job.total}`]),
+        ...ts.map((t) => el('div', { class: t.state === 'failed' ? 'im-err' : 'im-muted', text: `· ${t.label}: ${t.state === 'done' ? '완성' : STATE_TEXT[t.state] || t.state}${t.error && t.state === 'failed' ? ` (${short(t.error, 80)})` : ''}` })),
+      ]);
+    }
     const missing = ['paper', 'stamp', 'seal'].filter((k) => !have.includes(k));
-    return el('div', { class: 'im-row' }, [
-      el('span', { class: 'im-muted im-grow', text: `그림 세트 ${have.length}/3${left !== undefined ? ` · 오늘 남은 그림 ${left}장` : ''}${job?.state === 'failed' ? ` · 실패: ${job.error}` : ''}` }),
-      link(missing.length ? `그림 세트 만들기(${missing.length}장)` : '세트 다시 그리기(3장)', () => act(async () => {
-        const kinds = missing.length ? missing : ['paper', 'stamp', 'seal'];
-        if (!confirm(`${c.name}의 ${kinds.map((k) => ({ paper: '편지지', stamp: '우표', seal: '봉인' })[k]).join('·')}을 그립니다.\n이미지 ${kinds.length}장 + 글 생성 1회. 계속할까요?`)) return;
-        await ask('drawSet', { id: c.id, kinds });
-        await refresh();
-      })),
+    return el('div', {}, [
+      job?.state === 'failed' ? el('div', { class: 'im-row' }, [
+        el('span', { class: 'im-err im-grow', text: `지난 그리기 실패 ${(job.total || 0) - (job.done || 0)}장: ${short(job.error || '', 160)}` }),
+        link('닫기', () => act(async () => { await ask('artDismiss', { id: c.id }); await refresh(); })),
+      ]) : null,
+      el('div', { class: 'im-row' }, [
+        el('span', { class: 'im-muted im-grow', text: `그림 세트 ${have.length}/3${left !== undefined ? ` · 오늘 남은 그림 ${left}장` : ''}` }),
+        link(missing.length ? `그림 세트 만들기(${missing.length}장)` : '세트 다시 그리기(3장)', () => act(async () => {
+          const kinds = missing.length ? missing : ['paper', 'stamp', 'seal'];
+          if (!confirm(`${c.name}의 ${kinds.map((k) => ({ paper: '편지지', stamp: '우표', seal: '봉인' })[k]).join('·')}을 그립니다.\n이미지 ${kinds.length}장 + 글 생성 1회. 계속할까요?`)) return;
+          await ask('drawSet', { id: c.id, kinds });
+          await refresh();
+        })),
+      ]),
     ]);
   }
-  const drawItemBtn = (x, cid) => (x.imageId || (x.from === 'them' && x.state === 'in_transit') || !cid ? null
-    : el('button', { class: 'im-link', type: 'button', text: '그리기', style: 'font-size:11px', onclick: async (ev) => {
+  const drawItemBtn = (x, cid) => (x.imageId || (x.from === 'them' && x.state === 'in_transit') || !cid || ['waiting', 'drawing'].includes(artTarget(byId(cid), 'item', x.id)?.state) ? null
+    : el('button', { class: 'im-link', type: 'button', text: artTarget(byId(cid), 'item', x.id)?.state === 'failed' ? '다시 그리기' : '그리기', style: 'font-size:11px', onclick: async (ev) => {
       ev.stopPropagation();
       if (!confirm(`「${x.name}」을 그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
       try { await ask('drawItem', { id: cid, itemId: x.id }); await refresh(); } catch (e) { alert(e.message || String(e)); }
     } }));
   const itemCard = (x, who, cid) => el('div', { class: 'im-item', title: x.note || x.name }, [
-    el('div', { class: 'im-pic' }, [x.imageId ? el('img', { src: imgUrl(x.imageId, 'lg'), alt: x.name, loading: 'lazy' }) : el('span', { html: PIC })]),
+    el('div', { class: 'im-pic' }, [x.imageId ? el('img', { src: imgUrl(x.imageId, 'lg'), alt: x.name, loading: 'lazy' }) : el('span', { html: PIC }), stateOverlay(artTarget(byId(cid), 'item', x.id))]),
     el('div', { class: 'im-cap' }, [
       el('b', { text: x.name }),
       x.note ? el('div', { class: 'im-muted', text: short(x.note, 60) }) : null,
@@ -1530,7 +1557,9 @@ export function setup(ctx) {
     const flagUp = unread > 0;
     const open = panel && !panel.isCollapsed();
     // 모양이 바뀔 때만 다시 그린다(누르는 도중에 그림이 바뀌어 클릭이 사라지지 않게)
-    const key = `${unread}|${open}`;
+    const running = S.all.filter((c) => c.artJob?.state === 'running').length;
+    const failed = S.all.filter((c) => c.artJob?.state === 'failed').length;
+    const key = `${unread}|${open}|${running}|${failed}`;
     if (key === widgetKey) return;
     widgetKey = key;
     // 고정 SVG(사용자 글 없음). 숫자만 textContent로 넣는다.
@@ -1545,8 +1574,10 @@ export function setup(ctx) {
       <path d="${flagUp ? 'M53.5 12h15l-3 5 3 5h-15z' : 'M53.5 36h4v14h-4z'}" fill="#f0a53a"/>
     </svg>`;
     if (unread) box.append(el('span', { text: String(unread), style: 'position:absolute;left:30px;top:4px;min-width:20px;height:20px;border-radius:10px;background:#534ab7;color:#fff;font:600 11px/20px system-ui,sans-serif;text-align:center;padding:0 5px;box-sizing:border-box' }));
+    if (running) box.append(el('span', { class: 'im-pill', style: 'background:#7a5a2b', title: '그림을 그리는 중' }, [el('span', { class: 'im-spin', style: 'width:7px;height:7px;margin-right:3px' }), '그림']));
+    else if (failed) box.append(el('span', { class: 'im-pill', style: 'background:#a33', title: '그림 그리기 실패 — 편지첩에서 확인' }, ['그림 실패']));
     box.style.position = 'relative';
-    widget.root.title = unread ? `새 편지 ${unread}통` : '이세계 우체통';
+    widget.root.title = [unread ? `새 편지 ${unread}통` : '이세계 우체통', running ? '그림 그리는 중' : '', failed ? '그림 실패 있음' : ''].filter(Boolean).join(' · ');
   }
   views.add({ render: renderWidget });
 

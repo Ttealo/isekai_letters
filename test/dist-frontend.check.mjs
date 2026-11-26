@@ -21,6 +21,7 @@ const mk = (id, name, personaId, personaName, extra = {}) => ({
 });
 const miren = mk('c1', '미렌', 'p1', '시드', {
   art: { paper: { imageId: 'pp' }, stamp: { imageId: 'st' } },
+  artJob: { state: 'running', total: 2, done: 0, targets: [{ kind: 'seal', itemId: '', label: '봉인', state: 'drawing' }, { kind: 'item', itemId: 'i3', label: '깃털', state: 'waiting' }] },
   letters: [
     { id: 'l1', from: 'me', personaName: '시드', body: '처음 편지', enclosures: [{ item: '은행잎 한 장' }], sentAt: now - 9e6, arriveAt: now - 8e6, state: 'arrived', theirSentLabel: '1일째', theirArriveLabel: '2일째' },
     { id: 'l2', from: 'them', state: 'opened', body: '<b>편지</b> 잘 받았네.', ps: '춥군.', envelope: { medium: '기름 먹인 천', scent: '소금', stamp: '등대 도장' }, enclosures: [{ item: '조개', note: '얼음 틈에서' }], sentAt: now - 4e6, arriveAt: now - 3e6, theirWrittenLabel: '3일째', writtenLabel: '만난 지 3일째 새벽' },
@@ -120,9 +121,8 @@ ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') &&
 ok('편지첩: 우표 칸(설명은 툴팁)', panelRoot.querySelector('.im-stamp')?.getAttribute('title')?.includes('등대 도장'));
 ok('그림: 편지지 배경', panelRoot.querySelector('.im-paper.im-has-paper')?.getAttribute('style')?.includes('/api/v1/images/pp?size=lg'));
 ok('그림: 우표 그림', !!panelRoot.querySelector('.im-stamp img[src="/api/v1/images/st?size=sm"]'));
-ok('그림: 세트 상태·남은 장수', panelRoot.textContent.includes('그림 세트 2/3 · 오늘 남은 그림 5장') && panelRoot.textContent.includes('그림 세트 만들기(1장)'));
-clickIn(panelRoot, 'button', '그림 세트 만들기'); await tick(6);
-ok('그림: 빠진 것만 그리기 요청', sentLog.some((x) => x.type === 'drawSet' && x.kinds.join() === 'seal'));
+ok('그림: 그리는 중 표시(대상별)', panelRoot.textContent.includes('그림을 그리는 중 0/2') && panelRoot.textContent.includes('· 봉인: 그리는 중…') && panelRoot.textContent.includes('· 깃털: 기다리는 중'));
+ok('그림: 위젯에 그리는 중', widgetRoot.textContent.includes('그림'));
 ok('편지첩: 동봉 줄', panelRoot.textContent.includes('동봉 · 조개 — 얼음 틈에서'));
 ok('편지첩: 안 연 봉투', !!panelRoot.querySelector('.im-envelope') && panelRoot.textContent.includes('거칠다'));
 ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 편지가 가는 중'));
@@ -133,7 +133,7 @@ clickIn(panelRoot, '.im-tabs button', '물품'); await tick();
 ok('물품: 받은 것 2 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 2') && panelRoot.textContent.includes('보낸 것 · 1'));
 ok('물품: 카드 3개', panelRoot.querySelectorAll('.im-item').length === 3);
 const drawBtns = [...panelRoot.querySelectorAll('.im-item button')].filter((b) => b.textContent === '그리기');
-ok('물품: 그림 없는 물건마다 그리기', drawBtns.length === 3);
+ok('물품: 그리는 중인 물건은 표시만(버튼 없음)', drawBtns.length === 2 && [...panelRoot.querySelectorAll('.im-item')].find((x) => x.textContent.includes('깃털'))?.querySelector('.im-state')?.textContent === '기다리는 중');
 drawBtns[0].dispatchEvent(new window.Event('click')); await tick(6);
 ok('물품: 그리기 요청', sentLog.some((x) => x.type === 'drawItem' && x.id === 'c1'));
 // 모음

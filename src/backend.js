@@ -204,23 +204,56 @@ export function start(api) {
     const left = quotaLeft(await readUsage(user), art);
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장). 설정에서 하루 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
-    await mutate(user, id, (c) => ({ ...ensureArt(c), artJob: { state: 'running', total: jobs.length, done: 0, error: '', at: Date.now() } }));
+    const c00 = await loadC(user, id);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    // 대상마다 상태: waiting → drawing → done | failed
+    const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
+    const setTarget = (i, patch) => mutate(user, id, (c) => {
+      const t = (c.artJob?.targets || targets).map((x, k) => (k === i ? { ...x, ...patch } : x));
+      return { ...c, artJob: { ...(c.artJob || {}), targets: t, done: t.filter((x) => x.state === 'done').length } };
+    });
+    await mutate(user, id, (c) => ({ ...ensureArt(c), artJob: { state: 'running', total: jobs.length, done: 0, error: '', at: Date.now(), targets } }));
     notify(user, { id });
     const run = async () => {
-      let done = 0;
       const errors = [];
+      let doneCount = 0;
       try {
-        const c0 = await loadC(user, id);
         const named = jobs.map((j, i) => {
-          const it = j.kind === 'item' ? (c0.items || []).find((x) => x.id === j.itemId) : null;
+          const it = j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId) : null;
           return { ...j, key: `k${i}`, name: it?.name, note: it?.note };
         });
-        const raw = await genJson(user, buildArtPromptMessages(c0, named), { ...settings, createConnectionId: settings.organizeConnectionId || settings.createConnectionId, createTemperature: 0.7 });
-        const prompts = cleanArtPrompts(raw, named.map((j) => j.key));
-        for (const j of named) {
-          const subject = prompts[j.key] || (j.kind === 'item' ? j.name : '');
-          if (!subject) { errors.push(`${j.kind}: 주제를 못 받음`); continue; }
+        // 1) 그림 주제(글 1회). 한도 초과(429)·서버 오류면 잠시 뒤 한 번 더, 그래도 안 되면 이름·설명으로 대신
+        let prompts = {};
+        let subjectNote = '';
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const raw = await genJson(user, buildArtPromptMessages(c00, named), { ...settings, createConnectionId: settings.organizeConnectionId || settings.createConnectionId, createTemperature: 0.7 });
+            prompts = cleanArtPrompts(raw, named.map((j) => j.key));
+            subjectNote = '';
+            break;
+          } catch (e) {
+            subjectNote = String(e?.message || e);
+            if (attempt === 0 && /\b(429|5\d\d)\b|exhausted|rate|timeout|응답 없음/i.test(subjectNote)) await new Promise((r) => setTimeout(r, 8000));
+            else break;
+          }
+        }
+        const m = c00.mail || {};
+        const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
+          : j.kind === 'paper' ? [m.medium, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+            : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
+        // 2) 그림을 차례로
+        for (let i = 0; i < named.length; i++) {
+          const j = named[i];
+          const subject = prompts[j.key] || fallback(j) || '';
+          if (!subject) {
+            const msg = `주제를 못 받음${subjectNote ? ` (${subjectNote.slice(0, 120)})` : ''}`;
+            errors.push(`${targets[i].label}: ${msg}`);
+            await setTarget(i, { state: 'failed', error: msg });
+            continue;
+          }
           const prompt = composePrompt(j.kind, subject, art);
+          await setTarget(i, { state: 'drawing' });
+          notify(user, { id });
           try {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
@@ -229,7 +262,7 @@ export function start(api) {
               try {
                 res = await api.imageGen.generate({
                   prompt, connection_id: art.connectionId || undefined, model: modelFor(art, j.kind) || undefined,
-                  parameters, includeDataUrl: false, owner_character_id: c0.characterId || undefined, userId: user,
+                  parameters, includeDataUrl: false, owner_character_id: c00.characterId || undefined, userId: user,
                 });
                 break;
               } catch (e) {
@@ -244,24 +277,35 @@ export function start(api) {
             });
             await mutate(user, id, (c) => {
               c = ensureArt(c);
-              const rec = { imageId: res.imageId, prompt, at: Date.now() };
-              const next = j.kind === 'item'
+              const rec = { imageId: res.imageId, prompt, at: Date.now(), subjectFallback: !prompts[j.key] };
+              return j.kind === 'item'
                 ? { ...c, items: c.items.map((x) => (x.id === j.itemId ? { ...x, imageId: res.imageId, imagePrompt: prompt } : x)) }
                 : { ...c, art: { ...c.art, [j.kind]: rec } };
-              return { ...next, artJob: { ...(c.artJob || {}), done: ++done } };
             });
+            await setTarget(i, { state: 'done', error: prompts[j.key] ? '' : '주제 대신 이름·설명으로 그림' });
+            doneCount++;
             await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0 }]);
             notify(user, { id });
           } catch (e) {
-            errors.push(`${j.kind}: ${e?.message || e}`);
+            const msg = String(e?.message || e).slice(0, 300);
+            errors.push(`${targets[i].label}: ${msg}`);
+            await setTarget(i, { state: 'failed', error: msg });
+            notify(user, { id });
           }
         }
       } catch (e) {
         errors.push(String(e?.message || e));
       } finally {
         drawing.delete(key);
-        await mutate(user, id, (c) => ({ ...c, artJob: errors.length ? { state: 'failed', total: jobs.length, done, error: errors.join(' / ').slice(0, 500), at: Date.now() } : null })).catch(() => {});
+        await mutate(user, id, (c) => {
+          const t = c.artJob?.targets || targets;
+          return { ...c, artJob: errors.length ? { state: 'failed', total: jobs.length, done: doneCount, error: errors.join(' / ').slice(0, 500), at: Date.now(), targets: t } : null };
+        }).catch(() => {});
         if (errors.length) log('warn', `그림 일부 실패: ${errors.join(' / ')}`);
+        try {
+          if (errors.length) api.toast?.error?.(`${c00.name}: 그림 ${jobs.length - doneCount}장 실패 — ${errors[0].slice(0, 120)}`, { title: '이세계 우체통', userId: user });
+          else api.toast?.success?.(`${c00.name}: 그림 ${doneCount}장 완성`, { title: '이세계 우체통', userId: user });
+        } catch {}
         notify(user, { id });
       }
     };
@@ -713,6 +757,10 @@ export function start(api) {
         const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
         if (!kinds.length) throw new Error('그릴 것이 없습니다.');
         return drawArt(user, c.id, kinds.map((kind) => ({ kind })));
+      }
+      case 'artDismiss': {
+        await mutate(user, p.id, (c) => (c.artJob?.state === 'failed' ? { ...c, artJob: null } : c));
+        return {};
       }
       case 'drawItem': {
         const c = await loadC(user, p.id);

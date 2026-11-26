@@ -468,3 +468,41 @@ test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 �
   st = await host.ask('u1', 'artStatus');
   assert.equal(st.left, 0);
 });
+
+test('그림 상태: 대상마다 상태, 주제 글 실패 시 이름으로 대신 그림, 이미지 실패는 그 대상만 실패 + 알림', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  let n = 0;
+  const toasts = [];
+  host.api.toast = { success: (m, o) => toasts.push(['ok', m, o?.userId]), error: (m, o) => toasts.push(['err', m, o?.userId]) };
+  host.api.imageGen = {
+    generate: async (req) => { if (/stamp/.test(req.prompt)) throw new Error('Nano-GPT image generate failed (402): insufficient balance'); return { imageId: `img${n++}` }; },
+    listConnections: async () => [],
+  };
+  host.api.images = { upload: async () => ({ id: 'w' }), delete: async () => true };
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/You write short English subject phrases/.test(req.messages[0].content)) throw new Error('JSON 아님');
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
+  const r = await host.ask('u1', 'matchConfirm', { draft });
+  await host.ask('u1', 'drawSet', { id: r.id, kinds: ['paper', 'stamp'] });
+  await settle(); await settle();
+  const g = await host.ask('u1', 'get', { id: r.id });
+  assert.equal(g.c.artJob.state, 'failed');
+  const ts = Object.fromEntries(g.c.artJob.targets.map((x) => [x.label, x]));
+  assert.equal(ts['편지지'].state, 'done');
+  assert.match(ts['편지지'].error, /대신/);
+  assert.equal(ts['우표'].state, 'failed');
+  assert.match(ts['우표'].error, /402/);
+  assert.ok(g.c.art.paper.imageId);
+  assert.equal(g.c.art.paper.subjectFallback, true);
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0][0], 'err');
+  assert.equal(toasts[0][2], 'u1');
+  await host.ask('u1', 'artDismiss', { id: r.id });
+  assert.equal((await host.ask('u1', 'get', { id: r.id })).c.artJob, null);
+});
