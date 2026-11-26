@@ -65,6 +65,7 @@ const replies = {
   drawSet: (m) => { sentLog.push(m); return { started: m.kinds.length }; },
   drawItem: (m) => { sentLog.push(m); return { started: 1 }; },
   imageConnections: () => ({ connections: [{ id: 'ic1', name: '이미지 · Chroma', model: 'chroma' }] }),
+  imageModels: (m) => { sentLog.push(m); return { connectionId: 'ic1', current: 'chroma', models: [{ id: 'chroma', label: 'Chroma' }, { id: 'flux-pro', label: 'Flux Pro' }] }; },
   setRules: (m) => { sentLog.push(m); return { locks: m.locks, applyMode: m.applyMode }; },
 };
 let badge = null;
@@ -149,6 +150,9 @@ clickIn(panelRoot, 'details button', '보내기'); await tick(8);
 const sendMsg = sentLog.filter((x) => x.type === 'send');
 ok('보조창에서 보내기(동봉 2줄)', sendMsg.length === 1 && sendMsg[0].body === '세 번째 편지' && sendMsg[0].enclosure === '말린 꽃\n작은 종');
 // 새 상대(매칭)
+clickIn(drawerRoot, 'button', '← 우편함'); await tick();
+clickIn(drawerRoot, 'button', '설정'); await tick(8);
+ok('설정: 이미지 모델 목록', drawerRoot.querySelectorAll('#im-image-models option').length === 2 && drawerRoot.textContent.includes('이 연결의 기본 모델: chroma'));
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '새 상대'); await tick(6);
 ok('매칭: 방식 4개', ['원하는 상대 적기', '무작위로 만나기', '기존 캐릭터', '직접 다 적기'].every((t) => drawerRoot.textContent.includes(t)));

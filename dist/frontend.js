@@ -768,6 +768,7 @@ export function setup(ctx) {
     let error = '';
     let connections = null;
     let imageConns = null;
+    const modelCache = {};
     const go = (v) => { view = v; error = ''; render(); if (v.name === 'home' || v.name === 'c') refresh(); };
     const act = async (fn) => {
       if (busy) return;
@@ -951,7 +952,24 @@ export function setup(ctx) {
         el('option', { value: '', text: '앱 기본 이미지 연결' }),
         ...imageConns.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}${x.is_default ? ' (기본)' : ''}`, selected: x.id === A.connectionId })),
       ]);
-      const imodel = el('input', { value: A.model, placeholder: '예: chroma' });
+      const imodel = el('input', { value: A.model, placeholder: '목록에서 고르거나 직접 적기 (비우면 연결의 모델)', list: 'im-image-models' });
+      const ilist = el('datalist', { id: 'im-image-models' });
+      const imodelNote = el('div', { class: 'im-muted', text: '' });
+      const showModels = (r) => {
+        ilist.replaceChildren(...r.models.map((m) => el('option', { value: m.id, text: m.label !== m.id ? m.label : '' })));
+        imodelNote.textContent = `모델 ${r.models.length}개${r.current ? ` · 이 연결의 기본 모델: ${r.current}` : ''}. 칸을 비우면 기본 모델을 씁니다.`;
+      };
+      const loadModels = (connId) => {
+        if (modelCache[connId || '']) { showModels(modelCache[connId || '']); return; }
+        imodelNote.textContent = '모델 목록을 불러오는 중…';
+        ask('imageModels', { connectionId: connId }, 30000).then((r) => {
+          modelCache[connId || ''] = r;
+          ilist.replaceChildren(...r.models.map((m) => el('option', { value: m.id, text: m.label !== m.id ? m.label : '' })));
+          imodelNote.textContent = `모델 ${r.models.length}개${r.current ? ` · 이 연결의 기본 모델: ${r.current}` : ''}. 칸을 비우면 기본 모델을 씁니다.`;
+        }).catch((e) => { imodelNote.textContent = `모델 목록을 못 불러왔습니다: ${e.message}`; });
+      };
+      isel.addEventListener('change', () => loadModels(isel.value));
+      loadModels(isel.value);
       const istyle = el('textarea', { value: A.style, rows: 3, placeholder: 'delicate storybook illustration, soft watercolor and gouache, …' });
       const isize = el('input', { value: A.size, placeholder: '1024x1024' });
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
@@ -987,7 +1005,9 @@ export function setup(ctx) {
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
         el('h4', { text: '그림 (NanoGPT 등 이미지 연결)' }),
         field('이미지 연결', isel),
-        field('모델 (비우면 연결의 모델)', imodel),
+        field('모델', imodel),
+        ilist,
+        imodelNote,
         field('화풍 (영어)', istyle),
         el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto)]),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),

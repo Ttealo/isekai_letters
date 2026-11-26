@@ -1884,6 +1884,16 @@ export function start(api) {
         const list = await api.imageGen.listConnections(user);
         return { connections: (list || []).map((x) => ({ id: x.id, name: x.name, provider: x.provider, model: x.model, is_default: !!x.is_default })) };
       }
+      case 'imageModels': {
+        // 고른 이미지 연결(없으면 기본 연결)의 모델 목록
+        let connId = String(p.connectionId || '');
+        const conns = await api.imageGen.listConnections(user);
+        if (!connId) connId = (conns || []).find((x) => x.is_default)?.id || conns?.[0]?.id || '';
+        if (!connId) return { connectionId: '', models: [] };
+        const conn = (conns || []).find((x) => x.id === connId);
+        const models = await api.imageGen.getModels(connId, user);
+        return { connectionId: connId, current: conn?.model || '', models: (models || []).slice(0, 500).map((m) => ({ id: String(m.id), label: String(m.label || m.id) })) };
+      }
       case 'artStatus': {
         const art = cleanArt((await loadSettings(user)).art);
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
