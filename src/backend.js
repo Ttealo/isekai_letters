@@ -132,7 +132,7 @@ export function start(api) {
       existing: existing && { card: existing.card, lore: existing.lore }, personaName, firstBy, ranges: p.ranges || null,
     });
     const raw = await genJson(user, messages, settings);
-    const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '' });
+    const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '', personaName });
     return { draft: { ...draft, dice, firstBy, characterId: existing?.ch?.id || '' } };
   };
   const matchConfirm = async (user, p, now) => {

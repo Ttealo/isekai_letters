@@ -35,6 +35,12 @@ test('매칭 결과 정리: 필수 항목 상시, 키워드 문자열 나누기,
   assert.deepEqual(d.warnings, []);
 });
 
+test('매칭 결과 경고: 카드·로어북에 페르소나 이름이 그대로 들어오면', () => {
+  const d = X.cleanMatchDraft({ ...goodRaw, card: { ...goodRaw.card, description: '# 미렌 / 34 / 여성\njob=등대지기 / 시드와 편지로만 이어짐' } }, { mode: 'prompt', personaName: '시드' });
+  assert.ok(d.warnings.some((w) => w.includes('「시드」')));
+  assert.equal(X.cleanMatchDraft(goodRaw, { mode: 'prompt', personaName: '시드' }).warnings.length, 0);
+});
+
 test('매칭 결과 경고: 형식 어긋남·필수 항목 빠짐', () => {
   const d = X.cleanMatchDraft({ ...goodRaw, card: { description: '미렌은 등대지기다', personality: '', never: '쾌활하게 쓰지 마라' }, entries: [] }, { mode: 'random' });
   assert.ok(d.warnings.some((w) => w.includes('첫 줄')));
@@ -75,7 +81,10 @@ test('프롬프트: 모드별 과제, 이름 치환, 첫 편지 선택, 범위 �
   assert.match(user.content, /Never use these: 용/);
   assert.match(user.content, /ratio must be between 1 and 3/);
   assert.match(user.content, /first_letter: \{\{char\}\} writes/);
-  assert.doesNotMatch(sys.content + user.content, /\{\{user\}\}/);
+  assert.match(sys.content, /current name: 시드/);
+  assert.match(sys.content, /never write that name/);
+  assert.match(sys.content, /job=직업·소속 \/ \{\{user\}\}와의 접점/);
+  assert.match(user.content, /does not know the reader's name/);
   const [sys2, user2] = X.buildMatchMessages({ mode: 'existing', existing: { card: '진의 카드', lore: '진의 세계' }, firstBy: 'me' });
   assert.doesNotMatch(sys2.content, /card_format/);
   assert.match(user2.content, /Do NOT rewrite their card/);

@@ -577,11 +577,12 @@ export function buildMatchMessages({ mode, request = '', dice = '', exclude = ''
     'They never meet. Time flows at a different speed on each side. Letters are physical objects of that world.',
     'Make the person specific, grounded and quietly interesting; give them a daily life, a reason to keep writing, and something unresolved.',
     'Avoid clichés of "chosen one" or instant romance. No real people or existing copyrighted characters.',
+    `The letter writer on this side is {{user}} (current name: ${userName}). Inside the card and the lorebook, never write that name: always use the literal macros {{user}} and {{char}}.`,
     '</system>',
     mode === 'existing' ? '' : CARD_GUIDE,
     WORLD_GUIDE,
     MAIL_GUIDE,
-  ].filter(Boolean).join('\n').replaceAll('{{user}}', userName);
+  ].filter(Boolean).join('\n');
 
   let task;
   if (mode === 'existing') {
@@ -603,7 +604,7 @@ export function buildMatchMessages({ mode, request = '', dice = '', exclude = ''
     task = `Expand the user's request into a full correspondent. Keep every detail the user gave; fill the rest consistently.\n<request>\n${request}\n</request>`;
   }
   const first = firstBy === 'them'
-    ? `first_letter: {{char}} writes the very first letter to an unknown reader (they found a strange mailbox, or a letter appeared). Use this shape: ${LETTER_SHAPE}`
+    ? `first_letter: {{char}} writes the very first letter to an unknown reader (they found a strange mailbox, or a letter appeared). {{char}} does not know the reader's name yet, so the letter must not use it. Use this shape: ${LETTER_SHAPE}`
     : 'first_letter: null ({{user}} will write first).';
 
   const user = [
@@ -614,7 +615,7 @@ export function buildMatchMessages({ mode, request = '', dice = '', exclude = ''
     'Output JSON only, in Korean (image_keywords in English), with this shape:',
     OUT_SHAPE,
     '</task>',
-  ].filter(Boolean).join('\n').replaceAll('{{user}}', userName);
+  ].filter(Boolean).join('\n');
   return [{ role: 'system', content: system }, { role: 'user', content: user }];
 }
 
@@ -629,7 +630,7 @@ const keysOf = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[
 const REQUIRED = ['달력과 시간', '우편 수단'];
 
 // 생성 결과 검사·정리 → 초안. 문제는 warnings로 돌려준다(초안은 미리보기에서 사람이 고칠 수 있다).
-export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '' } = {}) {
+export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '', personaName = '' } = {}) {
   const warnings = [];
   const name = s(raw?.name, 80) || existingName;
   if (!name) throw new Error('생성 결과에 이름이 없습니다.');
@@ -656,6 +657,10 @@ export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '' } 
     else if (!(mode === 'existing' && t === '세계 개요')) warnings.push(`로어북에 「${t}」 항목이 없습니다.`);
   }
   for (const e of entries) if (!e.constant && !e.keys.length) e.keys = [e.title];
+  if (personaName && personaName.length >= 2) {
+    const blob = [card?.description, card?.personality, ...entries.map((e) => e.content)].join('\n');
+    if (blob.includes(personaName)) warnings.push(`카드·로어북에 페르소나 이름 「${personaName}」이 그대로 들어 있습니다({{user}}로 바꾸는 것이 좋습니다).`);
+  }
   const m = raw?.mail || {};
   let ratio = n(m.ratio, 0.01, 1000, 1);
   let dMin = n(m.delivery_min, 0.05, 72, 1);
@@ -883,7 +888,7 @@ export function start(api) {
       existing: existing && { card: existing.card, lore: existing.lore }, personaName, firstBy, ranges: p.ranges || null,
     });
     const raw = await genJson(user, messages, settings);
-    const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '' });
+    const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '', personaName });
     return { draft: { ...draft, dice, firstBy, characterId: existing?.ch?.id || '' } };
   };
   const matchConfirm = async (user, p, now) => {
