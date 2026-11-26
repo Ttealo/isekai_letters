@@ -38,6 +38,7 @@ export function cleanSettings(s) {
     // 편지 길이(본문 글자 수, 한국어 기준). max 0 = 위 제한 없음
     letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
     letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
+    lateChance: num(s?.lateChance, 0, 50, 8), // 우체부가 늦을 확률(%)
     showExactEta: !!s?.showExactEta,
     initiativeEnabled: s?.initiativeEnabled !== false, // 먼저 오는 편지
     initiativePerDay: Math.round(num(s?.initiativePerDay, 0, 50, 3)),
@@ -289,10 +290,25 @@ export function cleanLetterBody(v) {
   return body;
 }
 
+// 우체부가 늦었다: 가끔 배송이 50~200% 더 걸린다(사유는 차원 우편다운 것)
+export const LATE_REASONS = [
+  '차원 사이에 폭풍이 불어 우편선이 묶였다', '우체부가 길을 잃고 다른 세계를 한 바퀴 돌았다', '봉투가 엉뚱한 세계로 갔다가 되돌아왔다',
+  '경계 검문소에서 편지를 오래 들여다봤다', '우체부가 도중에 낮잠을 잤다', '우편 가방이 젖어 말리느라 늦었다',
+  '축제 때문에 우편이 밀렸다', '새로 온 우체부가 주소를 잘못 읽었다', '봉투가 다른 편지 사이에 끼어 있었다',
+];
+export function postLate(hours, chancePct = 0, rand = Math.random) {
+  if (!(chancePct > 0)) return null;
+  if (rand() * 100 >= chancePct) return null;
+  const extra = hours * (0.5 + rand() * 1.5);
+  return { extra, reason: LATE_REASONS[Math.floor(rand() * LATE_REASONS.length) % LATE_REASONS.length] };
+}
+
 // 내가 보내는 편지
-export function sendLetter(c, { body, enclosure, personaName, photos = [] }, now = Date.now(), rand = Math.random) {
+export function sendLetter(c, { body, enclosure, personaName, photos = [], lateChance = 0 }, now = Date.now(), rand = Math.random) {
   c = normalize(c);
-  const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const late = postLate(base0, lateChance, rand);
+  const travel = base0 + (late ? late.extra : 0);
   // 사진 동봉: 이쪽 세계의 사진(설명이 이름). 글 동봉과 합쳐 5개까지
   const pics = (Array.isArray(photos) ? photos : []).map((x) => ({ imageId: str(x?.imageId, 200), name: str(x?.name, 120).trim() || '사진 한 장' })).filter((x) => x.imageId).slice(0, 3);
   const names = [...splitEnclosures(enclosure).slice(0, 5 - pics.length), ...pics.map((x) => `사진 — ${x.name}`)];
@@ -304,6 +320,7 @@ export function sendLetter(c, { body, enclosure, personaName, photos = [] }, now
     enclosure: names.join(', '),
     enclosures: names.map((item) => ({ item, note: '' })),
     ...(pics.length ? { photos: pics } : {}),
+    ...(late ? { late: late.reason } : {}),
     sentAt: now,
     arriveAt: now + travel,
     theirSentAt: theirNow(c, now),
@@ -436,9 +453,11 @@ export function retryReply(c, now = Date.now()) {
 }
 
 // 생성 결과를 상대 편지로 넣고 배송을 시작한다
-export function applyReply(c, reply, now = Date.now(), rand = Math.random) {
+export function applyReply(c, reply, now = Date.now(), rand = Math.random, { lateChance = 0 } = {}) {
   c = normalize(c);
-  const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const late = postLate(base0, lateChance, rand);
+  const travel = base0 + (late ? late.extra : 0);
   const letter = {
     id: newId('l', now, rand),
     from: 'them',
@@ -451,6 +470,7 @@ export function applyReply(c, reply, now = Date.now(), rand = Math.random) {
     theirReadAt: reply.readAt,
     writtenLabel: reply.writtenAt,
     answers: c.reply?.forLetterIds || [],
+    ...(late ? { late: late.reason } : {}),
     sentAt: now,
     arriveAt: now + travel,
     state: 'in_transit',
@@ -541,7 +561,7 @@ const letterText = (l, c) => {
   if (l.from === 'me') {
     const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${theirLabel(c, l.theirSentAt)} / 도착 ${theirLabel(c, l.theirArriveAt)}`;
     const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item).join(', ') : l.enclosure;
-    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}${l.photos?.length ? `\n(「사진 — …」은 {{user}}의 세계에서 찍은 사진 — 그쪽 세계에는 낯선 물건일 수 있다. 무엇이 찍혔는지는 설명만큼만 안다)` : ''}`;
+    return `${head}${l.late ? ` (배달이 늦었다: ${l.late})` : ''}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}${l.photos?.length ? `\n(「사진 — …」은 {{user}}의 세계에서 찍은 사진 — 그쪽 세계에는 낯선 물건일 수 있다. 무엇이 찍혔는지는 설명만큼만 안다)` : ''}`;
   }
   const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
@@ -1347,6 +1367,7 @@ export function setup(ctx) {
       const isize = el('input', { value: A.size, placeholder: '1024x1024' });
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
+      const icday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perCorrespondentDay ?? 0) });
       const PP = A.portrait || {};
       const psel = el('select', {}, [
         el('option', { value: '', text: '(고르기 — NovelAI 연결)' }),
@@ -1375,6 +1396,7 @@ export function setup(ctx) {
       const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta, style: 'width:auto' });
       const lMin = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMin ?? 1000) });
       const lMax = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMax ?? 0) });
+      const lateIn = el('input', { type: 'number', step: '1', min: '0', max: '50', value: String(s.lateChance ?? 8) });
       return [
         el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
         el('h3', { text: '설정' }),
@@ -1390,7 +1412,7 @@ export function setup(ctx) {
         el('div', { class: 'im-muted', text: '최근 원문 통수는 위 「최근 편지 수」입니다. 예산을 넘어 빠진 양은 상대 서류함의 모의 조립에서 보입니다.' }),
         el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
         field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
-        el('div', { class: 'im-pair' }, [field('답장 본문 최소 글자 (0=자유)', lMin), field('답장 본문 최대 글자 (0=제한 없음)', lMax)]),
+        el('div', { class: 'im-pair' }, [field('답장 본문 최소 글자 (0=자유)', lMin), field('답장 본문 최대 글자 (0=제한 없음)', lMax), field('우체부가 늦을 확률(%, 0=끔)', lateIn)]),
         el('div', { class: 'im-muted', text: '예: 최소 1000 · 최대 0 = 1000자 이상, 일이 많으면 더 길게. 짧은 편지를 원하면 최소 0 · 최대 1000. 길게 쓰려면 최대 출력 토큰도 넉넉히(한국어 1000자 ≈ 1500토큰 + 사이 일 기록).' }),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
@@ -1413,7 +1435,7 @@ export function setup(ctx) {
           field('글씨 칸 선명도 (100=그림 그대로, 낮을수록 크림색으로 덮음)', istrength),
         ]),
         el('div', { class: 'im-muted', text: '편지지 그림은 액자처럼 씁니다: 모서리·테두리는 늘리지 않고 편지 길이에 맞춰 가장자리만 이어 붙입니다. 장식이 글씨에 닿으면 두께나 비율을 올려 주세요.' }),
-        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
+        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('상대 한 명 하루 최대(0=제한 없음)', icday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
         el('div', { class: 'im-muted', text: '편지지·우표가 바뀌면 그 편지부터 새 그림을 쓰고, 예전 편지는 그때 그림을 그대로 가집니다. 바뀔 때마다 그림 1~2장 + 글 1회, 하루 최대 장수 안에서만. 「사건」은 정리 단계가 편지 내용에서 찾습니다(정리 단계를 끄면 계절 바뀜만).' }),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
         el('h4', { text: '초상화 (NovelAI V4.5 Full)' }),
@@ -1472,7 +1494,7 @@ export function setup(ctx) {
         ]),
         el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1797,6 +1819,7 @@ export function setup(ctx) {
       el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
       l.enclosures?.length ? el('div', { class: 'im-encl' }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
       l.artNote ? el('div', { class: 'im-meta', style: 'margin:8px 0 0;color:var(--im-wax)', text: `✦ ${l.artNote}` }) : null,
+      l.late ? el('div', { class: 'im-meta', style: 'margin:8px 0 0;color:var(--im-wax)', text: `✦ 우체부가 늦었다 — ${l.late}` }) : null,
       el('div', { class: 'im-meta', style: 'margin:8px 0 0', text: `받은 시각 ${when(l.arriveAt)}` }),
     ]);
   }
@@ -2058,6 +2081,7 @@ ${gallery}
         if (l.state === 'in_transit') {
           return el('div', { class: 'im-transit im-mine' }, [
             el('div', { text: `내 편지가 가는 중 · ${etaLabel(l.arriveAt - now, exact)}` }),
+            l.late ? el('div', { style: 'color:var(--im-wax)', text: `✦ 우체부가 늦어지고 있어요 — ${l.late}` }) : null,
             el('div', { text: short(l.body, 60) }),
             link('회수하기', () => act(async () => {
               if (!confirm('이 편지를 회수할까요? 상대에게 가지 않습니다.')) return;
@@ -2068,12 +2092,12 @@ ${gallery}
         }
         const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item) : (l.enclosure ? [l.enclosure] : []);
         return el('div', { class: 'im-paper im-mine' }, [
-          el('div', { class: 'im-meta', text: `${l.personaName || '나'}의 편지 · ${when(l.sentAt)} 보냄 · 그쪽 ${l.theirArriveLabel} 도착` }),
+          el('div', { class: 'im-meta', text: `${l.personaName || '나'}의 편지 · ${when(l.sentAt)} 보냄 · 그쪽 ${l.theirArriveLabel} 도착${l.late ? ` · 늦게 닿음(${l.late})` : ''}` }),
           el('div', { text: l.body }),
           enc.length ? el('div', { class: 'im-encl' }, enc.map((x) => el('div', { text: `동봉 · ${x}` }))) : null,
         ]);
       }
-      if (l.state === 'in_transit') return el('div', { class: 'im-transit im-theirs', text: `${c.name}의 편지가 ${exact ? etaLabel(l.arriveAt - now, true).replace('도착까지', '도착까지') : '어딘가를 건너는 중…'}` });
+      if (l.state === 'in_transit') return el('div', { class: 'im-transit im-theirs', text: `${c.name}의 편지가 ${exact ? etaLabel(l.arriveAt - now, true).replace('도착까지', '도착까지') : '어딘가를 건너는 중…'}${l.late ? ` · ✦ 우체부가 늦어지고 있어요(${l.late})` : ''}` });
       return theirLetterNode(c, l, { act });
     }
     const sealImg = c.art?.seal?.imageId;

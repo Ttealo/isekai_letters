@@ -99,3 +99,14 @@ test('초상화: NAI 프롬프트 정리·합치기, 한글 제거, 기본 화�
   assert.match(user.content, /# 레아/);
   assert.throws(() => P.cleanPortraitPrompt({ character: '한글만' }), /비어 있습니다/);
 });
+
+test('상대별 하루 그림 상한', () => {
+  const art = A.cleanArt({ perDay: 6, perCorrespondentDay: 2 });
+  const day1 = Date.UTC(2026, 10, 27);
+  let u = A.useQuota(null, 2, day1, 'c1');
+  assert.equal(A.quotaLeft(u, art, day1, 'c1'), 0);
+  assert.equal(A.quotaLeft(u, art, day1, 'c2'), 2);
+  assert.equal(A.quotaLeft(u, art, day1), 4);
+  assert.equal(A.quotaLeft(u, A.cleanArt({ perDay: 6 }), day1, 'c1'), 4);
+  assert.equal(A.quotaLeft(u, art, day1 + 24 * 3600e3, 'c1'), 2);
+});

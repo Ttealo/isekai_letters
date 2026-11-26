@@ -12,8 +12,8 @@ function fakeHost({ failTimes = 0 } = {}) {
   const calls = [];
   let fails = failTimes;
   const us = {
-    exists: async (p, u) => files.has(`${u}|${p}`) || [...files.keys()].some((k) => k.startsWith(`${u}|${p}/`)),
-    getJson: async (p, o) => structuredClone(files.get(`${o.userId}|${p}`) ?? o.fallback),
+    exists: async (p, u) => p === 'settings.json' || files.has(`${u}|${p}`) || [...files.keys()].some((k) => k.startsWith(`${u}|${p}/`)),
+    getJson: async (p, o) => structuredClone(files.get(`${o.userId}|${p}`) ?? (p === 'settings.json' ? { lateChance: 0 } : o.fallback)), // 시험에서는 우체부 지연(무작위) 끔
     setJson: async (p, v, o) => { files.set(`${o.userId}|${p}`, structuredClone(v)); },
     list: async (prefix, u) => [...files.keys()].filter((k) => k.startsWith(`${u}|${prefix}/`)).map((k) => k.split('|')[1]),
     delete: async (p, u) => { files.delete(`${u}|${p}`); },

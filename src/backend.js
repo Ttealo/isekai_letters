@@ -203,8 +203,8 @@ export function start(api) {
     if (drawing.has(key)) throw new Error('이 상대의 그림을 이미 그리는 중입니다.');
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
-    const left = quotaLeft(await readUsage(user), art);
-    if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장). 설정에서 하루 상한을 바꿀 수 있습니다.`);
+    const left = quotaLeft(await readUsage(user), art, Date.now(), id);
+    if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
     const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
@@ -282,7 +282,7 @@ export function start(api) {
             if (!res) throw lastErr || new Error('그림을 만들지 못했습니다.');
             if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
             await serial(user, async () => {
-              await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
+              await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1, Date.now(), id), { userId: user });
             });
             await mutate(user, id, (c) => {
               c = ensureArt(c);
@@ -341,7 +341,7 @@ export function start(api) {
   const drawOrQueue = async (user, id, jobs) => {
     if (!drawing.has(`${user}:${id}:art`)) return drawArt(user, id, jobs);
     const settings = await loadSettings(user);
-    const left = quotaLeft(await readUsage(user), cleanArt(settings.art));
+    const left = quotaLeft(await readUsage(user), cleanArt(settings.art), Date.now(), id);
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장).`);
     drawArtWhenFree(user, id, jobs).catch((e) => log('warn', `대기 중이던 그리기 실패: ${e?.message || e}`));
     return { started: jobs.length, queued: true, left: left - jobs.length };
@@ -354,7 +354,7 @@ export function start(api) {
     const art = cleanArt(settings.art);
     const P = cleanPortrait(art.portrait);
     if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
-    if (quotaLeft(await readUsage(user), art) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다. 설정에서 하루 상한을 바꿀 수 있습니다.');
+    if (quotaLeft(await readUsage(user), art, Date.now(), id) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다(상대별 상한 포함). 설정에서 하루 상한을 바꿀 수 있습니다.');
     drawing.add(key);
     const t0 = Date.now();
     await mutate(user, id, (c) => ({ ...c, portraitJob: { state: 'drawing', startedAt: t0, error: '' } }));
@@ -379,7 +379,7 @@ export function start(api) {
           }), timeout]);
         } finally { clearTimeout(timer); }
         if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
-        await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
+        await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1, Date.now(), id), { userId: user });
         let old = '';
         await mutate(user, id, (x) => {
           x = ensureArt(x);
@@ -717,7 +717,7 @@ export function start(api) {
             await api.userStorage.setJson(INIT_USAGE, { day: dayKey(), count: (u.day === dayKey() ? u.count : 0) + 1 }, { userId: user });
           }).catch(() => {});
         }
-        const next = applyReply(cur, reply);
+        const next = applyReply(cur, reply, Date.now(), Math.random, { lateChance: settings.lateChance });
         const newId = next.letters[next.letters.length - 1].id;
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
       });
@@ -905,7 +905,8 @@ export function start(api) {
       }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
-        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
+        const lateChance = (await loadSettings(user)).lateChance;
+        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos, lateChance }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'recall': {

@@ -52,6 +52,7 @@ export function cleanArt(a) {
     size: asize(a?.size, DEFAULT_ART.size),
     paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
     perDay: anum(a?.perDay, 0, 100, DEFAULT_ART.perDay),
+    perCorrespondentDay: anum(a?.perCorrespondentDay, 0, 100, 0),
     autoItems: a?.autoItems === 'off' ? 'off' : 'all',
     paperChange: ['event', 'season', 'off'].includes(a?.paperChange) ? a.paperChange : 'event',
     stampChange: ['event', 'season', 'off'].includes(a?.stampChange) ? a.stampChange : 'event',
@@ -72,14 +73,22 @@ export const modelFor = (art, kind) => art.kinds?.[kind]?.model || art.model || 
 export function dayKey(now = Date.now()) {
   return new Date(now).toISOString().slice(0, 10);
 }
-export function quotaLeft(usage, art, now = Date.now()) {
-  const used = usage?.day === dayKey(now) ? usage.count || 0 : 0;
-  return Math.max(0, art.perDay - used);
+export function quotaLeft(usage, art, now = Date.now(), cid = '') {
+  const today = usage?.day === dayKey(now);
+  const used = today ? usage.count || 0 : 0;
+  const all = Math.max(0, art.perDay - used);
+  // 상대 한 명이 하루에 쓸 수 있는 장수(0=제한 없음)
+  if (!cid || !art.perCorrespondentDay) return all;
+  const mine = today ? usage.by?.[cid] || 0 : 0;
+  return Math.min(all, Math.max(0, art.perCorrespondentDay - mine));
 }
-export function useQuota(usage, n, now = Date.now()) {
+export function useQuota(usage, n, now = Date.now(), cid = '') {
   const day = dayKey(now);
-  const count = (usage?.day === day ? usage.count || 0 : 0) + n;
-  return { day, count };
+  const today = usage?.day === day;
+  const count = (today ? usage.count || 0 : 0) + n;
+  const by = { ...(today ? usage.by || {} : {}) };
+  if (cid) by[cid] = (by[cid] || 0) + n;
+  return { day, count, by };
 }
 
 // 글 생성 1회로 그림 "주제"(영어 짧은 구)를 받는다. 구도·화풍은 템플릿이 맡는다.

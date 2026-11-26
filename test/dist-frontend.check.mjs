@@ -90,7 +90,7 @@ const ctx = {
   },
   dom: { addStyle: () => () => {} },
 };
-const tick = (n = 3) => new Promise((r) => setTimeout(r, 15 * n));
+const tick = (n = 3) => new Promise((r) => setTimeout(r, 30 * n));
 const clickIn = (root, sel, text) => {
   const b = [...root.querySelectorAll(sel)].find((x) => x.textContent.includes(text));
   if (!b) throw new Error(`못 찾음: ${text}`);

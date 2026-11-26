@@ -38,6 +38,7 @@ export function cleanSettings(s) {
     // 편지 길이(본문 글자 수, 한국어 기준). max 0 = 위 제한 없음
     letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
     letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
+    lateChance: num(s?.lateChance, 0, 50, 8), // 우체부가 늦을 확률(%)
     showExactEta: !!s?.showExactEta,
     initiativeEnabled: s?.initiativeEnabled !== false, // 먼저 오는 편지
     initiativePerDay: Math.round(num(s?.initiativePerDay, 0, 50, 3)),
@@ -289,10 +290,25 @@ export function cleanLetterBody(v) {
   return body;
 }
 
+// 우체부가 늦었다: 가끔 배송이 50~200% 더 걸린다(사유는 차원 우편다운 것)
+export const LATE_REASONS = [
+  '차원 사이에 폭풍이 불어 우편선이 묶였다', '우체부가 길을 잃고 다른 세계를 한 바퀴 돌았다', '봉투가 엉뚱한 세계로 갔다가 되돌아왔다',
+  '경계 검문소에서 편지를 오래 들여다봤다', '우체부가 도중에 낮잠을 잤다', '우편 가방이 젖어 말리느라 늦었다',
+  '축제 때문에 우편이 밀렸다', '새로 온 우체부가 주소를 잘못 읽었다', '봉투가 다른 편지 사이에 끼어 있었다',
+];
+export function postLate(hours, chancePct = 0, rand = Math.random) {
+  if (!(chancePct > 0)) return null;
+  if (rand() * 100 >= chancePct) return null;
+  const extra = hours * (0.5 + rand() * 1.5);
+  return { extra, reason: LATE_REASONS[Math.floor(rand() * LATE_REASONS.length) % LATE_REASONS.length] };
+}
+
 // 내가 보내는 편지
-export function sendLetter(c, { body, enclosure, personaName, photos = [] }, now = Date.now(), rand = Math.random) {
+export function sendLetter(c, { body, enclosure, personaName, photos = [], lateChance = 0 }, now = Date.now(), rand = Math.random) {
   c = normalize(c);
-  const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const late = postLate(base0, lateChance, rand);
+  const travel = base0 + (late ? late.extra : 0);
   // 사진 동봉: 이쪽 세계의 사진(설명이 이름). 글 동봉과 합쳐 5개까지
   const pics = (Array.isArray(photos) ? photos : []).map((x) => ({ imageId: str(x?.imageId, 200), name: str(x?.name, 120).trim() || '사진 한 장' })).filter((x) => x.imageId).slice(0, 3);
   const names = [...splitEnclosures(enclosure).slice(0, 5 - pics.length), ...pics.map((x) => `사진 — ${x.name}`)];
@@ -304,6 +320,7 @@ export function sendLetter(c, { body, enclosure, personaName, photos = [] }, now
     enclosure: names.join(', '),
     enclosures: names.map((item) => ({ item, note: '' })),
     ...(pics.length ? { photos: pics } : {}),
+    ...(late ? { late: late.reason } : {}),
     sentAt: now,
     arriveAt: now + travel,
     theirSentAt: theirNow(c, now),
@@ -436,9 +453,11 @@ export function retryReply(c, now = Date.now()) {
 }
 
 // 생성 결과를 상대 편지로 넣고 배송을 시작한다
-export function applyReply(c, reply, now = Date.now(), rand = Math.random) {
+export function applyReply(c, reply, now = Date.now(), rand = Math.random, { lateChance = 0 } = {}) {
   c = normalize(c);
-  const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const late = postLate(base0, lateChance, rand);
+  const travel = base0 + (late ? late.extra : 0);
   const letter = {
     id: newId('l', now, rand),
     from: 'them',
@@ -451,6 +470,7 @@ export function applyReply(c, reply, now = Date.now(), rand = Math.random) {
     theirReadAt: reply.readAt,
     writtenLabel: reply.writtenAt,
     answers: c.reply?.forLetterIds || [],
+    ...(late ? { late: late.reason } : {}),
     sentAt: now,
     arriveAt: now + travel,
     state: 'in_transit',
@@ -541,7 +561,7 @@ const letterText = (l, c) => {
   if (l.from === 'me') {
     const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${theirLabel(c, l.theirSentAt)} / 도착 ${theirLabel(c, l.theirArriveAt)}`;
     const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item).join(', ') : l.enclosure;
-    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}${l.photos?.length ? `\n(「사진 — …」은 {{user}}의 세계에서 찍은 사진 — 그쪽 세계에는 낯선 물건일 수 있다. 무엇이 찍혔는지는 설명만큼만 안다)` : ''}`;
+    return `${head}${l.late ? ` (배달이 늦었다: ${l.late})` : ''}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}${l.photos?.length ? `\n(「사진 — …」은 {{user}}의 세계에서 찍은 사진 — 그쪽 세계에는 낯선 물건일 수 있다. 무엇이 찍혔는지는 설명만큼만 안다)` : ''}`;
   }
   const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
@@ -1442,6 +1462,7 @@ export function cleanArt(a) {
     size: asize(a?.size, DEFAULT_ART.size),
     paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
     perDay: anum(a?.perDay, 0, 100, DEFAULT_ART.perDay),
+    perCorrespondentDay: anum(a?.perCorrespondentDay, 0, 100, 0),
     autoItems: a?.autoItems === 'off' ? 'off' : 'all',
     paperChange: ['event', 'season', 'off'].includes(a?.paperChange) ? a.paperChange : 'event',
     stampChange: ['event', 'season', 'off'].includes(a?.stampChange) ? a.stampChange : 'event',
@@ -1462,14 +1483,22 @@ export const modelFor = (art, kind) => art.kinds?.[kind]?.model || art.model || 
 export function dayKey(now = Date.now()) {
   return new Date(now).toISOString().slice(0, 10);
 }
-export function quotaLeft(usage, art, now = Date.now()) {
-  const used = usage?.day === dayKey(now) ? usage.count || 0 : 0;
-  return Math.max(0, art.perDay - used);
+export function quotaLeft(usage, art, now = Date.now(), cid = '') {
+  const today = usage?.day === dayKey(now);
+  const used = today ? usage.count || 0 : 0;
+  const all = Math.max(0, art.perDay - used);
+  // 상대 한 명이 하루에 쓸 수 있는 장수(0=제한 없음)
+  if (!cid || !art.perCorrespondentDay) return all;
+  const mine = today ? usage.by?.[cid] || 0 : 0;
+  return Math.min(all, Math.max(0, art.perCorrespondentDay - mine));
 }
-export function useQuota(usage, n, now = Date.now()) {
+export function useQuota(usage, n, now = Date.now(), cid = '') {
   const day = dayKey(now);
-  const count = (usage?.day === day ? usage.count || 0 : 0) + n;
-  return { day, count };
+  const today = usage?.day === day;
+  const count = (today ? usage.count || 0 : 0) + n;
+  const by = { ...(today ? usage.by || {} : {}) };
+  if (cid) by[cid] = (by[cid] || 0) + n;
+  return { day, count, by };
 }
 
 // 글 생성 1회로 그림 "주제"(영어 짧은 구)를 받는다. 구도·화풍은 템플릿이 맡는다.
@@ -1856,8 +1885,8 @@ export function start(api) {
     if (drawing.has(key)) throw new Error('이 상대의 그림을 이미 그리는 중입니다.');
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
-    const left = quotaLeft(await readUsage(user), art);
-    if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장). 설정에서 하루 상한을 바꿀 수 있습니다.`);
+    const left = quotaLeft(await readUsage(user), art, Date.now(), id);
+    if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
     const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
@@ -1935,7 +1964,7 @@ export function start(api) {
             if (!res) throw lastErr || new Error('그림을 만들지 못했습니다.');
             if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
             await serial(user, async () => {
-              await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
+              await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1, Date.now(), id), { userId: user });
             });
             await mutate(user, id, (c) => {
               c = ensureArt(c);
@@ -1994,7 +2023,7 @@ export function start(api) {
   const drawOrQueue = async (user, id, jobs) => {
     if (!drawing.has(`${user}:${id}:art`)) return drawArt(user, id, jobs);
     const settings = await loadSettings(user);
-    const left = quotaLeft(await readUsage(user), cleanArt(settings.art));
+    const left = quotaLeft(await readUsage(user), cleanArt(settings.art), Date.now(), id);
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장).`);
     drawArtWhenFree(user, id, jobs).catch((e) => log('warn', `대기 중이던 그리기 실패: ${e?.message || e}`));
     return { started: jobs.length, queued: true, left: left - jobs.length };
@@ -2007,7 +2036,7 @@ export function start(api) {
     const art = cleanArt(settings.art);
     const P = cleanPortrait(art.portrait);
     if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
-    if (quotaLeft(await readUsage(user), art) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다. 설정에서 하루 상한을 바꿀 수 있습니다.');
+    if (quotaLeft(await readUsage(user), art, Date.now(), id) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다(상대별 상한 포함). 설정에서 하루 상한을 바꿀 수 있습니다.');
     drawing.add(key);
     const t0 = Date.now();
     await mutate(user, id, (c) => ({ ...c, portraitJob: { state: 'drawing', startedAt: t0, error: '' } }));
@@ -2032,7 +2061,7 @@ export function start(api) {
           }), timeout]);
         } finally { clearTimeout(timer); }
         if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
-        await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
+        await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1, Date.now(), id), { userId: user });
         let old = '';
         await mutate(user, id, (x) => {
           x = ensureArt(x);
@@ -2370,7 +2399,7 @@ export function start(api) {
             await api.userStorage.setJson(INIT_USAGE, { day: dayKey(), count: (u.day === dayKey() ? u.count : 0) + 1 }, { userId: user });
           }).catch(() => {});
         }
-        const next = applyReply(cur, reply);
+        const next = applyReply(cur, reply, Date.now(), Math.random, { lateChance: settings.lateChance });
         const newId = next.letters[next.letters.length - 1].id;
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
       });
@@ -2558,7 +2587,8 @@ export function start(api) {
       }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
-        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
+        const lateChance = (await loadSettings(user)).lateChance;
+        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos, lateChance }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'recall': {

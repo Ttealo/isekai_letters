@@ -310,3 +310,19 @@ test('답장 길이 규칙과 동봉은 가끔', () => {
   assert.equal(M.cleanSettings({}).letterMin, 1000);
   assert.equal(M.cleanSettings({ letterMax: 1500 }).letterMax, 1500);
 });
+
+test('우체부가 늦었다: 확률에 걸리면 배송이 늘고 사유가 남는다, 상대도 안다', () => {
+  assert.equal(M.postLate(10, 0, () => 0), null);
+  const r = M.postLate(10, 8, seq(0.01, 0.5, 0));
+  assert.equal(r.extra, 10 * (0.5 + 0.5 * 1.5));
+  assert.equal(r.reason, M.LATE_REASONS[0]);
+  assert.equal(M.postLate(10, 8, () => 0.5), null);
+  let c = M.createCorrespondent(base, 0, () => 0);
+  const plain = M.sendLetter(c, { body: 'a' }, 0, () => 0.5);
+  const late = M.sendLetter(c, { body: 'a', lateChance: 100 }, 0, () => 0.5);
+  assert.ok(late.letters[0].late);
+  assert.ok(late.letters[0].arriveAt > plain.letters[0].arriveAt);
+  c = M.advance(late, 40 * H).c;
+  assert.match(M.buildReplyMessages(c, { now: 40 * H })[1].content, /배달이 늦었다/);
+  assert.equal(M.cleanSettings({}).lateChance, 8);
+});
