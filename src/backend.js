@@ -1,7 +1,7 @@
 import {
   cleanSettings, createCorrespondent, updateCorrespondent, toInput, sendLetter, recallLetter, markOpened,
   advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart, calendarDate,
-  parseJsonLoose, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
+  parseJsonLoose, imageIdsOf, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
 import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
@@ -359,7 +359,9 @@ export function start(api) {
         c = ensureArt(c);
         const art = Object.fromEntries(Object.entries(c.art).map(([k, v]) => [k, v?.imageId === p.imageId ? { ...v, imageId: up.id, webp: true } : v]));
         const items = (c.items || []).map((x) => (x.imageId === p.imageId ? { ...x, imageId: up.id } : x));
-        return { ...c, art, items };
+        const letters = (c.letters || []).map((l) => (l.art && Object.values(l.art).includes(p.imageId)
+          ? { ...l, art: Object.fromEntries(Object.entries(l.art).map(([k, v]) => [k, v === p.imageId ? up.id : v])) } : l));
+        return { ...c, art, items, letters };
       });
     }
     try { await api.images.delete(p.imageId, user); } catch {}
@@ -457,7 +459,7 @@ export function start(api) {
   const genJson = async (user, messages, settings) => {
     const conn = settings.createConnectionId || settings.replyConnectionId;
     const once = async (temperature) => {
-      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 12000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
+      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 15000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
       const req = { messages, parameters, userId: user };
       try {
         return conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
@@ -787,9 +789,41 @@ export function start(api) {
         const c = await mutate(user, p.id, (c) => updateCorrespondent(c, input, now));
         return { c: publicView(c, now) };
       }
+      case 'deleteInfo': {
+        // 지우기 전에 무엇이 함께 지워질 수 있는지
+        const c = await loadC(user, p.id);
+        let ch = null; let book = null; let otherUsers = 0;
+        try { ch = c.characterId ? await api.characters.get(c.characterId, user) : null; } catch {}
+        try { book = c.worldBookId ? await api.world_books.get(c.worldBookId, user) : null; } catch {}
+        // 같은 캐릭터를 다른 상대가 쓰고 있으면 알려 준다
+        for (const id of await listIds(user)) {
+          if (id === c.id) continue;
+          try { const o = await loadC(user, id); if (ch && o.characterId === ch.id) otherUsers++; } catch {}
+        }
+        return {
+          name: c.name, letters: c.letters.length, items: (c.items || []).length, images: imageIdsOf(c).length,
+          character: ch ? { id: ch.id, name: ch.name, made: c.origin !== 'existing' } : null,
+          book: book ? { id: book.id, name: book.name } : null, sharedCharacter: otherUsers,
+        };
+      }
       case 'delete': {
+        const c = await loadC(user, p.id).catch(() => null);
+        const done = { character: false, book: false, images: 0 };
+        if (c) {
+          if (p.removeImages) {
+            for (const img of imageIdsOf(c)) { try { await api.images.delete(img, user); done.images++; } catch {} }
+            await serial(user, async () => {
+              const ids = new Set(imageIdsOf(c));
+              const cur = await readJson(WEBP, user, []);
+              await api.userStorage.setJson(WEBP, cur.filter((x) => x.cid !== c.id && !ids.has(x.imageId)), { userId: user });
+            });
+          }
+          if (p.removeBook && c.worldBookId) { try { await api.world_books.delete(c.worldBookId, user); done.book = true; } catch (e) { log('warn', `로어북 지우기 실패: ${e?.message || e}`); } }
+          if (p.removeCharacter && c.characterId) { try { await api.characters.delete(c.characterId, user); done.character = true; } catch (e) { log('warn', `캐릭터 지우기 실패: ${e?.message || e}`); } }
+        }
         await serial(user, () => api.userStorage.delete(cPath(p.id), user));
-        return {};
+        log('info', `상대 지움(${c?.name || p.id}) 캐릭터=${done.character} 로어북=${done.book} 그림=${done.images}`);
+        return done;
       }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));

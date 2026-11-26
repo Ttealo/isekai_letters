@@ -392,7 +392,7 @@ export function setup(ctx) {
     };
 
     function render() {
-      const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView, match: matchView, preview: previewView, dossier: dossierView }[view.name]?.() || [];
+      const body = { home: homeView, c: cView, letter: letterView, form: formView, remove: removeView, settings: settingsView, match: matchView, preview: previewView, dossier: dossierView }[view.name]?.() || [];
       const err = error || S.error;
       root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean));
     }
@@ -480,6 +480,41 @@ export function setup(ctx) {
     }
 
     // 새 상대 / 수정
+    // 상대 지우기: 무엇을 함께 지울지 고른다
+    let removeInfo = null;
+    function removeView() {
+      if (!removeInfo || removeInfo.id !== view.id) {
+        removeInfo = { id: view.id, loading: true };
+        ask('deleteInfo', { id: view.id }).then((r) => { removeInfo = { id: view.id, ...r, pick: { removeCharacter: !!r.character?.made && !r.sharedCharacter, removeBook: !!r.book && !!r.character?.made, removeImages: true } }; render(); })
+          .catch((e) => { removeInfo = { id: view.id, failed: e.message }; render(); });
+      }
+      const r = removeInfo;
+      const back = el('div', { class: 'im-row' }, [link('← 돌아가기', () => go({ name: 'form', id: view.id }))]);
+      if (r.loading) return [back, el('div', { class: 'im-muted', text: '살펴보는 중…' })];
+      if (r.failed) return [back, el('div', { class: 'im-err', text: r.failed })];
+      const box = (k, label, note, disabled = false) => el('label', { class: 'im-row', style: 'gap:8px;align-items:flex-start' }, [
+        el('input', { type: 'checkbox', checked: !!r.pick[k], disabled, onchange: (e) => { r.pick[k] = e.target.checked; } }),
+        el('div', {}, [el('div', { text: label }), note ? el('div', { class: 'im-muted', text: note }) : null]),
+      ]);
+      return [
+        back,
+        el('h3', { text: `${r.name} 지우기` }),
+        el('div', { class: 'im-muted', text: `편지 ${r.letters}통 · 물건 ${r.items}개의 우체통 기록은 지워집니다. 되돌릴 수 없습니다.` }),
+        el('h4', { text: '함께 지울 것' }),
+        r.images ? box('removeImages', `그림 ${r.images}장`, '편지지·우표·봉인·물건 그림') : el('div', { class: 'im-muted', text: '그림 없음' }),
+        r.character ? box('removeCharacter', `캐릭터 「${r.character.name}」`, r.sharedCharacter ? `다른 상대 ${r.sharedCharacter}명이 이 캐릭터를 씁니다 — 남겨 두는 것이 좋아요.` : r.character.made ? '매칭으로 만든 캐릭터' : '원래 있던 캐릭터입니다(기존 캐릭터로 시작) — 보통은 남겨 둡니다.') : el('div', { class: 'im-muted', text: '연결된 캐릭터 없음' }),
+        r.book ? box('removeBook', `로어북 「${r.book.name}」`, '매칭 때 만든 세계·달력·우편 로어북') : el('div', { class: 'im-muted', text: '연결된 로어북 없음' }),
+        el('div', { class: 'im-row' }, [
+          btn('지우기', () => act(async () => {
+            if (!confirm(`${r.name}의 우체통 기록${r.pick.removeImages && r.images ? '·그림' : ''}${r.pick.removeCharacter && r.character ? '·캐릭터' : ''}${r.pick.removeBook && r.book ? '·로어북' : ''}을 지울까요? 되돌릴 수 없습니다.`)) return;
+            await ask('delete', { id: view.id, ...r.pick }, 60000);
+            removeInfo = null;
+            await refresh();
+            go({ name: 'home' });
+          }), { primary: true, disabled: busy }),
+        ]),
+      ];
+    }
     function formView() {
       const editing = !!view.id;
       const cur = editing ? byId(view.id) : null;
@@ -531,12 +566,7 @@ export function setup(ctx) {
               go({ name: 'c', id: r.id });
             }
           }), { primary: true, disabled: busy }),
-          editing ? btn('상대 지우기', () => act(async () => {
-            if (!confirm('이 상대와 주고받은 편지·물품 기록을 모두 지울까요? 되돌릴 수 없습니다.')) return;
-            await ask('delete', { id: view.id });
-            await refresh();
-            go({ name: 'home' });
-          })) : null,
+          editing ? btn('상대 지우기…', () => go({ name: 'remove', id: view.id })) : null,
         ]),
       ];
     }

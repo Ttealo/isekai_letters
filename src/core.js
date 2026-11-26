@@ -248,6 +248,15 @@ export function createCorrespondent(input, now = Date.now(), rand = Math.random)
   };
 }
 
+// 이 상대가 쓰는 그림 id 전부(편지지·우표·봉인, 편지마다 고정된 그림, 물건)
+export function imageIdsOf(c) {
+  const ids = new Set();
+  for (const v of Object.values(c?.art || {})) if (v?.imageId) ids.add(v.imageId);
+  for (const l of c?.letters || []) for (const v of Object.values(l.art || {})) if (typeof v === 'string' && v) ids.add(v);
+  for (const x of c?.items || []) if (x.imageId) ids.add(x.imageId);
+  return [...ids];
+}
+
 // 저장된 상대 → 입력 양식(수정 화면용)
 export function toInput(c) {
   return {

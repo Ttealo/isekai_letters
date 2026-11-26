@@ -188,6 +188,7 @@ function addLibrary(host, matchJson) {
   const books = new Map(); const entries = new Map(); const chars = new Map();
   let n = 0;
   host.api.world_books = {
+    get: async (id) => books.get(id) || null,
     create: async (input) => { const b = { id: `wb${n++}`, ...input }; books.set(b.id, b); return b; },
     delete: async (id) => { books.delete(id); for (const [k, e] of entries) if (e.world_book_id === id) entries.delete(k); return true; },
     entries: {
@@ -659,4 +660,32 @@ test('매칭 JSON이 고칠 수 없게 깨지면 한 번 더 받아 온다(JSON 
   assert.equal(params.length, 2);
   assert.equal(params[0].responseMimeType, 'application/json');
   assert.ok(draft.roll);
+});
+
+test('상대 지우기: 함께 지울 것 살펴보기, 고른 것만 지움', async (t) => {
+  const host = fakeHost();
+  const lib = addLibrary(host, MATCH);
+  const gone = [];
+  host.api.images = { ...(host.api.images || {}), delete: async (id) => { gone.push(id); return true; } };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const r = await host.ask('u1', 'matchConfirm', { draft });
+  const info = await host.ask('u1', 'deleteInfo', { id: r.id });
+  assert.equal(info.character.made, true);
+  assert.ok(info.book);
+  assert.equal(info.sharedCharacter, 0);
+  const done = await host.ask('u1', 'delete', { id: r.id, removeCharacter: false, removeBook: true, removeImages: true });
+  assert.equal(done.book, true);
+  assert.equal(done.character, false);
+  assert.equal(lib.books.size, 0);
+  assert.equal(lib.chars.size, 1);
+  const home = await host.ask('u1', 'load');
+  assert.ok(!(home.list || home.all || []).some?.((x) => x.id === r.id));
+});
+
+test('imageIdsOf: 편지지·우표·편지마다 고정된 그림·물건', async () => {
+  const { imageIdsOf } = await import('../src/core.js');
+  const ids = imageIdsOf({ art: { paper: { imageId: 'a' }, stamp: { imageId: 'b' } }, letters: [{ art: { paper: 'c' } }, { art: { paper: 'a' } }], items: [{ imageId: 'd' }, {}] });
+  assert.deepEqual(ids.sort(), ['a', 'b', 'c', 'd']);
 });
