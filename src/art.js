@@ -28,8 +28,8 @@ export const DEFAULT_ART = {
   sendNegative: false, // 금지어를 negative_prompt로 보낼지(받지 않는 모델이 많음 — 거절되면 빼고 다시 시도)
   negative: NEGATIVE,
   paperStrength: 70, // 편지지 가운데 글씨 칸을 덮는 크림색의 옅기(100=안 덮음)
-  paperBorder: 48, // 편지지 테두리 장식 두께(px) — 글씨는 이 안쪽에만
-  paperSlice: 14, // 그림 가장자리에서 테두리로 잘라 쓸 비율(%)
+  paperBorder: 64, // 편지지 테두리 장식 두께(px) — 글씨는 이 안쪽에만
+  paperSlice: 20, // 그림 가장자리에서 테두리로 잘라 쓸 비율(%)
   kinds: {}, // { paper: { model, template }, … } 비면 기본
 };
 

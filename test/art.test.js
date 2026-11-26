@@ -56,6 +56,7 @@ test('그림 주제 프롬프트와 최종 프롬프트: 사람·글자 금지, 
   const pa = A.cleanArt({ paperBorder: 500, paperSlice: 0 });
   assert.equal(pa.paperBorder, 200);
   assert.equal(pa.paperSlice, 1);
-  assert.equal(A.cleanArt({}).paperBorder, 48);
+  assert.equal(A.cleanArt({}).paperBorder, 64);
+  assert.equal(A.cleanArt({}).paperSlice, 20);
   assert.match(A.NEGATIVE, /hands/);
 });
