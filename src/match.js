@@ -27,27 +27,33 @@ export const MATCH_JOBS = [
   '상단 회계원', '재봉사', '가면 장인', '이발사', '어부', '소금 장수', '경마 기수', '왕실 근위병', '고아원 원장', '하수도 관리인',
   '지도 제작자', '향신료 상인', '유모', '사형 집행인', '소매치기', '마술 도구 수리공', '양조장 견습생', '대사관 하급 서기', '투기장 검투사', '은세공사',
 ];
-export const MATCH_AGES = ['10대 후반', '20대 초반', '20대 후반', '30대', '40대', '50대', '60대 이상', '나이를 세지 않는 존재'];
-export const MATCH_GENDERS = ['남성', '남성', '여성', '여성', '그 세계 고유의 성 또는 성별이 중요하지 않은 존재'];
-export const MATCH_TEMPERS = [
-  '수다스럽고 밝음', '냉소적이고 비꼼', '허세가 있음', '다정하지만 서툼', '장난기 많음', '무뚝뚝함', '걱정이 많음', '오만함',
-  '낙천적', '고지식하고 진지함', '감정 기복이 큼', '능청스러움', '호기심이 지나침', '소심하지만 고집셈', '계산적', '느긋함',
+// 나이: 성인 이상 50세 아래(인외는 그에 맞는 성숙도)
+export const MATCH_AGES = ['20대 초반', '20대 후반', '30대 초반', '30대 후반', '40대'];
+export const MATCH_GENDERS = ['남성', '여성', '중성', '기타(그 세계 고유의 성, 성별이 없거나 바뀌는 존재 등)'];
+// 종족: 인간이 아니어도 된다
+export const MATCH_KINDS = [
+  '인간', '인간', '인간', '인외(자유롭게)', '수인', '정령', '요정', '용족', '유령', '골렘·자동인형', '식물에서 난 존재',
+  '바다 종족', '그림자 종족', '별에서 떨어진 존재', '오래된 물건에 깃든 혼', '거인', '마족', '이형의 생물',
 ];
-export const MATCH_SITUATIONS = [
-  '빚을 갚는 중', '곧 결혼함', '가게를 막 열었음', '누군가에게 쫓기고 있음', '축제를 준비 중', '승진 시험을 앞둠', '가족이 아픔',
-  '징집 통지를 받음', '먼 곳으로 이사함', '짝사랑 중', '사업이 망한 직후', '새 일을 배우는 중', '남의 비밀을 지키는 중', '형제와 다툼',
-  '큰 대회에 나감', '은퇴를 앞둠', '아이를 맡아 키우게 됨', '고향에 돌아옴',
+// 세계와 함께 합칠 키워드(기질·처지·분위기를 한데 섞음)
+export const MATCH_KEYWORDS = [
+  '수다스러움', '냉소', '허세', '서툰 다정함', '장난기', '무뚝뚝', '걱정 많음', '오만', '낙천', '고지식', '감정 기복', '능청',
+  '지나친 호기심', '소심한 고집', '계산적', '느긋함', '빚', '곧 결혼', '새 가게', '추격', '축제 준비', '시험', '아픈 가족', '징집',
+  '이사', '짝사랑', '파산', '견습', '남의 비밀', '형제 다툼', '대회', '은퇴 직전', '맡게 된 아이', '귀향', '향기', '소리', '음식',
+  '빛과 어둠', '물', '불', '금속', '비밀 취미', '거짓말', '약속', '내기', '수집', '라이벌', '동료들', '이웃 소동', '가업',
 ];
-// 너무 자주 나오는 원형: 주사위가 그 직업을 고르지 않았다면 피한다
+// 너무 자주 나오는 원형
 const OVERUSED = '등대지기, 사서, 천문학자, 우편배달부, 은둔한 학자, 외딴 초소의 경비병, 마법사 탑의 견습생';
 export function rollMatch(rand = Math.random, { setting = '' } = {}) {
-  const pick = (a) => a[Math.floor(rand() * a.length) % a.length];
+  const pick = (arr) => arr[Math.floor(rand() * arr.length) % arr.length];
+  const kws = [];
+  for (let i = 0; kws.length < 3 && i < 20; i++) { const k = pick(MATCH_KEYWORDS); if (!kws.includes(k)) kws.push(k); }
   return {
     setting: String(setting || '').trim() || pick(GENRE_DICE),
-    job: pick(MATCH_JOBS), age: pick(MATCH_AGES), gender: pick(MATCH_GENDERS), temper: pick(MATCH_TEMPERS), situation: pick(MATCH_SITUATIONS),
+    keywords: kws, job: pick(MATCH_JOBS), age: pick(MATCH_AGES), gender: pick(MATCH_GENDERS), kind: pick(MATCH_KINDS),
   };
 }
-export const rollText = (r) => (r ? `세계 ${r.setting} · 직업 ${r.job} · ${r.age} · ${r.gender} · 기질 ${r.temper} · 처지 ${r.situation}` : '');
+export const rollText = (r) => (r ? `세계 ${r.setting} · 키워드 ${(r.keywords || []).join(', ')} · ${r.kind} · ${r.gender} · ${r.age} · 직업 예시 ${r.job}` : '');
 
 const CARD_GUIDE = `
 <card_format>
@@ -141,9 +147,16 @@ export function buildMatchMessages({ mode, request = '', dice = '', roll = null,
   } else if (mode === 'random') {
     task = [
       `Invent a new correspondent. Setting seed: ${roll?.setting || dice || '자유'}.`,
-      roll ? `Rolled traits (follow them; interpret freely to fit the world): occupation=${roll.job}; age=${roll.age}; gender=${roll.gender}; temperament=${roll.temper}; current situation=${roll.situation}.` : '',
+      roll ? [
+        'Dice for inspiration (references, not rules): combine the world and the keywords, then interpret them creatively and expand them to fit that world.',
+        `- keywords=${(roll.keywords || []).join(', ')}`,
+        `- kind=${roll.kind} (non-human is welcome; if non-human, design how they live, think and write letters)`,
+        `- gender=${roll.gender}`,
+        `- age=${roll.age} (an adult under 50; for non-humans, an equivalent maturity)`,
+        `- occupation example=${roll.job} (only a hint: keep it, twist it, or replace it with whatever fits the world better)`,
+      ].join('\n') : '',
       exclude ? `Never use these: ${exclude}.` : '',
-      `Avoid overused archetypes unless rolled: ${OVERUSED}. {{char}} is not isolated by default: they have work, neighbors, family or rivals, and a busy daily life the letters can show.`,
+      `Avoid overused archetypes: ${OVERUSED}. The letters cross dimensions, so {{char}} need not be lonely or isolated: they may have a busy life, work, friends, family or rivals.`,
     ].filter(Boolean).join('\n');
   } else {
     task = `Expand the user's request into a full correspondent. Keep every detail the user gave; fill the rest consistently. Where the request leaves something open, avoid overused archetypes (${OVERUSED}).\n<request>\n${request}\n</request>`;

@@ -701,7 +701,7 @@ export function setup(ctx) {
         body.push(field('어떤 상대와 편지하고 싶나요?', bind('request', 'textarea', { rows: 5, placeholder: '예: 왕도 뒷골목 전당포의 젊은 주인. 능청스럽고 손님 험담을 즐긴다. 편지는 장부 뒷면에 쓴다.' })));
       } else if (M.mode === 'random') {
         body.push(field('세계의 씨앗 (비우면 주사위)', bind('dice', 'input', { placeholder: '예: 사막의 대상로 / 하늘에 뜬 섬' })));
-        body.push(el('div', { class: 'im-muted', text: '직업·나이·성별·기질·처지도 매번 주사위로 정하고, 이미 편지하는 상대와 겹치지 않게 합니다.' }));
+        body.push(el('div', { class: 'im-muted', text: '세계·키워드·종족(인외 포함)·성별·나이(성인~40대)·직업 예시를 주사위로 굴려 참고만 하고, 세계에 맞게 창의적으로 만듭니다. 이미 편지하는 상대와는 겹치지 않게 합니다.' }));
         body.push(field('빼고 싶은 소재 (선택)', bind('exclude', 'input', { placeholder: '예: 전쟁, 용' })));
       } else if (M.mode === 'existing') {
         body.push(field('편지할 캐릭터', el('select', { onchange: (e) => { M.characterId = e.target.value; } }, [

@@ -130,16 +130,21 @@ test('달력: 생성 결과 → 정리, 미리보기에서 고친 달력도 그�
   assert.match(u.content, /백무기, 반달 여드레/);
 });
 
-test('무작위 만남: 직업·나이·성별·기질·처지를 굴리고, 쓰던 상대와 흔한 원형을 피하게', () => {
-  const r = X.rollMatch(() => 0.5, { setting: '' });
-  for (const k of ['setting', 'job', 'age', 'gender', 'temper', 'situation']) assert.ok(r[k], k);
+test('무작위 만남: 세계·키워드·종족·성별·나이·직업 예시를 참고용으로 굴리고, 쓰던 상대와 흔한 원형을 피하게', () => {
+  let q = 0; const r = X.rollMatch(() => ((q += 0.137) % 1), { setting: '' });
+  for (const k of ['setting', 'job', 'age', 'gender', 'kind']) assert.ok(r[k], k);
+  assert.equal(r.keywords.length, 3);
+  assert.ok(X.MATCH_AGES.every((a) => !/10대|50대|60대/.test(a)));
+  assert.ok(X.MATCH_GENDERS.includes('중성'));
   assert.equal(X.rollMatch(() => 0, { setting: '내 씨앗' }).setting, '내 씨앗');
   const jobs = new Set(); let i = 0;
   for (let n = 0; n < 200; n++) jobs.add(X.rollMatch(() => ((i = (i * 9301 + 49297) % 233280) / 233280)).job);
   assert.ok(jobs.size > 30, `직업 종류 ${jobs.size}`);
   assert.ok(!X.MATCH_JOBS.includes('등대지기'));
   const [, user] = X.buildMatchMessages({ mode: 'random', roll: r, used: ['칼렉(밀수꾼)'] });
-  assert.match(user.content, new RegExp(`occupation=${r.job}`));
+  assert.ok(user.content.includes(`occupation example=${r.job} (only a hint`));
+  assert.match(user.content, /references, not rules/);
+  assert.match(user.content, /non-human is welcome/);
   assert.match(user.content, /overused archetypes.*등대지기/);
   assert.match(user.content, /Already corresponding with.*칼렉\(밀수꾼\)/);
   const [, u2] = X.buildMatchMessages({ mode: 'existing', existing: { card: 'x' }, used: ['칼렉'] });
