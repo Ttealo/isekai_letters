@@ -625,11 +625,47 @@ export function etaLabel(ms, exact) {
 
 export const MATCH_MODES = ['prompt', 'random', 'existing'];
 
+// 무작위 만남은 세계·직업·나이·성별·기질·처지를 따로 굴린다(모델이 「외딴 곳의 외로운 지기」로 쏠리지 않게)
 export const GENRE_DICE = [
   '눈과 얼음의 변방', '사막의 대상로', '바다 위 군도', '숲의 정령 마을', '하늘에 뜬 섬', '증기 기관 도시',
-  '몰락한 왕국의 수도원', '별을 읽는 천문대', '지하 광산 도시', '마법 학원', '전쟁 중인 국경 요새', '유령이 사는 항구',
-  '꽃이 지지 않는 계곡', '거대한 도서관 탑', '용이 잠든 산맥', '시간이 느리게 흐르는 호수', '인어와 등대', '사라져 가는 유목민',
+  '몰락한 왕국의 수도원', '지하 광산 도시', '마법 학원', '전쟁 중인 국경 요새', '유령이 사는 항구',
+  '꽃이 지지 않는 계곡', '용이 잠든 산맥', '시간이 느리게 흐르는 호수', '사라져 가는 유목민',
+  '시장이 북적이는 무역항', '왕도의 뒷골목', '축제가 한창인 운하 도시', '대륙 횡단 열차가 서는 역 마을', '거대한 나무 위 마을',
+  '바닷속 돔 도시', '화산섬의 온천 마을', '해적 연합의 섬', '떠돌이 서커스단', '거인의 등 위에 세운 마을',
+  '해가 뜨지 않는 밤의 도시', '버섯 숲 지하 왕국', '귀족 사교계가 있는 수도', '기계 인형이 일하는 공장 도시', '포도밭이 펼쳐진 영지',
+  '초원의 기마 부족', '비가 그치지 않는 늪지 마을', '신들이 거리를 걷는 성도', '망명자들이 모인 국경 시장', '하늘을 나는 비행선 함대',
+  '혁명 직후의 공화국 수도', '역병이 지나간 강변 도시', '정령과 계약하는 염전 마을', '수인들의 산악 연방', '학자보다 상인이 많은 섬',
 ];
+export const MATCH_JOBS = [
+  '빵집 주인', '대장장이', '약초 상인', '수습 기사', '서커스 곡예사', '은퇴한 용병', '견습 연금술사', '뱃사공', '양봉가', '궁정 요리사',
+  '떠돌이 악사', '도박장 딜러', '조향사', '염색공', '시계공', '유리 세공사', '산파', '장의사', '소방대 대원', '열차 차장',
+  '비행선 정비공', '광부 반장', '포도주 양조가', '양치기', '사냥꾼', '경매인', '통역사', '극단 배우', '초상화가', '신전 청소부',
+  '세탁소 주인', '여관 주인', '마부', '궁정 정원사', '무두장이', '보석 감정사', '전당포 주인', '밀수꾼', '현상금 사냥꾼', '용 조련사',
+  '거리 점술가', '인형극 장인', '군의관', '수습 수도사', '학생', '농부', '찻집 주인', '목수', '다리 건설 기술자', '순찰대원',
+  '상단 회계원', '재봉사', '가면 장인', '이발사', '어부', '소금 장수', '경마 기수', '왕실 근위병', '고아원 원장', '하수도 관리인',
+  '지도 제작자', '향신료 상인', '유모', '사형 집행인', '소매치기', '마술 도구 수리공', '양조장 견습생', '대사관 하급 서기', '투기장 검투사', '은세공사',
+];
+export const MATCH_AGES = ['10대 후반', '20대 초반', '20대 후반', '30대', '40대', '50대', '60대 이상', '나이를 세지 않는 존재'];
+export const MATCH_GENDERS = ['남성', '남성', '여성', '여성', '그 세계 고유의 성 또는 성별이 중요하지 않은 존재'];
+export const MATCH_TEMPERS = [
+  '수다스럽고 밝음', '냉소적이고 비꼼', '허세가 있음', '다정하지만 서툼', '장난기 많음', '무뚝뚝함', '걱정이 많음', '오만함',
+  '낙천적', '고지식하고 진지함', '감정 기복이 큼', '능청스러움', '호기심이 지나침', '소심하지만 고집셈', '계산적', '느긋함',
+];
+export const MATCH_SITUATIONS = [
+  '빚을 갚는 중', '곧 결혼함', '가게를 막 열었음', '누군가에게 쫓기고 있음', '축제를 준비 중', '승진 시험을 앞둠', '가족이 아픔',
+  '징집 통지를 받음', '먼 곳으로 이사함', '짝사랑 중', '사업이 망한 직후', '새 일을 배우는 중', '남의 비밀을 지키는 중', '형제와 다툼',
+  '큰 대회에 나감', '은퇴를 앞둠', '아이를 맡아 키우게 됨', '고향에 돌아옴',
+];
+// 너무 자주 나오는 원형: 주사위가 그 직업을 고르지 않았다면 피한다
+const OVERUSED = '등대지기, 사서, 천문학자, 우편배달부, 은둔한 학자, 외딴 초소의 경비병, 마법사 탑의 견습생';
+export function rollMatch(rand = Math.random, { setting = '' } = {}) {
+  const pick = (a) => a[Math.floor(rand() * a.length) % a.length];
+  return {
+    setting: String(setting || '').trim() || pick(GENRE_DICE),
+    job: pick(MATCH_JOBS), age: pick(MATCH_AGES), gender: pick(MATCH_GENDERS), temper: pick(MATCH_TEMPERS), situation: pick(MATCH_SITUATIONS),
+  };
+}
+export const rollText = (r) => (r ? `세계 ${r.setting} · 직업 ${r.job} · ${r.age} · ${r.gender} · 기질 ${r.temper} · 처지 ${r.situation}` : '');
 
 const CARD_GUIDE = `
 <card_format>
@@ -693,7 +729,7 @@ const rangeText = (r) => {
 };
 
 // 매칭 프롬프트
-export function buildMatchMessages({ mode, request = '', dice = '', exclude = '', existing = null, personaName = '', noPersona = false, firstBy = 'them', ranges = null }) {
+export function buildMatchMessages({ mode, request = '', dice = '', roll = null, used = [], exclude = '', existing = null, personaName = '', noPersona = false, firstBy = 'them', ranges = null }) {
   const userName = (noPersona ? '' : personaName) || '편지의 주인';
   const system = [
     '<system>',
@@ -722,13 +758,15 @@ export function buildMatchMessages({ mode, request = '', dice = '', exclude = ''
     ].filter(Boolean).join('\n');
   } else if (mode === 'random') {
     task = [
-      `Invent a new correspondent. Setting seed: ${dice || '자유'}.`,
+      `Invent a new correspondent. Setting seed: ${roll?.setting || dice || '자유'}.`,
+      roll ? `Rolled traits (follow them; interpret freely to fit the world): occupation=${roll.job}; age=${roll.age}; gender=${roll.gender}; temperament=${roll.temper}; current situation=${roll.situation}.` : '',
       exclude ? `Never use these: ${exclude}.` : '',
-      'Vary gender, age, occupation and tone; do not default to a young woman or a lonely scholar.',
+      `Avoid overused archetypes unless rolled: ${OVERUSED}. {{char}} is not isolated by default: they have work, neighbors, family or rivals, and a busy daily life the letters can show.`,
     ].filter(Boolean).join('\n');
   } else {
-    task = `Expand the user's request into a full correspondent. Keep every detail the user gave; fill the rest consistently.\n<request>\n${request}\n</request>`;
+    task = `Expand the user's request into a full correspondent. Keep every detail the user gave; fill the rest consistently. Where the request leaves something open, avoid overused archetypes (${OVERUSED}).\n<request>\n${request}\n</request>`;
   }
+  if (mode !== 'existing' && used.length) task += `\nAlready corresponding with (make this one clearly different in occupation, world and temperament unless the request says otherwise): ${used.slice(0, 20).join('; ')}.`;
   const first = firstBy === 'them'
     ? `first_letter: {{char}} writes the very first letter to an unknown reader (they found a strange mailbox, or a letter appeared). {{char}} does not know the reader's name yet, so the letter must not use it. Use this shape: ${LETTER_SHAPE}`
     : 'first_letter: null ({{user}} will write first).';
@@ -1891,15 +1929,27 @@ export function start(api) {
       if (!p.characterId) throw new Error('캐릭터를 골라 주세요.');
       existing = await existingInfo(user, p.characterId);
     }
-    const dice = mode === 'random' ? (String(p.dice || '').trim() || GENRE_DICE[Math.floor(Math.random() * GENRE_DICE.length)]) : '';
+    const roll = mode === 'random' ? rollMatch(Math.random, { setting: p.dice }) : null;
+    const dice = roll ? roll.setting : '';
+    // 이미 편지하는 상대(이름·직업·세계)는 겹치지 않게
+    const used = [];
+    if (mode !== 'existing') {
+      for (const id of await listIds(user)) {
+        try {
+          const c = await loadC(user, id);
+          const job = (String(c.brief || '').match(/job=([^\n/]+)/) || [])[1]?.trim() || '';
+          used.push(`${c.name}${job ? `(${job})` : ''}${c.mail?.medium ? ` · 편지=${c.mail.medium}` : ''}`);
+        } catch {}
+      }
+    }
     const firstBy = p.firstBy === 'me' ? 'me' : 'them';
     const messages = buildMatchMessages({
-      mode, request: String(p.request || '').slice(0, 4000), dice, exclude: String(p.exclude || '').slice(0, 500),
+      mode, request: String(p.request || '').slice(0, 4000), dice, roll, used, exclude: String(p.exclude || '').slice(0, 500),
       existing: existing && { card: existing.card, lore: existing.lore }, personaName, noPersona: !!p.noPersona, firstBy, ranges: p.ranges || null,
     });
     const raw = await genJson(user, messages, settings);
     const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '', personaName });
-    return { draft: { ...draft, dice, firstBy, characterId: existing?.ch?.id || '' } };
+    return { draft: { ...draft, dice, roll: roll ? rollText(roll) : '', firstBy, characterId: existing?.ch?.id || '' } };
   };
   const matchConfirm = async (user, p, now) => {
     const d = cleanEditedDraft(p.draft);

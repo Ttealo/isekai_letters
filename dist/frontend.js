@@ -1119,7 +1119,7 @@ export function setup(ctx) {
         field('편지를 쓰는 나 (페르소나)', inputs.personaId),
         el('div', { class: 'im-muted', text: '상대를 직접 적습니다. 캐릭터 카드·로어북 자동 생성과 무작위 매칭은 다음 단계에서 붙습니다.' }),
         field('이름', text('name', '예: 하르텐')),
-        field('상대 설명 (성격·말투·처지 — 캐릭터 카드처럼 적어도 됩니다)', text('brief', '눈 덮인 곶의 등대지기. 무뚝뚝하지만 편지는 꼬박꼬박 길게 쓴다…', 6)),
+        field('상대 설명 (성격·말투·처지 — 캐릭터 카드처럼 적어도 됩니다)', text('brief', '운하 도시의 빵집 주인. 수다스럽고 편지마다 오늘 구운 빵 얘기를 한다…', 6)),
         field('그쪽 세계 (선택)', text('world', '바다가 얼어붙는 북쪽 해안. 우편은 철새 다리에 묶어 보낸다…', 4)),
         el('h4', { text: '시간' }),
         el('div', { class: 'im-pair' }, [
@@ -1316,9 +1316,10 @@ export function setup(ctx) {
       const personaSel = el('select', { onchange: (e) => { M.personaId = e.target.value; } }, personaOptions(M.personaId));
       const body = [];
       if (M.mode === 'prompt') {
-        body.push(field('어떤 상대와 편지하고 싶나요?', bind('request', 'textarea', { rows: 5, placeholder: '예: 눈 덮인 곶의 늙은 등대지기. 무뚝뚝하지만 편지는 꼬박꼬박 길게 쓴다. 바다가 얼면 새가 편지를 나른다.' })));
+        body.push(field('어떤 상대와 편지하고 싶나요?', bind('request', 'textarea', { rows: 5, placeholder: '예: 왕도 뒷골목 전당포의 젊은 주인. 능청스럽고 손님 험담을 즐긴다. 편지는 장부 뒷면에 쓴다.' })));
       } else if (M.mode === 'random') {
         body.push(field('세계의 씨앗 (비우면 주사위)', bind('dice', 'input', { placeholder: '예: 사막의 대상로 / 하늘에 뜬 섬' })));
+        body.push(el('div', { class: 'im-muted', text: '직업·나이·성별·기질·처지도 매번 주사위로 정하고, 이미 편지하는 상대와 겹치지 않게 합니다.' }));
         body.push(field('빼고 싶은 소재 (선택)', bind('exclude', 'input', { placeholder: '예: 전쟁, 용' })));
       } else if (M.mode === 'existing') {
         body.push(field('편지할 캐릭터', el('select', { onchange: (e) => { M.characterId = e.target.value; } }, [
@@ -1381,13 +1382,13 @@ export function setup(ctx) {
       return [
         el('div', { class: 'im-row' }, [link('← 다시 적기', () => go({ name: 'match' })), el('span', { class: 'im-grow' }), btn(busy ? '…' : '다시 만들기(1회)', () => act(async () => {
           const r = await ask('matchDraft', {
-            mode: M.mode, request: M.request, dice: d.dice || M.dice, exclude: M.exclude, characterId: M.characterId, ...personaPick(M.personaId), firstBy: M.firstBy,
+            mode: M.mode, request: M.request, dice: M.dice, exclude: M.exclude, characterId: M.characterId, ...personaPick(M.personaId), firstBy: M.firstBy,
             ranges: { ratioMin: M.ratioMin, ratioMax: M.ratioMax, deliveryMin: M.deliveryMin, deliveryMax: M.deliveryMax },
           }, 240000);
           M.draft = r.draft;
         }), { disabled: busy })]),
         el('h3', { text: '미리보기' }),
-        d.dice ? el('div', { class: 'im-muted', text: `세계의 씨앗: ${d.dice}` }) : null,
+        d.roll ? el('div', { class: 'im-muted', text: `주사위: ${d.roll}` }) : d.dice ? el('div', { class: 'im-muted', text: `세계의 씨앗: ${d.dice}` }) : null,
         d.warnings?.length ? el('div', { class: 'im-err', text: `확인할 점: ${d.warnings.join(' / ')}` }) : null,
         field('이름', txt(d, 'name')),
         d.card ? el('div', { style: 'display:flex;flex-direction:column;gap:8px' }, [

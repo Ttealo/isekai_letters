@@ -4,7 +4,7 @@ import {
   parseJsonLoose, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
 import {
-  MATCH_MODES, GENRE_DICE, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
+  MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
 } from './match.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
@@ -481,15 +481,27 @@ export function start(api) {
       if (!p.characterId) throw new Error('캐릭터를 골라 주세요.');
       existing = await existingInfo(user, p.characterId);
     }
-    const dice = mode === 'random' ? (String(p.dice || '').trim() || GENRE_DICE[Math.floor(Math.random() * GENRE_DICE.length)]) : '';
+    const roll = mode === 'random' ? rollMatch(Math.random, { setting: p.dice }) : null;
+    const dice = roll ? roll.setting : '';
+    // 이미 편지하는 상대(이름·직업·세계)는 겹치지 않게
+    const used = [];
+    if (mode !== 'existing') {
+      for (const id of await listIds(user)) {
+        try {
+          const c = await loadC(user, id);
+          const job = (String(c.brief || '').match(/job=([^\n/]+)/) || [])[1]?.trim() || '';
+          used.push(`${c.name}${job ? `(${job})` : ''}${c.mail?.medium ? ` · 편지=${c.mail.medium}` : ''}`);
+        } catch {}
+      }
+    }
     const firstBy = p.firstBy === 'me' ? 'me' : 'them';
     const messages = buildMatchMessages({
-      mode, request: String(p.request || '').slice(0, 4000), dice, exclude: String(p.exclude || '').slice(0, 500),
+      mode, request: String(p.request || '').slice(0, 4000), dice, roll, used, exclude: String(p.exclude || '').slice(0, 500),
       existing: existing && { card: existing.card, lore: existing.lore }, personaName, noPersona: !!p.noPersona, firstBy, ranges: p.ranges || null,
     });
     const raw = await genJson(user, messages, settings);
     const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '', personaName });
-    return { draft: { ...draft, dice, firstBy, characterId: existing?.ch?.id || '' } };
+    return { draft: { ...draft, dice, roll: roll ? rollText(roll) : '', firstBy, characterId: existing?.ch?.id || '' } };
   };
   const matchConfirm = async (user, p, now) => {
     const d = cleanEditedDraft(p.draft);
