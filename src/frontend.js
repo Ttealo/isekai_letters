@@ -845,6 +845,20 @@ export function setup(ctx) {
           })),
           c?.calendar ? link('달력 지우기', () => doAct(async () => { if (confirm('달력을 지우고 「만난 지 N일째」로 표시할까요?')) await ask('setCalendar', { id: view.id, calendar: null }); })) : null,
         ]),
+        c?.calendar ? (() => {
+          // 달력 직접 고치기: 하루 길이·연도·연도 표기·달 목록(만난 날의 달·일은 그대로)
+          const cal = c.calendar;
+          const dh = el('input', { type: 'number', min: '6', max: '100', value: String(cal.dayHours) });
+          const yr = el('input', { type: 'number', value: String(cal.start?.year ?? 1) });
+          const yl = el('input', { value: cal.yearLabel || '', placeholder: '비우면 연도를 표시하지 않음' });
+          const ms = el('textarea', { rows: 3, value: monthsToText(cal) });
+          return el('details', {}, [
+            el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '달력 고치기' }),
+            el('div', { class: 'im-pair' }, [field('하루 길이(시간)', dh), field('만난 해(숫자)', yr), field('연도 표기(숫자 뒤, 예: 년·대륙력)', yl)]),
+            field('달 (한 줄에 「이름 | 일수」)', ms),
+            btn('달력 저장', () => doAct(() => ask('setCalendar', { id: view.id, calendar: { dayHours: Number(dh.value), yearLabel: yl.value, months: textToMonths(ms.value), start: { ...cal.start, year: Number(yr.value) } } }))),
+          ]);
+        })() : null,
         // 그림
         el('h4', { text: `그림${S.art?.left !== undefined ? ` · 오늘 남은 ${S.art.left}장` : ''}` }),
         c ? artBar(c, doAct) : null,
