@@ -459,7 +459,7 @@ export function start(api) {
   const genJson = async (user, messages, settings) => {
     const conn = settings.createConnectionId || settings.replyConnectionId;
     const once = async (temperature) => {
-      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 15000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
+      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 20000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
       const req = { messages, parameters, userId: user };
       try {
         return conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
@@ -825,9 +825,23 @@ export function start(api) {
         log('info', `상대 지움(${c?.name || p.id}) 캐릭터=${done.character} 로어북=${done.book} 그림=${done.images}`);
         return done;
       }
+      case 'uploadPhoto': {
+        // 내 사진 동봉: 프런트가 WebP로 줄여 보낸다
+        const bytes = Uint8Array.from(Buffer.from(String(p.data || ''), 'base64'));
+        if (bytes.length < 100 || bytes.length > 8 * 1024 * 1024) throw new Error('사진 크기가 이상합니다(8MB 이하).');
+        const c = await loadC(user, p.id);
+        const up = await api.images.upload({ data: bytes, filename: `isekai-photo-${Date.now()}.webp`, mime_type: p.mime === 'image/jpeg' ? 'image/jpeg' : 'image/webp', owner_character_id: c.characterId || undefined }, user);
+        return { imageId: up.id };
+      }
+      case 'dropPhoto': {
+        // 보내기 전에 뺀 사진: 어느 편지에도 안 쓰였으면 지운다
+        const c = await loadC(user, p.id);
+        if (!imageIdsOf(c).includes(p.imageId)) { try { await api.images.delete(p.imageId, user); } catch {} }
+        return {};
+      }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
-        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
+        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'recall': {

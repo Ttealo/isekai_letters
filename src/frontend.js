@@ -342,21 +342,40 @@ export function setup(ctx) {
   }
 
   // 편지 쓰기 칸(서랍·보조창 공용)
-  const drafts = new Map(); // 상대 id → { body, enclosure }
+  const drafts = new Map(); // 상대 id → { body, enclosure, photos }
   function composeBox(c, { busyRef, act, onSent }) {
-    const d = drafts.get(c.id) || { body: '', enclosure: '' };
+    const d = drafts.get(c.id) || { body: '', enclosure: '', photos: [] };
+    if (!d.photos) d.photos = [];
     drafts.set(c.id, d);
+    const photoIn = el('input', { type: 'file', accept: 'image/*', style: 'display:none', onchange: (e) => act(async () => {
+      const f = e.target.files?.[0];
+      e.target.value = '';
+      if (!f) return;
+      if (d.photos.length >= 3) throw new Error('사진은 편지 한 통에 3장까지예요.');
+      let blob = f;
+      try { blob = await toWebp(f); } catch {}
+      const name = (prompt('사진에 붙일 설명 (상대는 이 설명만큼 사진을 압니다)', '') || '').trim() || '사진 한 장';
+      const r = await ask('uploadPhoto', { id: c.id, data: await b64(blob), mime: blob.type }, 60000);
+      d.photos.push({ imageId: r.imageId, name });
+    }) });
+    const photoRow = d.photos.length ? el('div', { class: 'im-row', style: 'flex-wrap:wrap;gap:8px' }, d.photos.map((ph, i) => el('div', { class: 'im-chip', style: 'display:flex;align-items:center;gap:6px' }, [
+      el('img', { src: imgUrl(ph.imageId, 'sm'), alt: ph.name, style: 'width:36px;height:36px;object-fit:cover;border-radius:4px' }),
+      el('span', { text: short(ph.name, 24) }),
+      el('button', { class: 'im-link', type: 'button', text: '빼기', onclick: () => act(async () => { d.photos.splice(i, 1); await ask('dropPhoto', { id: c.id, imageId: ph.imageId }).catch(() => {}); }) }),
+    ]))) : null;
     const sender = c.noPersona ? '나 (페르소나 없음)' : c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
     return el('div', { class: 'im-letter' }, [
       el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })]),
       el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
       el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
+      el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
+      photoRow,
       el('div', { class: 'im-row' }, [
         el('span', { class: 'im-muted im-grow', text: `${deliveryLabel(c)}. 도착 전에는 회수할 수 있습니다.` }),
         btn(busyRef() ? '보내는 중…' : '보내기', () => act(async () => {
           if (!d.body.trim()) throw new Error('본문을 적어 주세요.');
-          await ask('send', { id: c.id, body: d.body, enclosure: d.enclosure, userTz: c.noPersona ? myTz() : '' });
-          drafts.set(c.id, { body: '', enclosure: '' });
+          await ask('send', { id: c.id, body: d.body, enclosure: d.enclosure, photos: d.photos, userTz: c.noPersona ? myTz() : '' });
+          drafts.set(c.id, { body: '', enclosure: '', photos: [] });
           await refresh();
           onSent?.();
         }), { primary: true, disabled: busyRef() }),

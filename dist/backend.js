@@ -287,10 +287,12 @@ export function cleanLetterBody(v) {
 }
 
 // 내가 보내는 편지
-export function sendLetter(c, { body, enclosure, personaName }, now = Date.now(), rand = Math.random) {
+export function sendLetter(c, { body, enclosure, personaName, photos = [] }, now = Date.now(), rand = Math.random) {
   c = normalize(c);
   const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
-  const names = splitEnclosures(enclosure);
+  // 사진 동봉: 이쪽 세계의 사진(설명이 이름). 글 동봉과 합쳐 5개까지
+  const pics = (Array.isArray(photos) ? photos : []).map((x) => ({ imageId: str(x?.imageId, 200), name: str(x?.name, 120).trim() || '사진 한 장' })).filter((x) => x.imageId).slice(0, 3);
+  const names = [...splitEnclosures(enclosure).slice(0, 5 - pics.length), ...pics.map((x) => `사진 — ${x.name}`)];
   const letter = {
     id: newId('l', now, rand),
     from: 'me',
@@ -298,13 +300,19 @@ export function sendLetter(c, { body, enclosure, personaName }, now = Date.now()
     body: cleanLetterBody(body),
     enclosure: names.join(', '),
     enclosures: names.map((item) => ({ item, note: '' })),
+    ...(pics.length ? { photos: pics } : {}),
     sentAt: now,
     arriveAt: now + travel,
     theirSentAt: theirNow(c, now),
     theirArriveAt: theirNow(c, now + travel),
     state: 'in_transit',
   };
-  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...names.map((n, i) => makeItem(letter, n, '', i))], initiativeAt: 0 };
+  const nText = names.length - pics.length;
+  const items = names.map((n, i) => {
+    const it = makeItem(letter, n, '', i);
+    return i >= nText ? { ...it, imageId: pics[i - nText].imageId, photo: true, note: '{{user}}의 세계에서 찍은 사진' } : it;
+  });
+  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...items], initiativeAt: 0 };
 }
 
 // 배송 중일 때만 회수
@@ -530,7 +538,7 @@ const letterText = (l, c) => {
   if (l.from === 'me') {
     const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${theirLabel(c, l.theirSentAt)} / 도착 ${theirLabel(c, l.theirArriveAt)}`;
     const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item).join(', ') : l.enclosure;
-    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}`;
+    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}${l.photos?.length ? `\n(「사진 — …」은 {{user}}의 세계에서 찍은 사진 — 그쪽 세계에는 낯선 물건일 수 있다. 무엇이 찍혔는지는 설명만큼만 안다)` : ''}`;
   }
   const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
@@ -1974,7 +1982,7 @@ export function start(api) {
   const genJson = async (user, messages, settings) => {
     const conn = settings.createConnectionId || settings.replyConnectionId;
     const once = async (temperature) => {
-      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 15000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
+      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 20000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
       const req = { messages, parameters, userId: user };
       try {
         return conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
@@ -2340,9 +2348,23 @@ export function start(api) {
         log('info', `상대 지움(${c?.name || p.id}) 캐릭터=${done.character} 로어북=${done.book} 그림=${done.images}`);
         return done;
       }
+      case 'uploadPhoto': {
+        // 내 사진 동봉: 프런트가 WebP로 줄여 보낸다
+        const bytes = Uint8Array.from(Buffer.from(String(p.data || ''), 'base64'));
+        if (bytes.length < 100 || bytes.length > 8 * 1024 * 1024) throw new Error('사진 크기가 이상합니다(8MB 이하).');
+        const c = await loadC(user, p.id);
+        const up = await api.images.upload({ data: bytes, filename: `isekai-photo-${Date.now()}.webp`, mime_type: p.mime === 'image/jpeg' ? 'image/jpeg' : 'image/webp', owner_character_id: c.characterId || undefined }, user);
+        return { imageId: up.id };
+      }
+      case 'dropPhoto': {
+        // 보내기 전에 뺀 사진: 어느 편지에도 안 쓰였으면 지운다
+        const c = await loadC(user, p.id);
+        if (!imageIdsOf(c).includes(p.imageId)) { try { await api.images.delete(p.imageId, user); } catch {} }
+        return {};
+      }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
-        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
+        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'recall': {

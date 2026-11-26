@@ -287,10 +287,12 @@ export function cleanLetterBody(v) {
 }
 
 // 내가 보내는 편지
-export function sendLetter(c, { body, enclosure, personaName }, now = Date.now(), rand = Math.random) {
+export function sendLetter(c, { body, enclosure, personaName, photos = [] }, now = Date.now(), rand = Math.random) {
   c = normalize(c);
   const travel = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
-  const names = splitEnclosures(enclosure);
+  // 사진 동봉: 이쪽 세계의 사진(설명이 이름). 글 동봉과 합쳐 5개까지
+  const pics = (Array.isArray(photos) ? photos : []).map((x) => ({ imageId: str(x?.imageId, 200), name: str(x?.name, 120).trim() || '사진 한 장' })).filter((x) => x.imageId).slice(0, 3);
+  const names = [...splitEnclosures(enclosure).slice(0, 5 - pics.length), ...pics.map((x) => `사진 — ${x.name}`)];
   const letter = {
     id: newId('l', now, rand),
     from: 'me',
@@ -298,13 +300,19 @@ export function sendLetter(c, { body, enclosure, personaName }, now = Date.now()
     body: cleanLetterBody(body),
     enclosure: names.join(', '),
     enclosures: names.map((item) => ({ item, note: '' })),
+    ...(pics.length ? { photos: pics } : {}),
     sentAt: now,
     arriveAt: now + travel,
     theirSentAt: theirNow(c, now),
     theirArriveAt: theirNow(c, now + travel),
     state: 'in_transit',
   };
-  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...names.map((n, i) => makeItem(letter, n, '', i))], initiativeAt: 0 };
+  const nText = names.length - pics.length;
+  const items = names.map((n, i) => {
+    const it = makeItem(letter, n, '', i);
+    return i >= nText ? { ...it, imageId: pics[i - nText].imageId, photo: true, note: '{{user}}의 세계에서 찍은 사진' } : it;
+  });
+  return { ...c, letters: [...c.letters, letter], items: [...c.items, ...items], initiativeAt: 0 };
 }
 
 // 배송 중일 때만 회수
@@ -530,7 +538,7 @@ const letterText = (l, c) => {
   if (l.from === 'me') {
     const head = `[{{user}} → ${c.name}] 보낸 날(그쪽 기준) ${theirLabel(c, l.theirSentAt)} / 도착 ${theirLabel(c, l.theirArriveAt)}`;
     const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item).join(', ') : l.enclosure;
-    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}`;
+    return `${head}\n${l.body}${enc ? `\n(동봉: ${enc})` : ''}${l.photos?.length ? `\n(「사진 — …」은 {{user}}의 세계에서 찍은 사진 — 그쪽 세계에는 낯선 물건일 수 있다. 무엇이 찍혔는지는 설명만큼만 안다)` : ''}`;
   }
   const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;

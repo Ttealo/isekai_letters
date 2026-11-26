@@ -283,3 +283,18 @@ test('JSON 고치기: 글 속 따옴표·줄바꿈, 끝 쉼표, 중간에 끊긴
   assert.deepEqual(M.parseJsonLoose('{"a":1}'), { a: 1 });
   assert.throws(() => M.parseJsonLoose('그냥 글'), /JSON을 찾지 못했습니다/);
 });
+
+test('사진 동봉: 글 동봉과 함께 물건이 되고 그림 id를 갖는다', () => {
+  let c = M.createCorrespondent(base, 0, () => 0);
+  c = M.sendLetter(c, { body: '사진 보내요', enclosure: '단풍잎', photos: [{ imageId: 'img1', name: '우리 집 고양이' }, { imageId: '' }] }, 0, () => 0);
+  const l = c.letters[0];
+  assert.deepEqual(l.enclosures.map((x) => x.item), ['단풍잎', '사진 — 우리 집 고양이']);
+  assert.equal(c.items[1].imageId, 'img1');
+  assert.equal(c.items[1].photo, true);
+  assert.ok(!c.items[0].imageId);
+  assert.deepEqual(M.imageIdsOf(c), ['img1']);
+  c = M.advance(c, 10 * H).c;
+  const user = M.buildReplyMessages(c, { now: 10 * H, personaName: '하루' })[1].content;
+  assert.match(user, /사진 — 우리 집 고양이/);
+  assert.match(user, /하루의 세계에서 찍은 사진/);
+});
