@@ -1,6 +1,6 @@
 import {
   cleanSettings, createCorrespondent, updateCorrespondent, toInput, sendLetter, recallLetter, markOpened,
-  advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart,
+  advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart, calendarDate,
   parseJsonLoose, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
 import {
@@ -11,7 +11,7 @@ import {
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
 } from './memory.js';
 import {
-  ART_KINDS, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
+  ART_KINDS, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, artChangeJobs, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
 } from './art.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -220,7 +220,7 @@ export function start(api) {
       try {
         const named = jobs.map((j, i) => {
           const it = j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId) : null;
-          return { ...j, key: `k${i}`, name: it?.name, note: it?.note };
+          return { ...j, key: `k${i}`, name: it?.name, note: it?.note }; // j.letterId·reason·medium·motif: 편지 한 통의 새 편지지·우표
         });
         // 1) 그림 주제(글 1회). 한도 초과(429)·서버 오류면 잠시 뒤 한 번 더, 그래도 안 되면 이름·설명으로 대신
         let prompts = {};
@@ -278,9 +278,18 @@ export function start(api) {
             await mutate(user, id, (c) => {
               c = ensureArt(c);
               const rec = { imageId: res.imageId, prompt, at: Date.now(), subjectFallback: !prompts[j.key] };
-              return j.kind === 'item'
-                ? { ...c, items: c.items.map((x) => (x.id === j.itemId ? { ...x, imageId: res.imageId, imagePrompt: prompt } : x)) }
-                : { ...c, art: { ...c.art, [j.kind]: rec } };
+              if (j.kind === 'item') return { ...c, items: c.items.map((x) => (x.id === j.itemId ? { ...x, imageId: res.imageId, imagePrompt: prompt } : x)) };
+              if (j.letterId) {
+                // 바뀌기 전 편지들은 그때 그림을 그대로 갖게 고정
+                const prev = c.art?.[j.kind]?.imageId;
+                const letters = c.letters.map((l) => {
+                  if (l.id === j.letterId) return { ...l, art: { ...(l.art || {}), [j.kind]: res.imageId }, artNote: [l.artNote, `새 ${j.kind === 'paper' ? '편지지' : '우표'} — ${j.reason || ''}`].filter(Boolean).join(' · ') };
+                  if (l.from === 'them' && prev && !l.art?.[j.kind]) return { ...l, art: { ...(l.art || {}), [j.kind]: prev } };
+                  return l;
+                });
+                return { ...c, letters, art: { ...c.art, [j.kind]: { ...rec, reason: j.reason || '' } } };
+              }
+              return { ...c, art: { ...c.art, [j.kind]: rec } };
             });
             await setTarget(i, { state: 'done', error: prompts[j.key] ? '' : '주제 대신 이름·설명으로 그림' });
             doneCount++;
@@ -312,6 +321,21 @@ export function start(api) {
     run();
     return { started: jobs.length, left: left - jobs.length, quiet };
   };
+  // 자동 그리기(물건·편지지 바뀜)는 앞의 그리기가 끝날 때까지 기다렸다가(최대 3분) 이어서 그린다
+  const drawArtWhenFree = async (user, id, jobs) => {
+    const key = `${user}:${id}:art`;
+    for (let i = 0; i < 90 && drawing.has(key); i++) await new Promise((r) => setTimeout(r, 2000));
+    return drawArt(user, id, jobs);
+  };
+  // 사람이 누른 그리기: 다른 그리기가 도는 중이면 거절하지 않고 끝난 뒤 이어서(대기열)
+  const drawOrQueue = async (user, id, jobs) => {
+    if (!drawing.has(`${user}:${id}:art`)) return drawArt(user, id, jobs);
+    const settings = await loadSettings(user);
+    const left = quotaLeft(await readUsage(user), cleanArt(settings.art));
+    if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장).`);
+    drawArtWhenFree(user, id, jobs).catch((e) => log('warn', `대기 중이던 그리기 실패: ${e?.message || e}`));
+    return { started: jobs.length, queued: true, left: left - jobs.length };
+  };
   // 프런트가 WebP로 바꿔 보낸 바이트로 바꿔 끼우고 원본(png)을 지운다
   const webpDone = async (user, p) => {
     const q = await readJson(WEBP, user, []);
@@ -336,6 +360,25 @@ export function start(api) {
     });
     if (c0) notify(user, { id: row.cid });
     return { id: up.id, before: Number(p.originalBytes) || 0, after: bytes.length };
+  };
+
+  // 편지지·우표 바뀜: 정리 단계가 찾은 사건(event) 또는 그쪽 계절 바뀜(season)
+  const maybeChangeArt = async (user, id, letterId, change) => {
+    const settings = await loadSettings(user);
+    const art = cleanArt(settings.art);
+    if (!api.imageGen?.generate || (art.paperChange === 'off' && art.stampChange === 'off')) return;
+    const c = await loadC(user, id);
+    const l = c.letters.find((x) => x.id === letterId);
+    if (!l || l.from !== 'them' || l.art?.paper || l.art?.stamp) return; // 상대 편지에만, 한 번만
+    let seasonChanged = false;
+    if (c.calendar?.months?.length) {
+      const prevTheirs = [...c.letters].filter((x) => x.from === 'them' && x.id !== l.id && x.theirWrittenAt <= l.theirWrittenAt).pop();
+      if (prevTheirs) seasonChanged = calendarDate(c.calendar, prevTheirs.theirWrittenAt).month !== calendarDate(c.calendar, l.theirWrittenAt).month;
+    }
+    const jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: !!c.art?.paper?.imageId, stamp: !!c.art?.stamp?.imageId } });
+    if (!jobs.length) return;
+    log('info', `편지지·우표 바뀜(${c.name}): ${jobs.map((j) => `${j.kind}=${j.reason}`).join(', ')}`);
+    await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
   };
 
   // ── 정리 단계 ──
@@ -391,6 +434,7 @@ export function start(api) {
         return { ...next, organize: rest.length ? { ...cur.organize, state: 'waiting', forLetterIds: rest, attempts: 0 } : null };
       });
       await runChanges(user, id, applyIds);
+      await maybeChangeArt(user, id, lastLetter, org.artChange).catch((e) => log('info', `편지지·우표 바뀜 건너뜀: ${e?.message || e}`));
       log('info', `정리 완료(${c.name}): 변경 ${applyIds.length}건 자동 적용`);
       notify(user, { id });
     } finally {
@@ -487,6 +531,10 @@ export function start(api) {
       if (c.calendar) c = { ...c, calendar: shiftCalendarStart(c.calendar, -c.anchor.theirAt) };
       if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
       await serial(user, () => saveC(user, c));
+      // 첫 편지의 동봉물도 자동 그리기(설정이 켜져 있으면)
+      const settingsA = await loadSettings(user);
+      const firstItems = (c.items || []).filter((x) => x.from === 'them' && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
+      if (api.imageGen?.generate && firstItems.length && cleanArt(settingsA.art).autoItems === 'all') drawArtWhenFree(user, c.id, firstItems).catch((e) => log('info', `첫 편지 물건 자동 그림 건너뜀: ${e?.message || e}`));
       return { id: c.id, characterId: charId, worldBookId: book.id };
     } catch (e) {
       // 중간에 실패하면 이번에 만든 것만 지운다
@@ -564,11 +612,15 @@ export function start(api) {
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
       });
       log('info', `답장 생성 완료 — 배송 시작(${c.name})`);
-      if (cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
+      if (!settings.organizeEnabled) {
+        const cur0 = await loadC(user, id);
+        maybeChangeArt(user, id, cur0.letters[cur0.letters.length - 1].id, null).catch(() => {});
+      }
+      if (api.imageGen?.generate && cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
         const cur = await loadC(user, id);
         const last = cur.letters[cur.letters.length - 1];
         const its = (cur.items || []).filter((x) => x.letterId === last.id && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
-        if (its.length) drawArt(user, id, its).catch((e) => log('info', `물건 자동 그림 건너뜀: ${e?.message || e}`));
+        if (its.length) drawArtWhenFree(user, id, its).catch((e) => log('info', `물건 자동 그림 건너뜀: ${e?.message || e}`));
       }
       notify(user, { id });
     } finally {
@@ -796,7 +848,7 @@ export function start(api) {
         const c = ensureArt(await loadC(user, p.id));
         const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
         if (!kinds.length) throw new Error('그릴 것이 없습니다.');
-        return drawArt(user, c.id, kinds.map((kind) => ({ kind })));
+        return drawOrQueue(user, c.id, kinds.map((kind) => ({ kind })));
       }
       case 'makeCalendar': {
         // 기존 상대에 달력 붙이기: 로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 글 1회
@@ -844,7 +896,7 @@ export function start(api) {
         const it = (c.items || []).find((x) => x.id === p.itemId);
         if (!it) throw new Error('물건을 찾지 못했습니다.');
         if (it.from === 'them' && it.state === 'in_transit') throw new Error('아직 도착하지 않은 물건입니다.');
-        return drawArt(user, c.id, [{ kind: 'item', itemId: it.id }]);
+        return drawOrQueue(user, c.id, [{ kind: 'item', itemId: it.id }]);
       }
       case 'webpQueue':
         return { queue: (await readJson(WEBP, user, [])).slice(0, 10) };

@@ -24,7 +24,9 @@ export const DEFAULT_ART = {
   size: '1024x1024',
   paperSize: '1024x1024',
   perDay: 6, // 하루 전체 장수(세트 포함)
-  autoItems: 'off', // 'off' | 'all'
+  autoItems: 'all', // 'off' | 'all' — 상대가 보낸 물건을 답장이 만들어질 때 그림
+  paperChange: 'event', // 편지지 바뀜: 'event'(사건이 있을 때 — 계절 변화 포함) | 'season'(그쪽 계절이 바뀔 때만) | 'off'
+  stampChange: 'event', // 우표 바뀜: 같은 값
   sendNegative: false, // 금지어를 negative_prompt로 보낼지(받지 않는 모델이 많음 — 거절되면 빼고 다시 시도)
   negative: NEGATIVE,
   paperStrength: 70, // 편지지 가운데 글씨 칸을 덮는 크림색의 옅기(100=안 덮음)
@@ -50,7 +52,9 @@ export function cleanArt(a) {
     size: asize(a?.size, DEFAULT_ART.size),
     paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
     perDay: anum(a?.perDay, 0, 100, DEFAULT_ART.perDay),
-    autoItems: a?.autoItems === 'all' ? 'all' : 'off',
+    autoItems: a?.autoItems === 'off' ? 'off' : 'all',
+    paperChange: ['event', 'season', 'off'].includes(a?.paperChange) ? a.paperChange : 'event',
+    stampChange: ['event', 'season', 'off'].includes(a?.stampChange) ? a.stampChange : 'event',
     sendNegative: !!a?.sendNegative,
     negative: astr(a?.negative, 1500) || NEGATIVE,
     paperStrength: anum(a?.paperStrength, 0, 100, DEFAULT_ART.paperStrength),
@@ -81,8 +85,9 @@ export function useQuota(usage, n, now = Date.now()) {
 export function buildArtPromptMessages(c, jobs) {
   const m = c.mail || {};
   const lines = jobs.map((j) => {
-    if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'})`;
-    if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${m.stampMotif || '-'})`;
+    const why = j.reason ? `; this letter's paper/stamp changed because: ${j.reason}` : '';
+    if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${j.medium || m.medium || '-'}; texture: ${m.texture || '-'}${why})`;
+    if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${j.motif || m.stampMotif || '-'}${why})`;
     if (j.kind === 'seal') return `- key=${j.key}: the design pressed into ${c.name}'s letter seal (seal: ${m.seal || '-'})`;
     return `- key=${j.key}: the object "${j.name}"${j.note ? ` (${j.note})` : ''} — its material, shape, wear and small details`;
   });
@@ -129,6 +134,23 @@ export function artParamAttempts(size, art) {
   return out;
 }
 export const isParamRejection = (e) => /\(400\)|not support|unsupported|negative|resolution|size/i.test(String(e?.message || e));
+
+// 바뀔 그림 고르기. change: 정리 단계가 찾은 모양 변화 {paper, stamp, reason, medium, motif} | null
+// seasonChanged: 이번 편지와 직전 상대 편지의 그쪽 달(계절)이 다른지
+export function artChangeJobs(art, { change = null, seasonChanged = false, hasSet = {} } = {}) {
+  const jobs = [];
+  for (const kind of ['paper', 'stamp']) {
+    if (!hasSet[kind]) continue; // 기본 세트가 없으면 바꿀 것도 없음(세트는 사람이 시작)
+    const mode = kind === 'paper' ? art.paperChange : art.stampChange;
+    if (mode === 'off') continue;
+    const byEvent = mode === 'event' && change?.[kind];
+    const bySeason = (mode === 'season' || mode === 'event') && seasonChanged;
+    if (byEvent || bySeason) {
+      jobs.push({ kind, reason: byEvent ? (change.reason || '사건') : '그쪽 계절이 바뀜', medium: kind === 'paper' ? change?.medium || '' : '', motif: kind === 'stamp' ? change?.motif || '' : '' });
+    }
+  }
+  return jobs;
+}
 
 // 상대 안의 그림 기록(없으면 빈 칸)
 export function ensureArt(c) {

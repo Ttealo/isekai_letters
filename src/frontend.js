@@ -600,7 +600,10 @@ export function setup(ctx) {
       const isize = el('input', { value: A.size, placeholder: '1024x1024' });
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
-      const iauto = el('select', {}, [el('option', { value: 'off', text: '끔', selected: A.autoItems !== 'all' }), el('option', { value: 'all', text: '켬', selected: A.autoItems === 'all' })]);
+      const iauto = el('select', {}, [el('option', { value: 'all', text: '켬', selected: A.autoItems !== 'off' }), el('option', { value: 'off', text: '끔', selected: A.autoItems === 'off' })]);
+      const CHG = [['event', '사건이 있을 때 (계절 변화 포함)'], ['season', '그쪽 계절이 바뀔 때만'], ['off', '끄기']];
+      const ipch = el('select', {}, CHG.map(([v, t]) => el('option', { value: v, text: t, selected: (A.paperChange || 'event') === v })));
+      const isch = el('select', {}, CHG.map(([v, t]) => el('option', { value: v, text: t, selected: (A.stampChange || 'event') === v })));
       const osel = el('select', {}, [
         el('option', { value: '', text: '답장 연결과 같게' }),
         ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === s.organizeConnectionId })),
@@ -648,7 +651,8 @@ export function setup(ctx) {
           field('글씨 칸 선명도 (100=그림 그대로, 낮을수록 크림색으로 덮음)', istrength),
         ]),
         el('div', { class: 'im-muted', text: '편지지 그림은 액자처럼 씁니다: 모서리·테두리는 늘리지 않고 편지 길이에 맞춰 가장자리만 이어 붙입니다. 장식이 글씨에 닿으면 두께나 비율을 올려 주세요.' }),
-        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto)]),
+        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
+        el('div', { class: 'im-muted', text: '편지지·우표가 바뀌면 그 편지부터 새 그림을 쓰고, 예전 편지는 그때 그림을 그대로 가집니다. 바뀔 때마다 그림 1~2장 + 글 1회, 하루 최대 장수 안에서만. 「사건」은 정리 단계가 편지 내용에서 찾습니다(정리 단계를 끄면 계절 바뀜만).' }),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
         el('h4', { text: '먼저 오는 편지' }),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [initOn, '내가 오래 답장하지 않으면 상대가 먼저 쓰기']),
@@ -669,7 +673,7 @@ export function setup(ctx) {
         ]),
         el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -957,8 +961,9 @@ export function setup(ctx) {
       ]);
     }
     const meta = [l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · ');
-    const paperImg = c.art?.paper?.imageId;
-    const stampImg = c.art?.stamp?.imageId;
+    // 편지마다 자기 그림(바뀐 때)이 있으면 그것, 없으면 상대의 기본 그림
+    const paperImg = l.art?.paper || c.art?.paper?.imageId;
+    const stampImg = l.art?.stamp || c.art?.stamp?.imageId;
     const A = S.settings?.art || {};
     const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== null && v !== undefined ? Number(v) : d);
     const fade = Math.max(0, Math.min(0.9, (100 - num(A.paperStrength, 70)) / 100));
@@ -976,6 +981,7 @@ export function setup(ctx) {
       el('div', { class: 'im-meta', text: `${c.name}의 편지 · ${meta}` }),
       el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
       l.enclosures?.length ? el('div', { class: 'im-encl' }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
+      l.artNote ? el('div', { class: 'im-meta', style: 'margin:8px 0 0;color:var(--im-wax)', text: `✦ ${l.artNote}` }) : null,
       el('div', { class: 'im-meta', style: 'margin:8px 0 0', text: `받은 시각 ${when(l.arriveAt)}` }),
     ]);
   }

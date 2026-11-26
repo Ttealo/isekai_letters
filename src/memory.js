@@ -143,7 +143,7 @@ export function memoryLayers(c, { budgets = DEFAULT_BUDGETS, recentLetters = 6 }
 
 // ── 정리 단계 ──
 
-const ORG_SHAPE = '{"summaries":[{"letter_id":"","text":""}],"ledger":{"called_me":"","called_them":"","stage":"","mood":"","promises_add":[{"who":"me|them","what":"","when":""}],"promises_done":[""],"questions_add":[{"who":"me|them","q":""}],"questions_answered":[""],"dates_add":[""],"knows_about_me_add":[""],"i_know_add":[""]},"timeline_add":[{"when":"","event":"","open":true}],"timeline_close":[""],"lore_add":[{"title":"","keys":[""],"content":""}],"lore_edit":[{"title":"","after":"","reason":""}],"card":[{"field":"","value":"","reason":""}],"conflicts":[{"target":"","why":""}],"chapter":""}';
+const ORG_SHAPE = '{"summaries":[{"letter_id":"","text":""}],"ledger":{"called_me":"","called_them":"","stage":"","mood":"","promises_add":[{"who":"me|them","what":"","when":""}],"promises_done":[""],"questions_add":[{"who":"me|them","q":""}],"questions_answered":[""],"dates_add":[""],"knows_about_me_add":[""],"i_know_add":[""]},"timeline_add":[{"when":"","event":"","open":true}],"timeline_close":[""],"lore_add":[{"title":"","keys":[""],"content":""}],"lore_edit":[{"title":"","after":"","reason":""}],"card":[{"field":"","value":"","reason":""}],"conflicts":[{"target":"","why":""}],"art_change":{"paper":false,"stamp":false,"reason":"","medium":"","motif":""},"chapter":""}';
 
 export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitles = [], cardText = '', chapterDue = false }) {
   c = ensureMemory(c);
@@ -184,6 +184,7 @@ export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitl
     '- timeline_add: events in ' + c.name + '\'s world from the between-events and the letter (when = their date). timeline_close: exact text of open events that ended.',
     '- lore_add: only lasting world facts (place, person, object, custom) that will matter again; title + 2~4 keys + content (facts only). lore_edit: when an existing lorebook entry (by exact title) must change because of events; write the full new content in `after`.',
     '- card: field-level changes (field ∈ look, outfit, job, impression, desire, goal, skill, surface_inner, leak, voice, speech) only when events changed them (an injury, a move, a new goal). value = the full new line value.',
+    '- art_change: set paper and/or stamp true ONLY when the new letter itself shows that the physical letter changed for a reason in the story — moving to a new place, a season turning, scarcity or war, a festival or special occasion, a new job or status. Give the reason in one Korean sentence, and the new medium (paper) or stamp motif if known. Usually both are false.',
     chapterDue ? '- chapter: 4~6 Korean sentences summarizing this whole stretch of the correspondence (how the relationship changed). Required now.' : '- chapter: "" (not needed now).',
     'Empty arrays when nothing applies. Output JSON only:',
     ORG_SHAPE,
@@ -216,6 +217,9 @@ export function cleanOrganize(raw) {
     card: marr(raw?.card, 6, (x) => (CARD_FIELDS.includes(mstr(x?.field, 40)) && mstr(x?.value, 1000) ? { field: mstr(x.field, 40), value: mstr(x.value, 1000), reason: mstr(x?.reason, 300) } : null)),
     conflicts: marr(raw?.conflicts, 6, (x) => (mstr(x?.why, 400) ? { target: mstr(x?.target, 120), why: mstr(x.why, 400) } : null)),
     chapter: mstr(raw?.chapter, 1500),
+    artChange: raw?.art_change && (raw.art_change.paper || raw.art_change.stamp)
+      ? { paper: !!raw.art_change.paper, stamp: !!raw.art_change.stamp, reason: mstr(raw.art_change.reason, 200), medium: mstr(raw.art_change.medium, 200), motif: mstr(raw.art_change.motif, 200) }
+      : null,
   };
 }
 

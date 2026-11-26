@@ -582,3 +582,60 @@ test('알림 시험: 기기가 없으면 거절, 있으면 몇 초 뒤 보냄', 
   assert.equal(sent[0][1], 'u1');
   assert.match(sent[0][0].body, /알림 시험/);
 });
+
+test('편지지·우표 바뀜: 정리 단계가 사건을 찾으면 그 편지에 새 우표, 예전 편지는 예전 우표 그대로 + 받은 물건 자동 그리기', async (t) => {
+  const realNow = Date.now;
+  let now = 8_000_000_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const host = fakeHost();
+  const lib = addLibrary(host, { ...MATCH, mail: { ...MATCH.mail, ratio: 1, write_min: 0, write_max: 0 } });
+  host.api.world_books.entries.update = async (id, input) => Object.assign(lib.entries.get(id), input);
+  host.api.characters.update = async (id, input) => Object.assign(lib.chars.get(id), input);
+  let n = 0;
+  const gens = [];
+  host.api.imageGen = { generate: async (req) => { gens.push(req); return { imageId: `img${n++}` }; }, listConnections: async () => [] };
+  host.api.images = { upload: async () => ({ id: 'w' }), delete: async () => true };
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    const sys = req.messages[0].content;
+    if (/You write short English subject phrases/.test(sys)) {
+      const keys = [...req.messages[1].content.matchAll(/key=(k\d+)/g)].map((m) => m[1]);
+      return { content: JSON.stringify({ prompts: keys.map((k) => ({ key: k, prompt: `subject ${k}` })) }) };
+    }
+    if (/archivist/.test(sys)) {
+      return { content: JSON.stringify({ summaries: [], ledger: {}, timeline_add: [], lore_add: [], lore_edit: [], card: [], conflicts: [], art_change: { paper: false, stamp: true, reason: '등불 축제 기념 우표', motif: '등불' }, chapter: '' }) };
+    }
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  await host.ask('u1', 'saveSettings', { settings: { art: { perDay: 20 } } });
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
+  const r = await host.ask('u1', 'matchConfirm', { draft });
+  const q = await host.ask('u1', 'drawSet', { id: r.id, kinds: ['paper', 'stamp'] });
+  assert.equal(q.queued, true); // 첫 편지 물건 자동 그리기가 도는 중이라 대기열로
+  await new Promise((res) => setTimeout(res, 2500));
+  let g = await host.ask('u1', 'get', { id: r.id });
+  const firstStamp = g.c.art.stamp.imageId;
+  const firstLetterId = g.c.letters[0].id; // 상대 첫 편지(배송 중)
+  now += 1 * H; await host.ask('u1', 'load'); await settle(); // 첫 편지 도착
+  await host.ask('u1', 'send', { id: r.id, body: '축제 이야기 들려줘요', enclosure: '' });
+  now += 1 * H; await host.ask('u1', 'load'); await settle(); // 도착 → 답장 생성(조개 동봉 → 자동 그림)
+  for (let i = 0; i < 4; i++) { await host.ask('u1', 'load'); await settle(); await settle(); } // 정리 → 우표 바뀜
+  await new Promise((res) => setTimeout(res, 2500)); // 물건 그리기가 끝난 뒤 이어서 그리는 우표
+  now += 2 * H; await host.ask('u1', 'load'); await settle(); // 답장 도착(배송 중엔 내용이 가려짐)
+  g = await host.ask('u1', 'get', { id: r.id });
+  const reply = [...g.c.letters].reverse().find((l) => l.from === 'them');
+  assert.notEqual(reply.id, firstLetterId);
+  assert.ok(reply.art?.stamp, '새 편지에 새 우표');
+  assert.notEqual(reply.art.stamp, firstStamp);
+  assert.match(reply.artNote, /새 우표 — 등불 축제/);
+  const first = g.c.letters.find((l) => l.id === firstLetterId);
+  assert.equal(first.art?.stamp, firstStamp, '예전 편지는 예전 우표');
+  assert.equal(g.c.art.stamp.imageId, reply.art.stamp, '앞으로의 기본 우표도 새 것');
+  assert.equal(reply.art.paper, undefined, '편지지는 그대로');
+  const shells = g.c.items.filter((x) => x.name === '조개');
+  assert.equal(shells.length, 2);
+  assert.ok(shells.every((x) => x.imageId), '첫 편지·답장의 받은 물건 모두 자동 그림');
+});

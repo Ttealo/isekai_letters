@@ -9,7 +9,11 @@ test('그림 설정 정리: 크기 형식, 상한 범위, 자동 그리기', () 
   assert.equal(a.perDay, 100);
   assert.equal(a.autoItems, 'all');
   assert.equal(a.style, A.DEFAULT_STYLE);
-  assert.equal(A.cleanArt({}).autoItems, 'off');
+  assert.equal(A.cleanArt({}).autoItems, 'all'); // 기본 켬
+  assert.equal(A.cleanArt({ autoItems: 'off' }).autoItems, 'off');
+  assert.equal(A.cleanArt({}).paperChange, 'event');
+  assert.equal(A.cleanArt({ stampChange: 'season' }).stampChange, 'season');
+  assert.equal(A.cleanArt({ stampChange: 'x' }).stampChange, 'event');
 });
 
 test('하루 상한: 날짜가 바뀌면 다시 채워짐', () => {
@@ -59,4 +63,19 @@ test('그림 주제 프롬프트와 최종 프롬프트: 사람·글자 금지, 
   assert.equal(A.cleanArt({}).paperBorder, 64);
   assert.equal(A.cleanArt({}).paperSlice, 20);
   assert.match(A.NEGATIVE, /hands/);
+});
+
+test('편지지·우표 바뀜 고르기: 사건/계절/끄기, 기본 세트 없으면 안 바꿈', () => {
+  const art = A.cleanArt({});
+  const has = { paper: true, stamp: true };
+  assert.deepEqual(A.artChangeJobs(art, { hasSet: has }), []);
+  let j = A.artChangeJobs(art, { change: { paper: false, stamp: true, reason: '축제', motif: '등불' }, hasSet: has });
+  assert.deepEqual(j.map((x) => [x.kind, x.reason, x.motif]), [['stamp', '축제', '등불']]);
+  j = A.artChangeJobs(art, { seasonChanged: true, hasSet: has });
+  assert.deepEqual(j.map((x) => x.kind), ['paper', 'stamp']);
+  assert.equal(j[0].reason, '그쪽 계절이 바뀜');
+  const seasonOnly = A.cleanArt({ paperChange: 'season', stampChange: 'off' });
+  assert.deepEqual(A.artChangeJobs(seasonOnly, { change: { paper: true, stamp: true, reason: '이사' }, hasSet: has }), []);
+  assert.deepEqual(A.artChangeJobs(seasonOnly, { seasonChanged: true, hasSet: has }).map((x) => x.kind), ['paper']);
+  assert.deepEqual(A.artChangeJobs(art, { seasonChanged: true, hasSet: { paper: false, stamp: true } }).map((x) => x.kind), ['stamp']);
 });
