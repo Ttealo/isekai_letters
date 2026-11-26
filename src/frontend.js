@@ -82,8 +82,8 @@ const CSS = `
 .im-page-main .im-panel{max-width:760px;margin:0 auto;height:auto;overflow:visible;padding:16px 20px 40px}
 .im-row-card{border:1px solid var(--lumiverse-border);border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;flex-direction:column;gap:2px;background:var(--lumiverse-fill-subtle,transparent)}
 .im-row-card.im-on{border-color:var(--lumiverse-primary);box-shadow:0 0 0 1px var(--lumiverse-primary) inset}
-.im-page-chips{display:none}
-@media (max-width:760px){.im-page-list{display:none}.im-page-main .im-panel{padding:12px}.im-page-chips{display:block}}
+.im-page-chips{display:none;flex-direction:column;gap:8px}
+@media (max-width:760px){.im-page-list{display:none}.im-page-main .im-panel{padding:12px}.im-page-chips{display:flex}}
 .im-box{cursor:pointer;user-select:none;width:76px;height:96px;display:block}
 .im-box svg{display:block;filter:drop-shadow(0 3px 4px #0005)}
 .im-note{position:absolute;right:0;bottom:100%;margin-bottom:6px;white-space:nowrap;background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:6px;padding:4px 8px;font-size:11px;pointer-events:none}
@@ -818,10 +818,12 @@ export function setup(ctx) {
     const A = S.settings?.art || {};
     const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== null && v !== undefined ? Number(v) : d);
     const fade = Math.max(0, Math.min(0.9, (100 - num(A.paperStrength, 70)) / 100));
-    const bw = Math.max(0, Math.min(200, num(A.paperBorder, 64)));
+    // 좁은 화면(휴대폰)에서는 테두리·여백을 줄여 글씨 칸을 넓힌다
+    const narrow = typeof window !== 'undefined' && window.innerWidth < 520;
+    const bw = Math.round(Math.max(0, Math.min(200, num(A.paperBorder, 64))) * (narrow ? 0.6 : 1));
     const slice = Math.max(1, Math.min(45, num(A.paperSlice, 20)));
     const paperStyle = paperImg
-      ? `border:${bw}px solid transparent;border-image:url("${imgUrl(paperImg, 'lg')}") ${slice}% fill / ${bw}px stretch;background:${fade ? `rgba(246,238,222,${fade})` : 'transparent'};background-clip:padding-box;box-shadow:none;border-radius:0;padding:16px 18px`
+      ? `border:${bw}px solid transparent;border-image:url("${imgUrl(paperImg, 'lg')}") ${slice}% fill / ${bw}px stretch;background:${fade ? `rgba(246,238,222,${fade})` : 'transparent'};background-clip:padding-box;box-shadow:none;border-radius:0;padding:${narrow ? '10px 8px' : '16px 18px'}`
       : undefined;
     return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperStyle }, [
       el('div', { class: 'im-stamp', title: [e.stamp && `우표: ${e.stamp}`, e.seal && `봉인: ${e.seal}`].filter(Boolean).join('\n') }, [
@@ -960,8 +962,9 @@ export function setup(ctx) {
         );
       }
       panelRoot.replaceChildren(...[
-        pageMode ? null : personaChips(),
-        mine.length ? (pageMode ? el('div', { class: 'im-page-chips' }, [people]) : people) : null,
+        // 화면 가득 방식: 넓으면 왼쪽 목록이 페르소나·상대를 맡고, 좁으면(휴대폰) 위쪽 칩으로
+        pageMode ? el('div', { class: 'im-page-chips' }, [personaChips(), mine.length ? people : null]) : personaChips(),
+        !pageMode && mine.length ? people : null,
         tabs,
         ...body,
         P.error || S.error ? el('div', { class: 'im-err', text: P.error || S.error }) : null,
