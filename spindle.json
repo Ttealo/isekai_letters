@@ -1,5 +1,5 @@
 {
-  "version": "0.5.7",
+  "version": "0.6.0",
   "name": "이세계 우체통",
   "identifier": "isekai_mailbox",
   "author": "Ttealo",
@@ -12,7 +12,8 @@
     "characters",
     "world_books",
     "image_gen",
-    "images"
+    "images",
+    "app_manipulation"
   ],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",

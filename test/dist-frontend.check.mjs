@@ -211,6 +211,35 @@ clickIn(floats[0].root, 'button', '닫기'); await tick();
 ok('떠 있는 창: 닫기', floats[0].isVisible() === false);
 stop2();
 
+// 채팅창처럼 화면 가득(page) 방식
+store.set('isekai_mailbox.panelMode', 'page');
+store.set('isekai_mailbox.persona', '__all__');
+let mountVis = null;
+const mountRoot = document.createElement('div');
+document.body.append(mountRoot);
+const floats3 = [];
+const ctx3 = {
+  ...ctx,
+  ui: {
+    ...ctx.ui,
+    requestDockPanel: () => { throw new Error('dock should not be used'); },
+    mountApp: (o) => ({ root: mountRoot, setVisible: (v) => { mountVis = v; }, destroy() {}, o }),
+    createFloatWidget: (o) => { const root = document.createElement('div'); document.body.append(root); const w = { o, root, setVisible() {}, isVisible: () => true, onDragEnd: () => () => {}, destroy() {} }; floats3.push(w); return w; },
+  },
+};
+const stop3 = setup(ctx3);
+await tick(6);
+ok('화면 가득: 처음엔 숨김, 위젯은 우체통 하나', mountVis === false && floats3.length === 1);
+floats3[0].root.querySelector('.im-box').dispatchEvent(new window.Event('click', { bubbles: true })); await tick(6);
+ok('화면 가득: 우체통 누르면 보임', mountVis === true);
+ok('화면 가득: 왼쪽 상대 목록(채팅 목록처럼)', mountRoot.querySelectorAll('.im-page-list .im-row-card').length === 2 && mountRoot.querySelector('.im-page-list').textContent.includes('미렌'));
+ok('화면 가득: 오른쪽 편지첩', !!mountRoot.querySelector('.im-page-main .im-paper'));
+clickIn(mountRoot, '.im-row-card', '하르'); await tick();
+ok('화면 가득: 목록에서 상대 고르기', mountRoot.querySelector('.im-row-card.im-on')?.textContent.includes('하르'));
+{ const ev = new window.Event('keydown'); ev.key = 'Escape'; document.dispatchEvent(ev); } await tick();
+ok('화면 가득: Esc로 닫기', mountVis === false);
+stop3();
+
 let fail = 0;
 for (const [n, pass] of checks) { console.log(`${pass ? 'ok  ' : 'FAIL'} ${n}`); if (!pass) fail++; }
 process.exit(fail ? 1 : 0);

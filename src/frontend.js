@@ -73,6 +73,17 @@ const CSS = `
 .im-bundle .im-stack i:nth-child(1){transform:rotate(-8deg)}
 .im-bundle .im-stack i:nth-child(2){transform:rotate(5deg)}
 .im-sep{border:none;border-top:1px solid var(--lumiverse-border);margin:4px 0}
+.im-page{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;background:var(--lumiverse-bg,var(--lumiverse-fill));color:var(--lumiverse-text)}
+.im-page-head{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--lumiverse-border);background:var(--lumiverse-fill)}
+.im-page-head b{font-size:15px}
+.im-page-body{flex:1;min-height:0;display:flex}
+.im-page-list{width:280px;flex:none;border-right:1px solid var(--lumiverse-border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px;box-sizing:border-box}
+.im-page-main{flex:1;min-width:0;overflow:auto}
+.im-page-main .im-panel{max-width:760px;margin:0 auto;height:auto;overflow:visible;padding:16px 20px 40px}
+.im-row-card{border:1px solid var(--lumiverse-border);border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;flex-direction:column;gap:2px;background:var(--lumiverse-fill-subtle,transparent)}
+.im-row-card.im-on{border-color:var(--lumiverse-primary);box-shadow:0 0 0 1px var(--lumiverse-primary) inset}
+.im-page-chips{display:none}
+@media (max-width:760px){.im-page-list{display:none}.im-page-main .im-panel{padding:12px}.im-page-chips{display:block}}
 .im-box{cursor:pointer;user-select:none;width:76px;height:96px;display:block}
 .im-box svg{display:block;filter:drop-shadow(0 3px 4px #0005)}
 .im-note{position:absolute;right:0;bottom:100%;margin-bottom:6px;white-space:nowrap;background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:6px;padding:4px 8px;font-size:11px;pointer-events:none}
@@ -545,11 +556,13 @@ export function setup(ctx) {
         el('div', { class: 'im-muted', text: '편지지 그림은 액자처럼 씁니다: 모서리·테두리는 늘리지 않고 편지 길이에 맞춰 가장자리만 이어 붙입니다. 장식이 글씨에 닿으면 두께나 비율을 올려 주세요.' }),
         el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto)]),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
-        el('h4', { text: '보조창 방식 (이 기기, 새로 고침 뒤 적용)' }),
-        el('select', { onchange: (e) => { lsSet(LS_PANEL_MODE, e.target.value); error = '보조창 방식을 바꿨습니다. 페이지를 새로 고치면 적용됩니다.'; render(); } }, [
-          el('option', { value: 'dock', text: '오른쪽에 붙이기 (메인 화면이 옆으로 밀림)', selected: lsGet(LS_PANEL_MODE, 'dock') !== 'float' }),
-          el('option', { value: 'float', text: '떠 있는 창 (메인 화면 위에 겹침, 끌어서 옮김)', selected: lsGet(LS_PANEL_MODE, 'dock') === 'float' }),
+        el('h4', { text: '편지첩 여는 방식 (이 기기, 새로 고침 뒤 적용)' }),
+        el('select', { onchange: (e) => { lsSet(LS_PANEL_MODE, e.target.value); error = '여는 방식을 바꿨습니다. 페이지를 새로 고치면 적용됩니다.'; render(); } }, [
+          el('option', { value: 'page', text: '채팅창처럼 화면 가득 (왼쪽 상대 목록 + 편지첩) — 권한 app_manipulation 필요', selected: lsGet(LS_PANEL_MODE, 'page') === 'page' }),
+          el('option', { value: 'dock', text: '오른쪽에 붙이기 (메인 화면이 옆으로 밀림)', selected: lsGet(LS_PANEL_MODE, 'page') === 'dock' }),
+          el('option', { value: 'float', text: '떠 있는 창 (메인 화면 위에 겹침, 끌어서 옮김)', selected: lsGet(LS_PANEL_MODE, 'page') === 'float' }),
         ]),
+        el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
         btn('저장', () => act(async () => {
           S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
@@ -826,10 +839,46 @@ export function setup(ctx) {
   let widget = null;
   const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '' };
   const panelRoot = el('div', { class: 'im-panel' });
-  // 보조창 방식: dock=오른쪽에 붙이기(메인 화면을 밀어냄) / float=떠 있는 창(메인 화면 위에 겹침). 새로 고침 뒤 적용
-  const panelMode = lsGet(LS_PANEL_MODE, 'dock') === 'float' ? 'float' : 'dock';
+  // 보조창 방식: page=채팅창처럼 앱 화면을 채움(기본, app_manipulation 필요) / dock=오른쪽에 붙이기 / float=떠 있는 창. 새로 고침 뒤 적용
+  let panelMode = ['page', 'dock', 'float'].includes(lsGet(LS_PANEL_MODE, 'page')) ? lsGet(LS_PANEL_MODE, 'page') : 'page';
+  let pageMode = false;
+  if (panelMode === 'page') {
+    try {
+      if (typeof ctx.ui.mountApp !== 'function') throw new Error('mountApp 없음');
+      const mount = ctx.ui.mountApp({ className: 'im-page-mount', position: 'app-overlay' });
+      const closeBtn = el('button', { class: 'im-btn', type: 'button', text: '닫기', onclick: () => togglePanel(false) });
+      const listCol = el('div', { class: 'im-page-list' });
+      const mainCol = el('div', { class: 'im-page-main' }, [panelRoot]);
+      const page = el('div', { class: 'im-page' }, [
+        el('div', { class: 'im-page-head' }, [el('span', { html: ICON }), el('b', { class: 'im-grow', text: '이세계 우체통' }), closeBtn]),
+        el('div', { class: 'im-page-body' }, [listCol, mainCol]),
+      ]);
+      mount.root.append(page);
+      if (!removeStyle) mount.root.append(el('style', { text: CSS }));
+      mount.setVisible(false);
+      let visible = false;
+      panel = {
+        root: mount.root,
+        listCol,
+        isCollapsed: () => !visible,
+        expand: () => { visible = true; mount.setVisible(true); },
+        collapse: () => { visible = false; mount.setVisible(false); },
+        destroy: () => mount.destroy(),
+      };
+      // Esc로 닫기
+      const onKey = (e) => { if (e.key === 'Escape' && visible) togglePanel(false); };
+      document.addEventListener('keydown', onKey);
+      const d0 = panel.destroy;
+      panel.destroy = () => { document.removeEventListener('keydown', onKey); d0(); };
+      pageMode = true;
+    } catch {
+      panelMode = 'dock'; // 권한이 없거나 오래된 앱이면 오른쪽에 붙이기로
+    }
+  }
   try {
-    if (panelMode === 'float') {
+    if (pageMode) {
+      // 위에서 만듦
+    } else if (panelMode === 'float') {
       const w = Math.min(460, Math.max(320, window.innerWidth - 40));
       const h = Math.min(700, Math.max(360, window.innerHeight - 80));
       const fw = ctx.ui.createFloatWidget({ width: w, height: h, initialPosition: { x: Math.max(8, window.innerWidth - w - 24), y: 40 }, snapToEdge: false, tooltip: '이세계 우체통 · 편지첩', chromeless: false, touchScrollMode: 'native' });
@@ -894,9 +943,25 @@ export function setup(ctx) {
       else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
       else body = bookView(c, pact);
+      if (pageMode && panel.listCol) {
+        panel.listCol.replaceChildren(
+          personaChips(),
+          ...(mine.length ? mine.map((x) => {
+            const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
+            const s = S.list.find((y) => y.id === x.id);
+            const last = [...x.letters].reverse().find((l) => l.body);
+            return el('div', { class: `im-row-card${x.id === P.id ? ' im-on' : ''}`, onclick: () => { P.id = x.id; lsSet(`${LS_PANEL}.id`, x.id); panelView.render(); } }, [
+              el('div', { class: 'im-row' }, [el('b', { class: 'im-grow', text: x.name }), unread ? el('span', { class: 'im-badge', text: String(unread) }) : null, x.artJob?.state === 'running' ? el('span', { class: 'im-spin', title: '그림 그리는 중' }) : null]),
+              el('div', { class: 'im-muted', text: s?.status || '' }),
+              last ? el('div', { class: 'im-muted', style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: last.body.replace(/\s+/g, ' ') }) : null,
+            ]);
+          }) : [el('div', { class: 'im-muted', text: '편지 상대가 없습니다.' })]),
+          el('div', { class: 'im-muted', style: 'margin-top:8px', text: '새 상대·설정·서류함은 서랍의 「우체통」 탭에 있어요.' }),
+        );
+      }
       panelRoot.replaceChildren(...[
-        personaChips(),
-        mine.length ? people : null,
+        pageMode ? null : personaChips(),
+        mine.length ? (pageMode ? el('div', { class: 'im-page-chips' }, [people]) : people) : null,
         tabs,
         ...body,
         P.error || S.error ? el('div', { class: 'im-err', text: P.error || S.error }) : null,
