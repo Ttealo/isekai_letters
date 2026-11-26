@@ -90,7 +90,7 @@ ok('위젯 누르면 보조창 열림', collapsed === false);
 ok('편지첩: 상대 편지 편지지', !!panelRoot.querySelector('.im-paper.im-theirs'));
 ok('편지첩: 내 편지 편지지', !!panelRoot.querySelector('.im-paper.im-mine'));
 ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') && panelRoot.textContent.includes('<b>편지</b>'));
-ok('편지첩: 우표 칸', panelRoot.querySelector('.im-stamp')?.textContent.includes('등대 도장'));
+ok('편지첩: 우표 칸(설명은 툴팁)', panelRoot.querySelector('.im-stamp')?.getAttribute('title')?.includes('등대 도장'));
 ok('편지첩: 동봉 줄', panelRoot.textContent.includes('동봉 · 조개 — 얼음 틈에서'));
 ok('편지첩: 안 연 봉투', !!panelRoot.querySelector('.im-envelope') && panelRoot.textContent.includes('거칠다'));
 ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 편지가 가는 중'));

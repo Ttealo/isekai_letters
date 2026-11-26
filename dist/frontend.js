@@ -390,6 +390,7 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     `days_since_first_contact=${Math.floor(tNow / 24) + 1}`,
     `ratio=1:${c.ratio} (your time / {{user}}'s time; ${c.ratio > 1 ? `one day for {{user}} is ${formatSpan(24 * c.ratio)} for you` : c.ratio < 1 ? `one day for {{user}} is only ${formatSpan(24 * c.ratio)} for you` : 'same speed'})`,
     `letters_arrived=${unanswered.length}통, first arrived ${formatTheirTime(firstArrival)}`,
+    `time_since_arrival=${formatSpan(tNow - firstArrival)} (everything in \`between\` happened within this span)`,
     lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
     gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
     `knows_about_user=only what their letters said; their name is ${userName}`,
@@ -580,8 +581,9 @@ const short = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
 // 배송 시간을 실제(가속 반영) 시간으로
 function deliveryLabel(c) {
   const s = Math.max(1, Number(c.timeScale) || 1);
-  const f = (h) => formatSpan(h / s);
-  return s > 1 ? `배송 ${f(c.delivery.min)}~${f(c.delivery.max)} (시험 가속 ${s}배)` : `배송 ${c.delivery.min}~${c.delivery.max}시간`;
+  const f = (h) => (s > 1 ? formatSpan(h / s) : `${h}시간`);
+  const range = c.delivery.min === c.delivery.max ? f(c.delivery.min) : `${f(c.delivery.min)}~${f(c.delivery.max)}`;
+  return `배송 ${range}${s > 1 ? ` (시험 가속 ${s}배)` : ''}`;
 }
 
 export function setup(ctx) {
@@ -896,7 +898,9 @@ export function setup(ctx) {
     }
     const meta = [l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · ');
     return el('div', { class: 'im-paper im-theirs' }, [
-      el('div', { class: 'im-stamp', title: e.stamp || '' }, [l.stampImageId ? el('img', { src: imgUrl(l.stampImageId), alt: '' }) : el('span', { text: short(e.stamp || e.seal || '✉', 14) })]),
+      el('div', { class: 'im-stamp', title: [e.stamp && `우표: ${e.stamp}`, e.seal && `봉인: ${e.seal}`].filter(Boolean).join('\n') }, [
+        l.stampImageId ? el('img', { src: imgUrl(l.stampImageId), alt: '' }) : el('span', { style: 'font-size:18px;line-height:1', text: '✉' }),
+      ]),
       el('div', { class: 'im-meta', text: `${c.name}의 편지 · ${meta}` }),
       el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
       l.enclosures?.length ? el('div', { class: 'im-encl' }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
@@ -1054,8 +1058,13 @@ export function setup(ctx) {
     widget = ctx.ui.createFloatWidget({ width: 76, height: 96, initialPosition: { x: Math.max(12, window.innerWidth - 110), y: Math.max(12, window.innerHeight - 190) }, snapToEdge: false, tooltip: '이세계 우체통', chromeless: true });
     widget.root.append(box);
     if (!removeStyle) widget.root.append(el('style', { text: CSS }));
-    widget.onDragEnd?.(() => { lastDrag = Date.now(); });
-    box.addEventListener('click', () => {
+    // 끌기와 누르기 구분: 위치가 실제로 바뀐 끌기 직후의 클릭만 무시한다
+    let downPos = null;
+    widget.root.addEventListener('pointerdown', () => { downPos = widget.getPosition?.() || null; }, true);
+    widget.onDragEnd?.((pos) => {
+      if (!downPos || !pos || Math.abs(pos.x - downPos.x) + Math.abs(pos.y - downPos.y) > 4) lastDrag = Date.now();
+    });
+    widget.root.addEventListener('click', () => {
       if (Date.now() - lastDrag < 350) return;
       // 열 때 새 편지가 있으면 그 상대의 편지첩으로
       const fresh = panel?.isCollapsed() && S.all.find((c) => c.letters.some((l) => l.from === 'them' && l.state === 'delivered'));
@@ -1066,11 +1075,16 @@ export function setup(ctx) {
     });
   } catch { widget = null; }
 
+  let widgetKey = '';
   function renderWidget() {
     if (!widget) return;
     const unread = S.list.reduce((n, x) => n + x.unread, 0);
     const flagUp = unread > 0;
     const open = panel && !panel.isCollapsed();
+    // 모양이 바뀔 때만 다시 그린다(누르는 도중에 그림이 바뀌어 클릭이 사라지지 않게)
+    const key = `${unread}|${open}`;
+    if (key === widgetKey) return;
+    widgetKey = key;
     // 고정 SVG(사용자 글 없음). 숫자만 textContent로 넣는다.
     box.innerHTML = `<svg width="76" height="96" viewBox="0 0 76 96" aria-hidden="true">
       <rect x="33" y="58" width="9" height="36" rx="1" fill="#6b5a48"/>
