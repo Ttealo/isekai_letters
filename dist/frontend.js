@@ -1234,6 +1234,10 @@ export function setup(ctx) {
         el('h4', { text: '알림' }),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [pushOn, '편지가 도착하면 푸시 알림 보내기']),
         el('div', { class: 'im-muted', text: '알림을 받을 기기에서 루미버스 설정의 알림 등록을 해 두어야 합니다. 앱 화면이 열려 있으면 알림은 생략됩니다.' }),
+        btn('알림 시험 (30초 뒤 보냄)', () => act(async () => {
+          const r = await ask('pushTest', { delaySec: 30 });
+          error = `${r.delaySec}초 뒤에 시험 알림을 보냅니다. 그사이 루미버스 화면(모든 탭·창)을 닫거나 다른 앱으로 가 주세요.`;
+        })),
         el('h4', { text: '편지첩 여는 방식 (이 기기, 새로 고침 뒤 적용)' }),
         el('select', { onchange: (e) => { lsSet(LS_PANEL_MODE, e.target.value); error = '여는 방식을 바꿨습니다. 페이지를 새로 고치면 적용됩니다.'; render(); } }, [
           el('option', { value: 'page', text: '채팅창처럼 화면 가득 (왼쪽 상대 목록 + 편지첩) — 권한 app_manipulation 필요', selected: lsGet(LS_PANEL_MODE, 'page') === 'page' }),

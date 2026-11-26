@@ -819,6 +819,20 @@ export function start(api) {
         });
         return { calendar: next.calendar };
       }
+      case 'pushTest': {
+        // 알림 시험: 앱 화면이 열려 있으면 앱이 알림을 생략하므로, 몇 초 뒤에 보낸다(그사이 앱을 닫거나 다른 화면으로)
+        if (!api.push?.send) throw new Error('이 앱에서는 확장 푸시 알림을 쓸 수 없습니다.');
+        let status = null;
+        try { status = await api.push.getStatus?.(user); } catch {}
+        if (status && status.available === false) throw new Error('알림을 받을 기기가 등록돼 있지 않습니다. 루미버스 설정에서 알림을 먼저 등록해 주세요.');
+        const delay = Math.min(120, Math.max(5, Number(p.delaySec) || 30));
+        setTimeout(() => {
+          api.push.send({ title: '이세계 우체통', body: '알림 시험이에요. 편지가 도착하면 이렇게 알려 드려요.', tag: 'isekai-mailbox-test', url: '/', rawTitle: true }, user)
+            .then((r) => log('info', `알림 시험 보냄: ${r?.sent ?? '?'}대`))
+            .catch((e) => log('warn', `알림 시험 실패: ${e?.message || e}`));
+        }, delay * 1000);
+        return { delaySec: delay, status };
+      }
       case 'artDismiss': {
         await mutate(user, p.id, (c) => (c.artJob?.state === 'failed' ? { ...c, artJob: null } : c));
         return {};

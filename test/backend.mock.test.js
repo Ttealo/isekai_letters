@@ -562,3 +562,23 @@ test('먼저 오는 편지·푸시 알림·달력 만들기', async (t) => {
   g = await host.ask('u1', 'get', { id: r.id });
   assert.doesNotMatch(g.c.theirNowLabel, /만난 지/);
 });
+
+test('알림 시험: 기기가 없으면 거절, 있으면 몇 초 뒤 보냄', async (t) => {
+  const host = fakeHost();
+  const sent = [];
+  let available = false;
+  host.api.push = { getStatus: async () => ({ available }), send: async (i, u) => { sent.push([i, u]); return { sent: 1 }; } };
+  const stop = start(host.api);
+  t.after(stop);
+  await assert.rejects(host.ask('u1', 'pushTest', { delaySec: 5 }), /등록돼 있지 않습니다/);
+  available = true;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const r = await host.ask('u1', 'pushTest', { delaySec: 5 });
+  assert.equal(r.delaySec, 5);
+  assert.equal(sent.length, 0);
+  t.mock.timers.tick(5000);
+  await new Promise((res) => setImmediate(res));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][1], 'u1');
+  assert.match(sent[0][0].body, /알림 시험/);
+});
