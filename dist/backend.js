@@ -1120,7 +1120,13 @@ export const ART_KINDS = ['paper', 'stamp', 'seal'];
 export const ART_LABEL = { paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
 
 export const DEFAULT_STYLE = 'delicate storybook illustration, soft watercolor and gouache, fine ink linework, gentle diffused light, muted pastel palette with one warm accent, paper grain texture, quiet still life, intimate and nostalgic mood';
-export const NEGATIVE = 'people, person, face, hands, fingers, human figure, silhouette, text, letters, writing, words, numbers, watermark, signature, logo, frame border, photorealistic, 3d render';
+export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render, people, person, face, hands, fingers, human figure, silhouette, text, letters, writing, words, numbers, digits, watermark, signature, logo';
+
+// 앱의 NanoGPT 연결은 negativePrompt를 보내지 않고, 연결에 저장된 rawRequestOverride가 크기를 덮어쓴다.
+// 그래서 우체통 그림은 요청 덮어쓰기로 크기·금지어를 직접 보낸다(이 요청에만 적용, 연결 설정은 그대로).
+export function artParameters(size) {
+  return { size, rawRequestOverride: JSON.stringify({ size, negative_prompt: NEGATIVE }) };
+}
 
 export const DEFAULT_ART = {
   connectionId: '', // 비면 앱 기본 이미지 연결
@@ -1205,7 +1211,8 @@ export function composePrompt(kind, subject, art) {
     seal: 'macro close-up of a seal impression, centered, soft shallow depth of field',
     item: 'single object centered, small still life on a plain soft background',
   }[kind] || '';
-  return [subject, comp, art.style || DEFAULT_STYLE, 'no people, no text'].filter(Boolean).join(', ');
+  // 화풍을 맨 앞에(모델이 앞쪽 말을 더 따른다). 금지어는 negative_prompt로 따로 보낸다.
+  return [`${art.style || DEFAULT_STYLE}, hand-painted illustration, not a photograph`, subject, comp, 'no people, blank unmarked surfaces without any writing or numbers'].filter(Boolean).join(', ');
 }
 
 // 상대 안의 그림 기록(없으면 빈 칸)
@@ -1425,7 +1432,7 @@ export function start(api) {
           try {
             const res = await api.imageGen.generate({
               prompt, negativePrompt: NEGATIVE, connection_id: art.connectionId || undefined, model: art.model || undefined,
-              parameters: { size: j.kind === 'paper' ? art.paperSize : art.size }, includeDataUrl: false,
+              parameters: artParameters(j.kind === 'paper' ? art.paperSize : art.size), includeDataUrl: false,
               owner_character_id: c0.characterId || undefined, userId: user,
             });
             if (!res?.imageId) throw new Error('이미지 id가 없습니다.');

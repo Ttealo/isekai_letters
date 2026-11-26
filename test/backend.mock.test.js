@@ -418,6 +418,8 @@ test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 �
   assert.equal(genCalls.length, 3);
   assert.equal(genCalls[0].connection_id, 'ic1');
   assert.equal(genCalls[0].parameters.size, '768x1024'); // 편지지
+  assert.equal(JSON.parse(genCalls[0].parameters.rawRequestOverride).size, '768x1024'); // 연결의 덮어쓰기보다 우선
+  assert.match(JSON.parse(genCalls[0].parameters.rawRequestOverride).negative_prompt, /photo/);
   assert.equal(genCalls[1].parameters.size, '1024x1024');
   assert.equal(genCalls[0].includeDataUrl, false);
   assert.match(genCalls[0].negativePrompt, /people/);

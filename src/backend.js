@@ -11,7 +11,7 @@ import {
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
 } from './memory.js';
 import {
-  ART_KINDS, NEGATIVE, cleanArt, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
+  ART_KINDS, NEGATIVE, artParameters, cleanArt, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
 } from './art.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -224,7 +224,7 @@ export function start(api) {
           try {
             const res = await api.imageGen.generate({
               prompt, negativePrompt: NEGATIVE, connection_id: art.connectionId || undefined, model: art.model || undefined,
-              parameters: { size: j.kind === 'paper' ? art.paperSize : art.size }, includeDataUrl: false,
+              parameters: artParameters(j.kind === 'paper' ? art.paperSize : art.size), includeDataUrl: false,
               owner_character_id: c0.characterId || undefined, userId: user,
             });
             if (!res?.imageId) throw new Error('이미지 id가 없습니다.');

@@ -34,6 +34,11 @@ test('그림 주제 프롬프트와 최종 프롬프트: 사람·글자 금지, 
   const p = A.composePrompt('stamp', 'a lead seal stamp', A.cleanArt({}));
   assert.match(p, /perforated edges/);
   assert.match(p, /watercolor/);
-  assert.match(p, /no people, no text$/);
+  assert.match(p, /^delicate storybook illustration/); // 화풍이 맨 앞
+  assert.match(p, /not a photograph/);
+  assert.match(p, /without any writing or numbers$/);
+  const ap = A.artParameters('768x1024');
+  assert.equal(ap.size, '768x1024');
+  assert.deepEqual(JSON.parse(ap.rawRequestOverride), { size: '768x1024', negative_prompt: A.NEGATIVE });
   assert.match(A.NEGATIVE, /hands/);
 });
