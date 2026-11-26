@@ -178,8 +178,11 @@ export function cleanCorrespondentInput(p) {
     writeDelay: { min: wMin, max: wMax },
     maxReplyRealHours: num(p?.maxReplyRealHours, 0.1, 168, 24),
     timeScale: num(p?.timeScale, 1, 3600, 1),
-    personaId: str(p?.personaId, 200),
-    personaName: str(p?.personaName, 80),
+    // 페르소나 없음: 현실의 나 자신으로(이름·설정 없이, 이쪽 시간은 현실 날짜·시각)
+    noPersona: !!p?.noPersona,
+    personaId: p?.noPersona ? '' : str(p?.personaId, 200),
+    personaName: p?.noPersona ? '' : str(p?.personaName, 80),
+    userTz: str(p?.userTz, 60),
     // 매칭으로 만든 상대: 앱의 캐릭터·로어북과 우편 설정
     characterId: str(p?.characterId, 200),
     worldBookId: str(p?.worldBookId, 200),
@@ -251,7 +254,7 @@ export function toInput(c) {
     name: c.name, brief: c.brief, world: c.world, ratio: c.ratio,
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
-    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
+    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '', noPersona: !!c.noPersona, userTz: c.userTz || '',
     characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {}, calendar: c.calendar || null, waitHours: c.waitHours ?? '',
   };
 }
@@ -479,9 +482,16 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
+// 현실 날짜·시각(상대가 고른 시간대, 없으면 서울)
+export function realNowLabel(now = Date.now(), tz = '') {
+  const fmt = (zone) => new Date(now).toLocaleString('ko-KR', { timeZone: zone, year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  try { return `${fmt(tz || 'Asia/Seoul')} (${tz || 'Asia/Seoul'})`; } catch { return `${fmt('Asia/Seoul')} (Asia/Seoul)`; }
+}
+
 export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '', memory = null } = {}) {
   c = normalize(c);
-  const userName = personaName || c.personaName || '편지의 주인';
+  const userName = (c.noPersona ? '' : personaName || c.personaName) || '편지의 주인';
+  const realNow = c.noPersona ? realNowLabel(now, c.userTz) : '';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
     .map((x) => `${x.from === 'me' ? '{{user}} → you' : 'you → {{user}}'}: ${x.name}${x.note ? ` (${x.note})` : ''}`);
   const answered = new Set(c.reply?.forLetterIds || []);
@@ -515,7 +525,10 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     c.reply?.initiative ? `initiative=yes: {{user}} has not written back since your last letter. You are writing again on your own, ${formatSpan(tNow - (lastTheirs?.theirWrittenAt || 0))} after your last letter (your time).` : '',
     lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
     gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
-    `knows_about_user=only what their letters said; their name is ${userName}`,
+    c.noPersona
+      ? `knows_about_user=only what their letters said. {{user}} is an ordinary person living in the real world (Earth, the present day), writing as themselves. No name was given: use a name only if their letters signed one, otherwise address them without a name.`
+      : `knows_about_user=only what their letters said; their name is ${userName}`,
+    realNow ? `user_side_now=${realNow} (real calendar and clock on {{user}}'s side; use only if it matters, e.g. their season or time of day)` : '',
     memory?.ledger ? `\n<relationship>\n${memory.ledger}\n</relationship>` : '',
     omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here${memory?.summaries || memory?.chapters ? '; see <history>' : ''})` : '',
     '</correspondence>',
@@ -562,7 +575,7 @@ export function summarize(c, now = Date.now()) {
   else if (lastThem && (!lastMine || lastMine.sentAt < lastThem.sentAt)) status = `그쪽은 ${formatSpan(tNow - lastThem.theirWrittenAt)}째 내 답장을 기다리는 중`;
   return {
     id: c.id, name: c.name, ratio: c.ratio, theirNow: theirLabel(c, tNow),
-    personaId: c.personaId || '', personaName: c.personaName || '',
+    personaId: c.personaId || '', personaName: c.personaName || '', noPersona: !!c.noPersona,
     items: (c.items || []).filter((x) => x.state === 'arrived').length,
     unread, inTransit, status, failed: c.reply?.state === 'failed', error: c.reply?.error || '',
     lastAt: lastLetter ? lastLetter.sentAt : c.createdAt,

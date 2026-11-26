@@ -247,6 +247,15 @@ export function setup(ctx) {
   const byId = (id) => S.all.find((c) => c.id === id) || null;
   const personaOf = (id) => S.personas.find((p) => p.id === id) || null;
   const inPersona = (x) => S.persona === ALL || (S.persona === NO_PERSONA ? !x.personaId : x.personaId === S.persona);
+  const NONE_OPT = '__none__'; // 고르기 칸의 「페르소나 없음」
+  const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } };
+  const personaPick = (pid) => (pid === NONE_OPT ? { personaId: '', noPersona: true, userTz: myTz() } : { personaId: pid, noPersona: false });
+  const personaOptions = (selected) => [
+    el('option', { value: NONE_OPT, text: '페르소나 없음', selected: selected === NONE_OPT }),
+    el('option', { value: '', text: '활성 페르소나(보낼 때 정함)', selected: selected === '' }),
+    ...S.personas.map((p) => el('option', { value: p.id, text: p.title ? `${p.name} — ${p.title}` : p.name, selected: p.id === selected })),
+  ];
+  const defaultPick = () => (S.persona === NO_PERSONA ? NONE_OPT : S.persona !== ALL ? S.persona : S.activePersonaId);
   const setPersona = (id) => { S.persona = id; lsSet(LS_PERSONA, id); renderAll(); };
 
   async function refresh() {
@@ -337,7 +346,7 @@ export function setup(ctx) {
   function composeBox(c, { busyRef, act, onSent }) {
     const d = drafts.get(c.id) || { body: '', enclosure: '' };
     drafts.set(c.id, d);
-    const sender = c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
+    const sender = c.noPersona ? '나 (페르소나 없음)' : c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
     return el('div', { class: 'im-letter' }, [
       el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })]),
       el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
@@ -346,7 +355,7 @@ export function setup(ctx) {
         el('span', { class: 'im-muted im-grow', text: `${deliveryLabel(c)}. 도착 전에는 회수할 수 있습니다.` }),
         btn(busyRef() ? '보내는 중…' : '보내기', () => act(async () => {
           if (!d.body.trim()) throw new Error('본문을 적어 주세요.');
-          await ask('send', { id: c.id, body: d.body, enclosure: d.enclosure });
+          await ask('send', { id: c.id, body: d.body, enclosure: d.enclosure, userTz: c.noPersona ? myTz() : '' });
           drafts.set(c.id, { body: '', enclosure: '' });
           await refresh();
           onSent?.();
@@ -476,19 +485,16 @@ export function setup(ctx) {
       const cur = editing ? byId(view.id) : null;
       const v = cur ? {
         name: cur.name, brief: cur.brief, world: cur.world, ratio: cur.ratio, deliveryMin: cur.delivery.min, deliveryMax: cur.delivery.max,
-        writeMin: cur.writeDelay.min, writeMax: cur.writeDelay.max, maxReplyRealHours: cur.maxReplyRealHours, timeScale: cur.timeScale || 1, personaId: cur.personaId || '', waitHours: cur.waitHours ?? Math.max(72, cur.writeDelay.max * 3),
+        writeMin: cur.writeDelay.min, writeMax: cur.writeDelay.max, maxReplyRealHours: cur.maxReplyRealHours, timeScale: cur.timeScale || 1, personaId: cur.noPersona ? NONE_OPT : cur.personaId || '', waitHours: cur.waitHours ?? Math.max(72, cur.writeDelay.max * 3),
       } : {
         name: '', brief: '', world: '', ratio: 1, deliveryMin: 1, deliveryMax: 24, writeMin: 2, writeMax: 48, maxReplyRealHours: 24, timeScale: 1,
-        personaId: S.persona !== ALL && S.persona !== NO_PERSONA ? S.persona : S.activePersonaId,
+        personaId: defaultPick(),
       };
       const inputs = {};
       const text = (k, ph, rows) => (inputs[k] = rows ? el('textarea', { value: v[k] || '', placeholder: ph, rows }) : el('input', { value: v[k] ?? '', placeholder: ph }));
       const numIn = (k, step = 'any') => (inputs[k] = el('input', { type: 'number', step, min: '0', value: String(v[k] ?? '') }));
-      inputs.personaId = el('select', {}, [
-        el('option', { value: '', text: '페르소나 없음(보낼 때 활성 페르소나)' }),
-        ...S.personas.map((p) => el('option', { value: p.id, text: p.title ? `${p.name} — ${p.title}` : p.name, selected: p.id === v.personaId })),
-      ]);
-      const read = () => Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value]));
+      inputs.personaId = el('select', {}, personaOptions(v.personaId));
+      const read = () => { const o = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value])); return { ...o, ...personaPick(o.personaId) }; };
       return [
         el('div', { class: 'im-row' }, [link('← 돌아가기', () => (editing ? go({ name: 'c', id: view.id }) : go({ name: 'home' })))]),
         el('h3', { text: editing ? '상대 정보 수정' : '새 상대' }),
@@ -520,7 +526,7 @@ export function setup(ctx) {
             } else {
               const r = await ask('create', { input: read() });
               const pid = inputs.personaId.value;
-              if (pid && S.persona !== ALL) setPersona(pid);
+              if (S.persona !== ALL) { if (pid === NONE_OPT) setPersona(NO_PERSONA); else if (pid) setPersona(pid); }
               await refresh();
               go({ name: 'c', id: r.id });
             }
@@ -683,16 +689,13 @@ export function setup(ctx) {
     const M = { mode: 'prompt', request: '', dice: '', exclude: '', characterId: '', personaId: '', firstBy: 'them', ratioMin: '', ratioMax: '', deliveryMin: '', deliveryMax: '', timeScale: '1', characters: null, draft: null };
     const MODES = [['prompt', '원하는 상대 적기'], ['random', '무작위로 만나기'], ['existing', '기존 캐릭터'], ['manual', '직접 다 적기']];
     function matchView() {
-      if (!M.personaId) M.personaId = S.persona !== ALL && S.persona !== NO_PERSONA ? S.persona : S.activePersonaId;
+      if (!M.personaId) M.personaId = defaultPick();
       if (M.mode === 'existing' && !M.characters) {
         M.characters = [];
         ask('characters').then((r) => { M.characters = r.characters; render(); }).catch((e) => { error = e.message; render(); });
       }
       const bind = (k, tag = 'input', props = {}) => el(tag, { ...props, value: M[k], oninput: (e) => { M[k] = e.target.value; } });
-      const personaSel = el('select', { onchange: (e) => { M.personaId = e.target.value; } }, [
-        el('option', { value: '', text: '페르소나 없음(보낼 때 활성 페르소나)' }),
-        ...S.personas.map((p) => el('option', { value: p.id, text: p.title ? `${p.name} — ${p.title}` : p.name, selected: p.id === M.personaId })),
-      ]);
+      const personaSel = el('select', { onchange: (e) => { M.personaId = e.target.value; } }, personaOptions(M.personaId));
       const body = [];
       if (M.mode === 'prompt') {
         body.push(field('어떤 상대와 편지하고 싶나요?', bind('request', 'textarea', { rows: 5, placeholder: '예: 눈 덮인 곶의 늙은 등대지기. 무뚝뚝하지만 편지는 꼬박꼬박 길게 쓴다. 바다가 얼면 새가 편지를 나른다.' })));
@@ -732,7 +735,7 @@ export function setup(ctx) {
         el('div', { class: 'im-muted', text: '「만들기」를 누르면 상대 만들기 연결로 생성을 1회 합니다. 미리보기에서 고치고 확정해야 캐릭터·로어북이 만들어집니다.' }),
         btn(busy ? '만드는 중… (30초~1분)' : '만들기', () => act(async () => {
           const r = await ask('matchDraft', {
-            mode: M.mode, request: M.request, dice: M.dice, exclude: M.exclude, characterId: M.characterId, personaId: M.personaId, firstBy: M.firstBy,
+            mode: M.mode, request: M.request, dice: M.dice, exclude: M.exclude, characterId: M.characterId, ...personaPick(M.personaId), firstBy: M.firstBy,
             ranges: { ratioMin: M.ratioMin, ratioMax: M.ratioMax, deliveryMin: M.deliveryMin, deliveryMax: M.deliveryMax },
           }, 240000);
           M.draft = r.draft;
@@ -760,7 +763,7 @@ export function setup(ctx) {
       return [
         el('div', { class: 'im-row' }, [link('← 다시 적기', () => go({ name: 'match' })), el('span', { class: 'im-grow' }), btn(busy ? '…' : '다시 만들기(1회)', () => act(async () => {
           const r = await ask('matchDraft', {
-            mode: M.mode, request: M.request, dice: d.dice || M.dice, exclude: M.exclude, characterId: M.characterId, personaId: M.personaId, firstBy: M.firstBy,
+            mode: M.mode, request: M.request, dice: d.dice || M.dice, exclude: M.exclude, characterId: M.characterId, ...personaPick(M.personaId), firstBy: M.firstBy,
             ranges: { ratioMin: M.ratioMin, ratioMax: M.ratioMax, deliveryMin: M.deliveryMin, deliveryMax: M.deliveryMax },
           }, 240000);
           M.draft = r.draft;
@@ -810,7 +813,7 @@ export function setup(ctx) {
           el('div', { class: 'im-muted', text: '확정하면 이 편지가 배송되기 시작합니다(미리 읽은 셈이지만, 도착하면 봉투부터 다시 열어 볼 수 있어요).' }),
         ]) : el('div', { class: 'im-muted', text: '첫 편지는 내가 씁니다.' }),
         btn(busy ? '만드는 중…' : '확정 — 캐릭터·로어북 만들기', () => act(async () => {
-          const r = await ask('matchConfirm', { draft: d, personaId: M.personaId, timeScale: M.timeScale }, 60000);
+          const r = await ask('matchConfirm', { draft: d, ...personaPick(M.personaId), timeScale: M.timeScale }, 60000);
           M.draft = null;
           await refresh();
           go({ name: 'c', id: r.id });

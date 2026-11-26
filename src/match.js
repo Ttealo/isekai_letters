@@ -75,15 +75,17 @@ const rangeText = (r) => {
 };
 
 // 매칭 프롬프트
-export function buildMatchMessages({ mode, request = '', dice = '', exclude = '', existing = null, personaName = '', firstBy = 'them', ranges = null }) {
-  const userName = personaName || '편지의 주인';
+export function buildMatchMessages({ mode, request = '', dice = '', exclude = '', existing = null, personaName = '', noPersona = false, firstBy = 'them', ranges = null }) {
+  const userName = (noPersona ? '' : personaName) || '편지의 주인';
   const system = [
     '<system>',
     'You design a correspondent for "Isekai Mailbox": a person in another world who exchanges only handwritten letters with {{user}} across worlds.',
     'They never meet. Time flows at a different speed on each side. Letters are physical objects of that world.',
     'Make the person specific, grounded and quietly interesting; give them a daily life, a reason to keep writing, and something unresolved.',
     'Avoid clichés of "chosen one" or instant romance. No real people or existing copyrighted characters.',
-    `The letter writer on this side is {{user}} (current name: ${userName}). Inside the card and the lorebook, never write that name: always use the literal macros {{user}} and {{char}}.`,
+    noPersona
+      ? 'The letter writer on this side is {{user}}: an ordinary person in the real world (Earth, the present day), writing as themselves, with no name or background given. Do not invent facts about {{user}}. Inside the card and the lorebook always use the literal macros {{user}} and {{char}}.'
+      : `The letter writer on this side is {{user}} (current name: ${userName}). Inside the card and the lorebook, never write that name: always use the literal macros {{user}} and {{char}}.`,
     '</system>',
     mode === 'existing' ? '' : CARD_GUIDE,
     WORLD_GUIDE,

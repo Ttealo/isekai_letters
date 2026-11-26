@@ -251,3 +251,22 @@ test('달력 시작 맞춤: 첫 편지를 쓴 그쪽 시각이 몇 시간이든 
     }
   }
 });
+
+test('페르소나 없음: 이름 없이 현실의 나, 이쪽 현실 날짜·시각', () => {
+  let c = M.createCorrespondent({ ...base, noPersona: true, personaId: 'p1', personaName: '하루', userTz: 'Asia/Seoul' }, 0, () => 0);
+  assert.equal(c.noPersona, true);
+  assert.equal(c.personaId, '');
+  assert.equal(c.personaName, '');
+  c = M.sendLetter(c, { body: '안녕하세요', personaName: '' }, 0, () => 0);
+  c = M.advance(c, 10 * H).c;
+  const now = Date.UTC(2026, 10, 27, 3, 5);
+  const sys = M.buildReplyMessages(c, { now, personaName: "하루" })[0].content;
+  assert.ok(!sys.includes('하루'), '페르소나 이름이 들어가면 안 됨');
+  assert.match(sys, /real world/);
+  assert.match(sys, /user_side_now=2026년 11월 27일.*12:05.*Asia\/Seoul/);
+  const back = M.updateCorrespondent(c, { personaId: 'p2', noPersona: false }, now);
+  assert.equal(back.noPersona, false);
+  assert.equal(back.personaId, 'p2');
+  const sys2 = M.buildReplyMessages(M.createCorrespondent(base, 0, () => 0), { now, personaName: "하루" })[0].content;
+  assert.ok(!sys2.includes('user_side_now'));
+});

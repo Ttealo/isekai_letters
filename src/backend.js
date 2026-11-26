@@ -475,7 +475,7 @@ export function start(api) {
     if (mode === 'prompt' && !String(p.request || '').trim()) throw new Error('어떤 상대를 원하는지 적어 주세요.');
     const settings = await loadSettings(user);
     let personaName = '';
-    try { personaName = p.personaId ? (await api.personas.get(p.personaId, user))?.name || '' : (await api.personas.getActive(user))?.name || ''; } catch {}
+    if (!p.noPersona) try { personaName = p.personaId ? (await api.personas.get(p.personaId, user))?.name || '' : (await api.personas.getActive(user))?.name || ''; } catch {}
     let existing = null;
     if (mode === 'existing') {
       if (!p.characterId) throw new Error('캐릭터를 골라 주세요.');
@@ -485,7 +485,7 @@ export function start(api) {
     const firstBy = p.firstBy === 'me' ? 'me' : 'them';
     const messages = buildMatchMessages({
       mode, request: String(p.request || '').slice(0, 4000), dice, exclude: String(p.exclude || '').slice(0, 500),
-      existing: existing && { card: existing.card, lore: existing.lore }, personaName, firstBy, ranges: p.ranges || null,
+      existing: existing && { card: existing.card, lore: existing.lore }, personaName, noPersona: !!p.noPersona, firstBy, ranges: p.ranges || null,
     });
     const raw = await genJson(user, messages, settings);
     const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '', personaName });
@@ -527,12 +527,12 @@ export function start(api) {
         brief = briefFromCard(d.card);
       }
       // 3) 우체통 상대
-      const persona = p.personaId ? await api.personas.get(p.personaId, user).catch(() => null) : null;
+      const persona = p.personaId && !p.noPersona ? await api.personas.get(p.personaId, user).catch(() => null) : null;
       let c = createCorrespondent({
         name: d.name, brief, world: '', ratio: d.mail.ratio,
         deliveryMin: d.mail.deliveryMin, deliveryMax: d.mail.deliveryMax, writeMin: d.mail.writeMin, writeMax: d.mail.writeMax,
         maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
-        personaId: persona?.id || '', personaName: persona?.name || '',
+        personaId: persona?.id || '', personaName: persona?.name || '', noPersona: !!p.noPersona, userTz: p.userTz || '',
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
         calendar: d.calendar, waitHours: d.mail.waitHours,
       }, now);
@@ -556,6 +556,7 @@ export function start(api) {
   // ── 답장 생성 ──
   // 보내는 사람 이름: 상대에 묶인 페르소나(지금 이름) → 저장해 둔 이름 → 마지막 편지의 이름 → 활성 페르소나
   const personaNameFor = async (user, c) => {
+    if (c.noPersona) return '';
     try {
       if (c.personaId) {
         const p = await api.personas.get(c.personaId, user);
@@ -568,7 +569,7 @@ export function start(api) {
     try { return (await api.personas.getActive(user))?.name || ''; } catch { return ''; }
   };
   const withPersonaName = async (user, input) => {
-    if (!input?.personaId) return { ...input, personaName: '' };
+    if (input?.noPersona || !input?.personaId) return { ...input, personaName: '' };
     try {
       const p = await api.personas.get(input.personaId, user);
       if (!p) throw new Error('고른 페르소나를 찾지 못했습니다.');
@@ -747,7 +748,7 @@ export function start(api) {
         return { id: c.id };
       }
       case 'update': {
-        const input = p.input && 'personaId' in p.input ? await withPersonaName(user, p.input) : p.input;
+        const input = p.input && ('personaId' in p.input || 'noPersona' in p.input) ? await withPersonaName(user, p.input) : p.input;
         const c = await mutate(user, p.id, (c) => updateCorrespondent(c, input, now));
         return { c: publicView(c, now) };
       }
@@ -757,7 +758,7 @@ export function start(api) {
       }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
-        const c = await mutate(user, p.id, (c) => sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now));
+        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'recall': {

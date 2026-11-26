@@ -178,8 +178,11 @@ export function cleanCorrespondentInput(p) {
     writeDelay: { min: wMin, max: wMax },
     maxReplyRealHours: num(p?.maxReplyRealHours, 0.1, 168, 24),
     timeScale: num(p?.timeScale, 1, 3600, 1),
-    personaId: str(p?.personaId, 200),
-    personaName: str(p?.personaName, 80),
+    // 페르소나 없음: 현실의 나 자신으로(이름·설정 없이, 이쪽 시간은 현실 날짜·시각)
+    noPersona: !!p?.noPersona,
+    personaId: p?.noPersona ? '' : str(p?.personaId, 200),
+    personaName: p?.noPersona ? '' : str(p?.personaName, 80),
+    userTz: str(p?.userTz, 60),
     // 매칭으로 만든 상대: 앱의 캐릭터·로어북과 우편 설정
     characterId: str(p?.characterId, 200),
     worldBookId: str(p?.worldBookId, 200),
@@ -251,7 +254,7 @@ export function toInput(c) {
     name: c.name, brief: c.brief, world: c.world, ratio: c.ratio,
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
-    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
+    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '', noPersona: !!c.noPersona, userTz: c.userTz || '',
     characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {}, calendar: c.calendar || null, waitHours: c.waitHours ?? '',
   };
 }
@@ -479,9 +482,16 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
+// 현실 날짜·시각(상대가 고른 시간대, 없으면 서울)
+export function realNowLabel(now = Date.now(), tz = '') {
+  const fmt = (zone) => new Date(now).toLocaleString('ko-KR', { timeZone: zone, year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  try { return `${fmt(tz || 'Asia/Seoul')} (${tz || 'Asia/Seoul'})`; } catch { return `${fmt('Asia/Seoul')} (Asia/Seoul)`; }
+}
+
 export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '', memory = null } = {}) {
   c = normalize(c);
-  const userName = personaName || c.personaName || '편지의 주인';
+  const userName = (c.noPersona ? '' : personaName || c.personaName) || '편지의 주인';
+  const realNow = c.noPersona ? realNowLabel(now, c.userTz) : '';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
     .map((x) => `${x.from === 'me' ? '{{user}} → you' : 'you → {{user}}'}: ${x.name}${x.note ? ` (${x.note})` : ''}`);
   const answered = new Set(c.reply?.forLetterIds || []);
@@ -515,7 +525,10 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     c.reply?.initiative ? `initiative=yes: {{user}} has not written back since your last letter. You are writing again on your own, ${formatSpan(tNow - (lastTheirs?.theirWrittenAt || 0))} after your last letter (your time).` : '',
     lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
     gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
-    `knows_about_user=only what their letters said; their name is ${userName}`,
+    c.noPersona
+      ? `knows_about_user=only what their letters said. {{user}} is an ordinary person living in the real world (Earth, the present day), writing as themselves. No name was given: use a name only if their letters signed one, otherwise address them without a name.`
+      : `knows_about_user=only what their letters said; their name is ${userName}`,
+    realNow ? `user_side_now=${realNow} (real calendar and clock on {{user}}'s side; use only if it matters, e.g. their season or time of day)` : '',
     memory?.ledger ? `\n<relationship>\n${memory.ledger}\n</relationship>` : '',
     omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here${memory?.summaries || memory?.chapters ? '; see <history>' : ''})` : '',
     '</correspondence>',
@@ -562,7 +575,7 @@ export function summarize(c, now = Date.now()) {
   else if (lastThem && (!lastMine || lastMine.sentAt < lastThem.sentAt)) status = `그쪽은 ${formatSpan(tNow - lastThem.theirWrittenAt)}째 내 답장을 기다리는 중`;
   return {
     id: c.id, name: c.name, ratio: c.ratio, theirNow: theirLabel(c, tNow),
-    personaId: c.personaId || '', personaName: c.personaName || '',
+    personaId: c.personaId || '', personaName: c.personaName || '', noPersona: !!c.noPersona,
     items: (c.items || []).filter((x) => x.state === 'arrived').length,
     unread, inTransit, status, failed: c.reply?.state === 'failed', error: c.reply?.error || '',
     lastAt: lastLetter ? lastLetter.sentAt : c.createdAt,
@@ -680,15 +693,17 @@ const rangeText = (r) => {
 };
 
 // 매칭 프롬프트
-export function buildMatchMessages({ mode, request = '', dice = '', exclude = '', existing = null, personaName = '', firstBy = 'them', ranges = null }) {
-  const userName = personaName || '편지의 주인';
+export function buildMatchMessages({ mode, request = '', dice = '', exclude = '', existing = null, personaName = '', noPersona = false, firstBy = 'them', ranges = null }) {
+  const userName = (noPersona ? '' : personaName) || '편지의 주인';
   const system = [
     '<system>',
     'You design a correspondent for "Isekai Mailbox": a person in another world who exchanges only handwritten letters with {{user}} across worlds.',
     'They never meet. Time flows at a different speed on each side. Letters are physical objects of that world.',
     'Make the person specific, grounded and quietly interesting; give them a daily life, a reason to keep writing, and something unresolved.',
     'Avoid clichés of "chosen one" or instant romance. No real people or existing copyrighted characters.',
-    `The letter writer on this side is {{user}} (current name: ${userName}). Inside the card and the lorebook, never write that name: always use the literal macros {{user}} and {{char}}.`,
+    noPersona
+      ? 'The letter writer on this side is {{user}}: an ordinary person in the real world (Earth, the present day), writing as themselves, with no name or background given. Do not invent facts about {{user}}. Inside the card and the lorebook always use the literal macros {{user}} and {{char}}.'
+      : `The letter writer on this side is {{user}} (current name: ${userName}). Inside the card and the lorebook, never write that name: always use the literal macros {{user}} and {{char}}.`,
     '</system>',
     mode === 'existing' ? '' : CARD_GUIDE,
     WORLD_GUIDE,
@@ -1870,7 +1885,7 @@ export function start(api) {
     if (mode === 'prompt' && !String(p.request || '').trim()) throw new Error('어떤 상대를 원하는지 적어 주세요.');
     const settings = await loadSettings(user);
     let personaName = '';
-    try { personaName = p.personaId ? (await api.personas.get(p.personaId, user))?.name || '' : (await api.personas.getActive(user))?.name || ''; } catch {}
+    if (!p.noPersona) try { personaName = p.personaId ? (await api.personas.get(p.personaId, user))?.name || '' : (await api.personas.getActive(user))?.name || ''; } catch {}
     let existing = null;
     if (mode === 'existing') {
       if (!p.characterId) throw new Error('캐릭터를 골라 주세요.');
@@ -1880,7 +1895,7 @@ export function start(api) {
     const firstBy = p.firstBy === 'me' ? 'me' : 'them';
     const messages = buildMatchMessages({
       mode, request: String(p.request || '').slice(0, 4000), dice, exclude: String(p.exclude || '').slice(0, 500),
-      existing: existing && { card: existing.card, lore: existing.lore }, personaName, firstBy, ranges: p.ranges || null,
+      existing: existing && { card: existing.card, lore: existing.lore }, personaName, noPersona: !!p.noPersona, firstBy, ranges: p.ranges || null,
     });
     const raw = await genJson(user, messages, settings);
     const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '', personaName });
@@ -1922,12 +1937,12 @@ export function start(api) {
         brief = briefFromCard(d.card);
       }
       // 3) 우체통 상대
-      const persona = p.personaId ? await api.personas.get(p.personaId, user).catch(() => null) : null;
+      const persona = p.personaId && !p.noPersona ? await api.personas.get(p.personaId, user).catch(() => null) : null;
       let c = createCorrespondent({
         name: d.name, brief, world: '', ratio: d.mail.ratio,
         deliveryMin: d.mail.deliveryMin, deliveryMax: d.mail.deliveryMax, writeMin: d.mail.writeMin, writeMax: d.mail.writeMax,
         maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
-        personaId: persona?.id || '', personaName: persona?.name || '',
+        personaId: persona?.id || '', personaName: persona?.name || '', noPersona: !!p.noPersona, userTz: p.userTz || '',
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
         calendar: d.calendar, waitHours: d.mail.waitHours,
       }, now);
@@ -1951,6 +1966,7 @@ export function start(api) {
   // ── 답장 생성 ──
   // 보내는 사람 이름: 상대에 묶인 페르소나(지금 이름) → 저장해 둔 이름 → 마지막 편지의 이름 → 활성 페르소나
   const personaNameFor = async (user, c) => {
+    if (c.noPersona) return '';
     try {
       if (c.personaId) {
         const p = await api.personas.get(c.personaId, user);
@@ -1963,7 +1979,7 @@ export function start(api) {
     try { return (await api.personas.getActive(user))?.name || ''; } catch { return ''; }
   };
   const withPersonaName = async (user, input) => {
-    if (!input?.personaId) return { ...input, personaName: '' };
+    if (input?.noPersona || !input?.personaId) return { ...input, personaName: '' };
     try {
       const p = await api.personas.get(input.personaId, user);
       if (!p) throw new Error('고른 페르소나를 찾지 못했습니다.');
@@ -2142,7 +2158,7 @@ export function start(api) {
         return { id: c.id };
       }
       case 'update': {
-        const input = p.input && 'personaId' in p.input ? await withPersonaName(user, p.input) : p.input;
+        const input = p.input && ('personaId' in p.input || 'noPersona' in p.input) ? await withPersonaName(user, p.input) : p.input;
         const c = await mutate(user, p.id, (c) => updateCorrespondent(c, input, now));
         return { c: publicView(c, now) };
       }
@@ -2152,7 +2168,7 @@ export function start(api) {
       }
       case 'send': {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
-        const c = await mutate(user, p.id, (c) => sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now));
+        const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'recall': {
