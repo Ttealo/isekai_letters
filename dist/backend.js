@@ -2416,12 +2416,21 @@ export function start(api) {
         return once(temperature);
       }
     };
-    let res = await once(settings.createTemperature);
+    // 한도 초과(429)·서버 오류면 8초 뒤 한 번 더
+    const onceRetry = async (temperature) => {
+      try { return await once(temperature); } catch (e) {
+        if (!/(429|5dd)|exhausted|rate limit/i.test(String(e?.message || e))) throw e;
+        log('info', `글 생성 한도·서버 오류, 8초 뒤 다시: ${String(e?.message || e).slice(0, 80)}`);
+        await new Promise((r) => setTimeout(r, 8000));
+        return once(temperature);
+      }
+    };
+    let res = await onceRetry(settings.createTemperature);
     try { return parseJsonLoose(res?.content); } catch (e) {
       const c0 = String(res?.content || '');
       log('warn', `JSON 깨짐(${e.message}) 길이=${c0.length} 끝=${res?.finish_reason || '?'} 꼬리=${c0.slice(-160).replace(/\s+/g, ' ')}`);
       const cut = res?.finish_reason === 'length' || res?.finish_reason === 'max_tokens' || res?.finish_reason === 'MAX_TOKENS';
-      res = await once(Math.min(0.7, Number(settings.createTemperature) || 0.7));
+      res = await onceRetry(Math.min(0.7, Number(settings.createTemperature) || 0.7));
       try { return parseJsonLoose(res?.content); } catch (e2) {
         const c1 = String(res?.content || '');
         log('warn', `JSON 다시 깨짐(${e2.message}) 길이=${c1.length} 끝=${res?.finish_reason || '?'}`);
