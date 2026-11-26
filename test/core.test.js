@@ -241,3 +241,13 @@ test('먼저 오는 편지: 기다림이 차면 무작위 시점에 시작, 내�
   // 기다림 0이면 끔
   assert.equal(M.initiativeCheck({ ...c, waitHours: 0 }, 999 * H).start, false);
 });
+
+test('달력 시작 맞춤: 첫 편지를 쓴 그쪽 시각이 몇 시간이든 그날이 「첫 편지 날짜」', () => {
+  for (const dayHours of [12, 24, 28]) {
+    const cal = M.cleanCalendar({ dayHours, months: [{ name: '백무기', days: 30 }], start: { year: 1, month: '백무기', day: 8, hour: Math.min(9, dayHours - 1) } });
+    for (let h = 8; h <= 20; h++) {
+      const c = { calendar: { ...M.shiftCalendarStart(cal, -h), style: 'calendar' } };
+      assert.match(M.theirLabel(c, h), /^백무기 8일 /, `dayHours=${dayHours} h=${h}`);
+    }
+  }
+});

@@ -163,6 +163,7 @@ const CSS2 = `
 .im-cal-ev .im-t{font-variant-numeric:tabular-nums;font-size:12px;color:var(--lumiverse-text-muted);min-width:40px}
 .im-cal-ev .im-x{font-family:var(--im-serif);font-size:12.5px;color:var(--lumiverse-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .im-flash{animation:im-flash 1.6s ease}
+[data-lid]{scroll-margin-top:72px}
 @keyframes im-flash{0%,40%{box-shadow:0 0 0 3px var(--im-wax)}100%{box-shadow:none}}
 @media (max-width:520px){.im-cal-day{min-height:48px;padding:3px}.im-cal-mark{min-width:12px;height:12px;font-size:9px;line-height:12px}}
 .im-zoom{display:flex;flex-direction:column;align-items:center;gap:10px}
@@ -1125,7 +1126,7 @@ export function setup(ctx) {
       if (P.focusLetter && P.tab === 'book') {
         const target = panelRoot.querySelector(`[data-lid="${P.focusLetter}"]`);
         P.focusLetter = '';
-        if (target) setTimeout(() => { target.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); target.classList.add('im-flash'); }, 30);
+        if (target) setTimeout(() => { target.scrollIntoView?.({ block: 'start', behavior: 'smooth' }); target.classList.add('im-flash'); }, 30);
       }
     },
   };
@@ -1357,7 +1358,8 @@ export function setup(ctx) {
           el('b', { style: 'font-size:13px', text: `${e.kind === 'sent' ? '✒ ' : '✉ '}${e.label}` }),
           e.their ? el('div', { class: 'im-muted', style: 'font-size:11.5px', text: `그쪽 ${e.their}` }) : null,
           e.l.body && e.l.state !== 'delivered' && e.kind !== 'coming' ? el('div', { class: 'im-x', text: e.l.body.replace(/\s+/g, ' ') }) : null,
-          e.items.length ? el('div', { class: 'im-muted', style: 'font-size:11.5px', text: `동봉 · ${e.items.join(', ')}` }) : null,
+          e.items.length && e.l.state !== 'delivered' ? el('div', { class: 'im-muted', style: 'font-size:11.5px', text: `동봉 · ${e.items.join(', ')}` }) : null,
+          e.items.length && e.l.state === 'delivered' ? el('div', { class: 'im-muted', style: 'font-size:11.5px', text: '봉투 안에 무언가 더 들어 있는 것 같아요' }) : null,
         ]),
       ]))) : el('div', { class: 'im-muted', text: P.calDay ? '이날은 오간 편지가 없어요.' : '이달은 오간 편지가 없어요.' }),
     ])];

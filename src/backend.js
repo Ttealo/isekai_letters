@@ -483,6 +483,8 @@ export function start(api) {
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
         calendar: d.calendar, waitHours: d.mail.waitHours,
       }, now);
+      // 달력의 「첫 편지 날짜」가 첫 편지를 쓴 그쪽 시각이 되도록: 만난 뒤 흐른 시간(anchor)만큼 시작을 앞당긴다
+      if (c.calendar) c = { ...c, calendar: shiftCalendarStart(c.calendar, -c.anchor.theirAt) };
       if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
       await serial(user, () => saveC(user, c));
       return { id: c.id, characterId: charId, worldBookId: book.id };
