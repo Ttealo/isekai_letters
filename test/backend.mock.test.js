@@ -399,7 +399,7 @@ test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 �
   };
   const quiet = host.api.generate.quiet;
   host.api.generate.quiet = async (req) => {
-    if (/You write short English prompts/.test(req.messages[0].content)) {
+    if (/You write short English subject phrases/.test(req.messages[0].content)) {
       const keys = [...req.messages[1].content.matchAll(/key=(k\d+)/g)].map((m) => m[1]);
       return { content: JSON.stringify({ prompts: keys.map((k) => ({ key: k, prompt: `subject ${k}` })) }) };
     }
@@ -419,10 +419,10 @@ test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 �
   assert.equal(genCalls[0].connection_id, 'ic1');
   assert.equal(genCalls[0].parameters.size, '768x1024'); // 편지지
   assert.equal(JSON.parse(genCalls[0].parameters.rawRequestOverride).size, '768x1024'); // 연결의 덮어쓰기보다 우선
-  assert.match(JSON.parse(genCalls[0].parameters.rawRequestOverride).negative_prompt, /photo/);
+  assert.equal(JSON.parse(genCalls[0].parameters.rawRequestOverride).negative_prompt, undefined); // 기본은 금지어 안 보냄
   assert.equal(genCalls[1].parameters.size, '1024x1024');
   assert.equal(genCalls[0].includeDataUrl, false);
-  assert.match(genCalls[0].negativePrompt, /people/);
+  assert.match(genCalls[0].prompt, /^flat 2D stationery design/);
   assert.equal(genCalls[0].owner_character_id, r.characterId);
   let g = await host.ask('u1', 'get', { id: r.id });
   assert.ok(g.c.art.paper.imageId && g.c.art.stamp.imageId && g.c.art.seal.imageId);
@@ -447,13 +447,24 @@ test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 �
   for (let i = 0; i < 3; i++) await host.ask('u1', 'webpFail', { imageId: keep });
   assert.equal((await host.ask('u1', 'webpQueue')).queue.length, 1);
   assert.ok(images.has(keep));
-  // 물건 하나 그리기
+  // 물건 하나 그리기: 모델이 금지어를 거절하면 빼고 다시(400) → 성공
+  await host.ask('u1', 'saveSettings', { settings: { art: { connectionId: 'ic1', perDay: 4, sendNegative: true, kinds: { item: { model: 'seedream-v5.0-lite' } } } } });
+  const realGen = host.api.imageGen.generate;
+  host.api.imageGen.generate = async (req) => {
+    if (JSON.parse(req.parameters.rawRequestOverride || '{}').negative_prompt) { genCalls.push(req); throw new Error('Nano-GPT image generate failed (400): no longer supports negative prompt'); }
+    return realGen(req);
+  };
   await host.ask('u1', 'send', { id: r.id, body: 'x', enclosure: '은행잎' });
   g = await host.ask('u1', 'get', { id: r.id });
   await host.ask('u1', 'drawItem', { id: r.id, itemId: g.c.items[0].id });
   await settle(); await settle();
   g = await host.ask('u1', 'get', { id: r.id });
   assert.ok(g.c.items[0].imageId);
+  const itemCalls = genCalls.slice(-2);
+  assert.equal(itemCalls[0].model, 'seedream-v5.0-lite');
+  assert.ok(JSON.parse(itemCalls[0].parameters.rawRequestOverride).negative_prompt);
+  assert.equal(JSON.parse(itemCalls[1].parameters.rawRequestOverride).negative_prompt, undefined);
+  assert.equal(g.c.artJob, null);
   st = await host.ask('u1', 'artStatus');
   assert.equal(st.left, 0);
 });

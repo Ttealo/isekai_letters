@@ -970,7 +970,21 @@ export function setup(ctx) {
       };
       isel.addEventListener('change', () => loadModels(isel.value));
       loadModels(isel.value);
-      const istyle = el('textarea', { value: A.style, rows: 3, placeholder: 'delicate storybook illustration, soft watercolor and gouache, …' });
+      const istyle = el('textarea', { value: A.style, rows: 3, placeholder: 'hand-painted storybook illustration, delicate ink linework, soft watercolor washes, …' });
+      const KINDS = [['paper', '편지지'], ['stamp', '우표'], ['seal', '봉인'], ['item', '물건']];
+      const DEF_T = {
+        paper: 'flat 2D stationery design … ornamental border and small corner vignettes showing {subject}, large blank center …, {style}',
+        stamp: 'flat 2D postage stamp design … vintage engraved illustration of {subject} …, {style}',
+        seal: 'flat 2D illustration of a seal impression seen from directly above, {subject} …, {style}',
+        item: 'highly detailed illustration of {subject}, intricate textures … single object on plain paper background, {style}',
+      };
+      const kIn = Object.fromEntries(KINDS.map(([k]) => [k, {
+        model: el('input', { value: A.kinds?.[k]?.model || '', placeholder: '비우면 위 모델', list: 'im-image-models' }),
+        template: el('textarea', { value: A.kinds?.[k]?.template || '', rows: 3, placeholder: `비우면 기본 양식: ${DEF_T[k]}` }),
+      }]));
+      const ineg = el('input', { type: 'checkbox', style: 'width:auto', checked: !!A.sendNegative });
+      const inegText = el('textarea', { value: A.negative || '', rows: 2, placeholder: '비우면 기본 금지어(사진·탁자·사람·글자·숫자 등)' });
+      const istrength = el('input', { type: 'number', min: '0', max: '100', step: '5', value: String(A.paperStrength ?? 70) });
       const isize = el('input', { value: A.size, placeholder: '1024x1024' });
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
@@ -1005,10 +1019,18 @@ export function setup(ctx) {
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
         el('h4', { text: '그림 (NanoGPT 등 이미지 연결)' }),
         field('이미지 연결', isel),
-        field('모델', imodel),
+        field('기본 모델', imodel),
         ilist,
         imodelNote,
-        field('화풍 (영어)', istyle),
+        field('전체 룩 (영어, 양식의 {style} 자리에 들어감)', istyle),
+        el('details', {}, [
+          el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '종류별 양식·모델 (편지지·우표·봉인·물건)' }),
+          el('div', { class: 'im-muted', text: '{subject}는 글 생성이 써 주는 주제, {style}은 위 전체 룩입니다. 비우면 기본 양식(평면 도안·세밀한 물건 그림)을 씁니다.' }),
+          ...KINDS.flatMap(([k, t]) => [el('h4', { text: t }), field('모델', kIn[k].model), field('양식', kIn[k].template)]),
+        ]),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [ineg, '금지어를 negative prompt로 보내기 (받지 않는 모델이 많아요. 거절되면 빼고 다시 시도합니다)']),
+        field('금지어', inegText),
+        field('편지지 그림 진하기 (0~100)', istrength),
         el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto)]),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
         el('h4', { text: '보조창 방식 (이 기기, 새로 고침 뒤 적용)' }),
@@ -1017,7 +1039,7 @@ export function setup(ctx) {
           el('option', { value: 'float', text: '떠 있는 창 (메인 화면 위에 겹침, 끌어서 옮김)', selected: lsGet(LS_PANEL_MODE, 'dock') === 'float' }),
         ]),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value }, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1202,6 +1224,21 @@ export function setup(ctx) {
         // 정리 상태
         o ? el('div', { class: o.state === 'failed' ? 'im-err' : 'im-muted', text: o.state === 'failed' ? `정리 실패: ${o.error || ''}` : `정리 대기 중 · 편지 ${o.forLetterIds.length}통${o.error ? ` (재시도: ${o.error})` : ''}` }) : null,
         el('div', { class: 'im-row' }, [btn('아직 정리 안 된 편지 정리하기(생성 1회)', () => doAct(() => ask('organizeNow', { id: view.id })))]),
+        // 그림
+        el('h4', { text: `그림${S.art?.left !== undefined ? ` · 오늘 남은 ${S.art.left}장` : ''}` }),
+        c?.artJob?.state === 'running' ? el('div', { class: 'im-muted', text: `그리는 중… ${c.artJob.done}/${c.artJob.total}` }) : null,
+        c?.artJob?.state === 'failed' ? el('div', { class: 'im-err', text: `지난 그리기 실패: ${c.artJob.error}` }) : null,
+        el('div', { class: 'im-grid' }, ['paper', 'stamp', 'seal'].map((k) => {
+          const img = c?.art?.[k]?.imageId;
+          const label = { paper: '편지지', stamp: '우표', seal: '봉인' }[k];
+          return el('div', { class: 'im-item' }, [
+            el('div', { class: 'im-pic' }, [img ? el('a', { href: `/api/v1/images/${img}`, target: '_blank', rel: 'noopener' }, [el('img', { src: imgUrl(img, 'lg'), alt: label, loading: 'lazy' })]) : el('span', { html: PIC })]),
+            el('div', { class: 'im-cap' }, [el('b', { text: label }), link(img ? '다시 그리기' : '그리기', () => doAct(async () => {
+              if (!confirm(`${label}을(를) ${img ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+              await ask('drawSet', { id: view.id, kinds: [k] });
+            }))]),
+          ]);
+        })),
         // 관계 장부
         el('h4', { text: '관계 장부' }),
         L.stage || L.mood || L.calledMe ? el('div', { class: 'im-muted', text: [L.stage && `거리: ${L.stage}`, L.mood && `상대 마음: ${L.mood}`, L.calledMe && `나를 부르는 말: ${L.calledMe}`, L.calledThem && `내가 부르는 말: ${L.calledThem}`].filter(Boolean).join(' · ') }) : el('div', { class: 'im-muted', text: '아직 기록이 없습니다.' }),
@@ -1254,7 +1291,9 @@ export function setup(ctx) {
     const meta = [l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · ');
     const paperImg = c.art?.paper?.imageId;
     const stampImg = c.art?.stamp?.imageId;
-    return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperImg ? `background-image:linear-gradient(rgba(246,238,222,.78),rgba(246,238,222,.78)),url("${imgUrl(paperImg, 'lg')}");background-size:cover;background-position:center` : undefined }, [
+    const strength = Number(S.settings?.art?.paperStrength ?? 70);
+    const fade = Math.max(0, Math.min(0.95, (100 - (Number.isFinite(strength) ? strength : 70)) / 100));
+    return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperImg ? `background-image:linear-gradient(rgba(246,238,222,${fade}),rgba(246,238,222,${fade})),url("${imgUrl(paperImg, 'lg')}");background-size:100% 100%;background-position:center;padding:28px 34px 24px` : undefined }, [
       el('div', { class: 'im-stamp', title: [e.stamp && `우표: ${e.stamp}`, e.seal && `봉인: ${e.seal}`].filter(Boolean).join('\n') }, [
         stampImg ? el('img', { src: imgUrl(stampImg, 'sm'), alt: '우표' }) : el('span', { style: 'font-size:18px;line-height:1', text: '✉' }),
       ]),

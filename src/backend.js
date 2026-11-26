@@ -11,7 +11,7 @@ import {
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
 } from './memory.js';
 import {
-  ART_KINDS, NEGATIVE, artParameters, cleanArt, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
+  ART_KINDS, artParamAttempts, isParamRejection, modelFor, cleanArt, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
 } from './art.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -222,11 +222,22 @@ export function start(api) {
           if (!subject) { errors.push(`${j.kind}: 주제를 못 받음`); continue; }
           const prompt = composePrompt(j.kind, subject, art);
           try {
-            const res = await api.imageGen.generate({
-              prompt, negativePrompt: NEGATIVE, connection_id: art.connectionId || undefined, model: art.model || undefined,
-              parameters: artParameters(j.kind === 'paper' ? art.paperSize : art.size), includeDataUrl: false,
-              owner_character_id: c0.characterId || undefined, userId: user,
-            });
+            // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
+            let res;
+            let lastErr;
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : art.size, art)) {
+              try {
+                res = await api.imageGen.generate({
+                  prompt, connection_id: art.connectionId || undefined, model: modelFor(art, j.kind) || undefined,
+                  parameters, includeDataUrl: false, owner_character_id: c0.characterId || undefined, userId: user,
+                });
+                break;
+              } catch (e) {
+                lastErr = e;
+                if (!isParamRejection(e)) break;
+              }
+            }
+            if (!res) throw lastErr || new Error('그림을 만들지 못했습니다.');
             if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
             await serial(user, async () => {
               await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1), { userId: user });
