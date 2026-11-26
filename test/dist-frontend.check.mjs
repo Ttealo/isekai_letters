@@ -32,6 +32,7 @@ const miren = mk('c1', '미렌', 'p1', '시드', {
     { id: 'i1', name: '은행잎 한 장', from: 'me', state: 'arrived', letterId: 'l1', theirLabel: '1일째', arriveAt: now - 8e6 },
     { id: 'i2', name: '조개', note: '얼음 틈에서', from: 'them', state: 'arrived', letterId: 'l2', theirLabel: '3일째', arriveAt: now - 3e6 },
     { id: 'i3', name: '깃털', from: 'them', state: 'arrived', letterId: 'l3', theirLabel: '4일째', arriveAt: now - 1e6 },
+    { id: 'i4', name: '말린 꽃', note: '압화', from: 'them', state: 'arrived', letterId: 'l2', theirLabel: '3일째', arriveAt: now - 3e6, imageId: 'flower' },
   ],
 });
 const other = mk('c2', '하르', 'p2', '하루');
@@ -72,6 +73,7 @@ const replies = {
   setRules: (m) => { sentLog.push(m); return { locks: m.locks, applyMode: m.applyMode }; },
 };
 let badge = null;
+const modals = [];
 const drawerRoot = document.createElement('div');
 const panelRoot = document.createElement('div');
 const widgetRoot = document.createElement('div');
@@ -84,6 +86,7 @@ const ctx = {
     registerDrawerTab: () => ({ root: drawerRoot, setBadge: (b) => { badge = b; }, onActivate: () => () => {}, destroy() {} }),
     requestDockPanel: () => ({ root: panelRoot, isCollapsed: () => collapsed, expand: () => { collapsed = false; }, collapse: () => { collapsed = true; }, onVisibilityChange: () => () => {}, destroy() {} }),
     createFloatWidget: () => ({ root: widgetRoot, onDragEnd: () => () => {}, destroy() {} }),
+    showModal: (o) => { const root = document.createElement('div'); modals.push({ o, root }); return { root, dismiss() {}, setTitle() {}, onDismiss: () => () => {} }; },
   },
   dom: { addStyle: () => () => {} },
 };
@@ -116,6 +119,7 @@ widgetRoot.querySelector('.im-box').dispatchEvent(new window.Event('click', { bu
 ok('위젯 누르면 보조창 열림', collapsed === false);
 // 보조창 편지첩
 ok('편지첩: 상대 편지 편지지', !!panelRoot.querySelector('.im-paper.im-theirs'));
+ok('편지첩: 날짜 구분선·상대 정보 카드', panelRoot.querySelectorAll('.im-divider').length >= 3 && !!panelRoot.querySelector('.im-info .im-seal'));
 ok('편지첩: 내 편지 편지지', !!panelRoot.querySelector('.im-paper.im-mine'));
 ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') && panelRoot.textContent.includes('<b>편지</b>'));
 ok('편지첩: 우표 칸(설명은 툴팁)', panelRoot.querySelector('.im-stamp')?.getAttribute('title')?.includes('등대 도장'));
@@ -131,16 +135,22 @@ clickIn(panelRoot, 'button', '봉투 열기'); await tick(8);
 ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-paper.im-theirs').length === 2);
 // 물품
 clickIn(panelRoot, '.im-tabs button', '물품'); await tick();
-ok('물품: 받은 것 2 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 2') && panelRoot.textContent.includes('보낸 것 · 1'));
-ok('물품: 카드 3개', panelRoot.querySelectorAll('.im-item').length === 3);
+ok('물품: 받은 것 3 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 3') && panelRoot.textContent.includes('보낸 것 · 1'));
+ok('물품: 카드 4개', panelRoot.querySelectorAll('.im-item').length === 4);
 const drawBtns = [...panelRoot.querySelectorAll('.im-item button')].filter((b) => b.textContent === '그리기');
 ok('물품: 그리는 중인 물건은 표시만(버튼 없음)', drawBtns.length === 2 && [...panelRoot.querySelectorAll('.im-item')].find((x) => x.textContent.includes('깃털'))?.querySelector('.im-state')?.textContent === '기다리는 중');
 drawBtns[0].dispatchEvent(new window.Event('click')); await tick(6);
 ok('물품: 그리기 요청', sentLog.some((x) => x.type === 'drawItem' && x.id === 'c1'));
+// 그림 크게 보기: 물건 그림 누르면 모달
+const c1withImg = all.find((c) => c.id === 'c1');
+const flowerImg = [...panelRoot.querySelectorAll('.im-item img')].find((i) => i.getAttribute('alt') === '말린 꽃');
+flowerImg.dispatchEvent(new window.Event('click', { bubbles: true })); await tick();
+ok('물품: 그림 누르면 크게 보기(모달)', modals.length === 1 && modals[0].o.title === '말린 꽃' && modals[0].root.querySelector('img')?.getAttribute('src') === '/api/v1/images/flower' && modals[0].root.textContent.includes('압화'));
+
 // 모음
 clickIn(panelRoot, '.im-tabs button', '모음'); await tick();
 ok('모음: 편지 묶음 2', panelRoot.querySelectorAll('.im-bundle').length === 2);
-ok('모음: 모든 물건 3', panelRoot.textContent.includes('모든 물건 · 3'));
+ok('모음: 모든 물건 4', panelRoot.textContent.includes('모든 물건 · 4'));
 clickIn(panelRoot, '.im-chip', '시드'); await tick();
 ok('모음: 페르소나 고르면 묶음 1', panelRoot.querySelectorAll('.im-bundle').length === 1);
 clickIn(panelRoot, '.im-bundle', '미렌'); await tick();
