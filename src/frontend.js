@@ -1109,6 +1109,98 @@ export function setup(ctx) {
     ]);
   }
 
+  // ══════════════ 편지첩 HTML로 저장 ══════════════
+  // 편지지 그림을 테두리로 깐 편지들을 차례로 늘어놓은 한 장짜리 HTML(그림은 파일 안에 넣어 따로 열어도 보임)
+  const escHtml = (t) => String(t ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const dataUrlOf = async (id, size = 'lg') => {
+    try {
+      const r = await fetch(imgUrl(id, size), { credentials: 'include' });
+      if (!r.ok) return '';
+      const b = await r.blob();
+      return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result || '')); fr.onerror = () => res(''); fr.readAsDataURL(b); });
+    } catch { return ''; }
+  };
+  async function exportLettersHtml(c) {
+    const imgs = new Map();
+    const want = (id, size) => { if (id && !imgs.has(`${id}:${size}`)) imgs.set(`${id}:${size}`, null); return id ? `${id}:${size}` : ''; };
+    const letters = (c.letters || []).filter((l) => !(l.from === 'them' && l.state === 'in_transit'));
+    const plan = letters.map((l) => ({
+      l,
+      paper: l.from === 'them' ? want(l.art?.paper || c.art?.paper?.imageId, 'lg') : '',
+      stamp: l.from === 'them' ? want(l.art?.stamp || c.art?.stamp?.imageId, 'sm') : '',
+    }));
+    const portrait = want(c.art?.portrait?.imageId, 'lg');
+    const items = (c.items || []).filter((x) => x.state === 'arrived' && x.imageId).map((x) => ({ x, key: want(x.imageId, 'lg') }));
+    await Promise.all([...imgs.keys()].map(async (k) => { const [id, size] = k.split(':'); imgs.set(k, await dataUrlOf(id, size)); }));
+    const src = (k) => (k && imgs.get(k)) || '';
+    const A = S.settings?.art || {};
+    const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== null && v !== undefined ? Number(v) : d);
+    const bw = Math.max(0, Math.min(200, num(A.paperBorder, 64)));
+    const slice = Math.max(1, Math.min(45, num(A.paperSlice, 20)));
+    const fade = Math.max(0, Math.min(0.9, (100 - num(A.paperStrength, 70)) / 100));
+    const date = (ms) => (ms ? new Date(ms).toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+    const body = plan.map(({ l, paper, stamp }) => {
+      const mine = l.from === 'me';
+      const unread = !mine && l.state === 'delivered';
+      const e = l.envelope || {};
+      const p = src(paper);
+      const style = p ? ` style="border:${bw}px solid transparent;border-image:url('${p}') ${slice}% fill / ${bw}px stretch;background:${fade ? `rgba(246,238,222,${fade})` : 'transparent'};background-clip:padding-box;box-shadow:none;border-radius:0"` : '';
+      const meta = mine
+        ? `${escHtml(l.personaName || '나')}의 편지 · ${escHtml(date(l.sentAt))} 보냄 · 그쪽 ${escHtml(l.theirArriveLabel || '')} 도착`
+        : `${escHtml(c.name)}의 편지 · ${escHtml([l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · '))}`;
+      const enc = (l.enclosures || []).map((x) => `<div>동봉 · ${escHtml(x.item)}${x.note ? ` — ${escHtml(x.note)}` : ''}</div>`).join('');
+      return `<article class="paper ${mine ? 'mine' : 'theirs'}"${style}>
+${!mine ? `<div class="stamp">${src(stamp) ? `<img src="${src(stamp)}" alt="우표">` : '✉'}</div>` : ''}
+<div class="meta">${meta}</div>
+<div class="text">${unread ? '<i>(아직 열지 않은 편지)</i>' : escHtml(l.body + (l.ps ? `\n\n추신. ${l.ps}` : ''))}</div>
+${enc && !unread ? `<div class="encl">${enc}</div>` : ''}
+${!mine ? `<div class="meta foot">받은 시각 ${escHtml(date(l.arriveAt))}</div>` : ''}
+</article>`;
+    }).join('\n');
+    const gallery = items.length ? `<h2>주고받은 물건</h2><div class="grid">${items.map(({ x, key }) => `<figure><img src="${src(key)}" alt="${escHtml(x.name)}"><figcaption><b>${escHtml(x.name)}</b>${x.note ? `<br>${escHtml(x.note)}` : ''}<br><small>${x.from === 'me' ? '내가 보냄' : `${escHtml(c.name)}이(가) 보냄`}</small></figcaption></figure>`).join('')}</div>` : '';
+    const first = letters[0]?.sentAt; const last = letters[letters.length - 1]?.sentAt;
+    const html = `<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escHtml(c.name)}와 주고받은 편지</title>
+<style>
+body{margin:0;background:#e9e1d1;background-image:radial-gradient(#d9ccb2 1px,transparent 1px);background-size:18px 18px;color:#3b2f22;font-family:"Nanum Myeongjo","Noto Serif KR","Batang",Georgia,serif}
+main{max-width:760px;margin:0 auto;padding:40px 18px 80px}
+header{display:flex;gap:20px;align-items:flex-end;margin-bottom:34px;border-bottom:1px solid #c9b38c;padding-bottom:18px}
+header img{width:132px;aspect-ratio:832/1216;object-fit:cover;border:6px solid #fbf6ec;box-shadow:0 6px 16px -8px #0007;transform:rotate(-2deg)}
+h1{margin:0 0 6px;font-size:28px;letter-spacing:.02em}
+.sub{font-family:system-ui,sans-serif;font-size:13px;color:#7a6a52;line-height:1.6}
+.paper{position:relative;white-space:pre-wrap;font-size:15.5px;line-height:1.95;padding:22px 24px 18px;margin:0 0 30px;border-radius:4px;background:#f4ead6;background-image:repeating-linear-gradient(transparent 0 29px,#d9c7a455 29px 30px);border:1px solid #d6c3a0;box-shadow:0 1px 0 #c9b38c,0 10px 22px -12px #0007}
+.paper.theirs{margin-right:7%}
+.paper.mine{margin-left:7%;color:#26313b;background:#eef1f4;background-image:repeating-linear-gradient(transparent 0 29px,#b8c4d055 29px 30px);border-color:#c5ced8;transform:rotate(.4deg)}
+.paper.theirs:nth-of-type(even){transform:rotate(-.5deg)}
+.stamp{position:absolute;top:12px;right:12px;width:52px;height:60px;display:flex;align-items:center;justify-content:center;background:#fbf6ec;border:2px dashed #c9b38c;font-size:20px}
+.stamp img{width:100%;height:100%;object-fit:cover}
+.meta{font-family:system-ui,sans-serif;font-size:11.5px;color:#7a6a52;white-space:normal;margin:0 64px 10px 0;line-height:1.5}
+.mine .meta{color:#5d6b78;margin-right:0}
+.meta.foot{margin:10px 0 0}
+.encl{margin-top:12px;padding-top:8px;border-top:1px dashed #c9b38c;font-size:13.5px;color:#6b5a40}
+h2{font-size:19px;margin:46px 0 16px;border-bottom:1px solid #c9b38c;padding-bottom:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:16px}
+figure{margin:0;background:#fbf6ec;padding:8px;box-shadow:0 6px 14px -10px #0008}
+figure img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+figcaption{font-size:13px;line-height:1.5;padding:6px 2px 2px}
+footer{margin-top:50px;text-align:center;font-family:system-ui,sans-serif;font-size:12px;color:#9a8a70}
+@media (max-width:520px){.paper{padding:14px 12px}.paper.theirs{margin-right:0}.paper.mine{margin-left:0}header{flex-direction:column;align-items:flex-start}}
+@media print{body{background:#fff}.paper{break-inside:avoid;box-shadow:none}}
+</style></head><body><main>
+<header>${src(portrait) ? `<img src="${src(portrait)}" alt="${escHtml(c.name)}">` : ''}<div><h1>${escHtml(c.name)}</h1>
+<div class="sub">${c.personaName ? `${escHtml(c.personaName)}의 편지 상대<br>` : ''}편지 ${letters.length}통${first ? ` · ${escHtml(date(first))} ~ ${escHtml(date(last))}` : ''}<br>그쪽 시간 1:${escHtml(c.ratio)}${c.mail?.medium ? ` · 편지: ${escHtml(c.mail.medium)}` : ''}</div></div></header>
+${body || '<p>아직 주고받은 편지가 없습니다.</p>'}
+${gallery}
+<footer>이세계 우체통 · ${escHtml(date(Date.now()))} 저장</footer>
+</main></body></html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: `편지첩-${c.name.replace(/[\\/:*?"<>|]/g, '_')}-${new Date().toISOString().slice(0, 10)}.html` });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    return { letters: letters.length, images: [...imgs.values()].filter(Boolean).length };
+  }
+
   // ══════════════ 보조창(도크) + 우체통 위젯 ══════════════
   let panel = null;
   let widget = null;
@@ -1300,6 +1392,7 @@ export function setup(ctx) {
           el('div', { class: 'im-name', text: c.name }),
           el('div', { class: 'im-muted', text: `${c.personaName ? `${c.personaName}의 편지 상대 · ` : ''}그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio}` }),
         ]),
+        el('button', { class: 'im-link', type: 'button', text: '편지첩 저장(HTML)', title: '편지지 모양으로 늘어놓은 한 장짜리 HTML 파일로 저장', onclick: () => act(async () => { const r = await exportLettersHtml(c); P.error = `편지 ${r.letters}통을 HTML로 저장했습니다(그림 ${r.images}장 포함).`; }) }),
       ]),
       artBar(c, act),
       c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [el('span', { class: 'im-err im-grow', text: `우편 사고: ${c.reply.error || ''}` }), btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); }))]) : null,
