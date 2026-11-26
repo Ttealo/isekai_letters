@@ -138,6 +138,33 @@ const CSS2 = `
 .im-bundle .im-stack i{background:var(--im-cream)}
 .im-bundle .im-stack::after{content:"";position:absolute;left:-3px;right:-3px;top:50%;height:4px;margin-top:-2px;background:var(--im-wax);border-radius:2px;opacity:.85}
 .im-panel h4{font-family:var(--im-serif);color:var(--im-ink);font-size:14px}
+.im-cal{display:flex;flex-direction:column;gap:10px}
+.im-cal-head{display:flex;align-items:center;gap:8px}
+.im-cal-head b{flex:1;text-align:center;font-family:var(--im-serif);font-size:16px;color:var(--im-ink)}
+.im-cal-nav{width:32px;height:32px;border-radius:50%;border:1px solid var(--im-line);background:var(--lumiverse-bg-elevated,#fff);color:var(--lumiverse-text);cursor:pointer}
+.im-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.im-cal-dow{text-align:center;font-size:11px;color:var(--lumiverse-text-muted);padding:2px 0}
+.im-cal-dow:first-child{color:var(--im-wax)}
+.im-cal-day{min-height:64px;border:1px solid transparent;border-radius:8px;padding:4px 5px;background:var(--lumiverse-bg-elevated,#fff);cursor:pointer;display:flex;flex-direction:column;gap:3px;box-sizing:border-box;text-align:left;font:inherit;color:var(--lumiverse-text)}
+.im-cal-day:hover{border-color:var(--im-line)}
+.im-cal-day.im-out{opacity:.35;background:transparent}
+.im-cal-day.im-today .im-cal-n{background:var(--im-wax);color:#fff;border-radius:999px;padding:0 6px}
+.im-cal-day.im-sel{border-color:var(--im-ink);box-shadow:inset 0 0 0 1px var(--im-ink)}
+.im-cal-n{font-size:12px;font-weight:700;align-self:flex-start}
+.im-cal-marks{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+.im-cal-mark{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 3px;border-radius:8px;font-size:10px;line-height:16px;color:#fff;box-sizing:border-box}
+.im-cal-mark.im-out-mark{background:transparent;border:1.5px solid currentColor}
+.im-cal-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px;color:var(--lumiverse-text-muted)}
+.im-cal-legend span{display:inline-flex;align-items:center;gap:4px}
+.im-cal-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.im-cal-events{display:flex;flex-direction:column;gap:6px}
+.im-cal-ev{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border-radius:10px;background:var(--lumiverse-bg-elevated,#fff);border:1px solid var(--im-line);cursor:pointer}
+.im-cal-ev:hover{border-color:var(--im-ink)}
+.im-cal-ev .im-t{font-variant-numeric:tabular-nums;font-size:12px;color:var(--lumiverse-text-muted);min-width:40px}
+.im-cal-ev .im-x{font-family:var(--im-serif);font-size:12.5px;color:var(--lumiverse-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.im-flash{animation:im-flash 1.6s ease}
+@keyframes im-flash{0%,40%{box-shadow:0 0 0 3px var(--im-wax)}100%{box-shadow:none}}
+@media (max-width:520px){.im-cal-day{min-height:48px;padding:3px}.im-cal-mark{min-width:12px;height:12px;font-size:9px;line-height:12px}}
 .im-zoom{display:flex;flex-direction:column;align-items:center;gap:10px}
 .im-zoom img{max-width:100%;max-height:70vh;border-radius:6px;box-shadow:0 6px 24px #0004;background:#f4ead6}
 .im-zoom .im-cap{font-family:var(--im-serif);text-align:center;color:var(--lumiverse-text)}
@@ -1057,9 +1084,10 @@ export function setup(ctx) {
         const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
         return el('button', { class: `im-chip im-plain${x.id === P.id ? ' im-on' : ''}`, type: 'button', onclick: () => { P.id = x.id; lsSet(`${LS_PANEL}.id`, x.id); panelView.render(); } }, [x.name, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]);
       }));
-      const tabs = el('div', { class: 'im-tabs' }, [['book', '편지첩'], ['items', '물품'], ['album', '모음']].map(([k, t]) => el('button', { type: 'button', class: P.tab === k ? 'im-on' : '', text: t, onclick: () => setTab(k) })));
+      const tabs = el('div', { class: 'im-tabs' }, [['book', '편지첩'], ['items', '물품'], ['album', '모음'], ['cal', '달력']].map(([k, t]) => el('button', { type: 'button', class: P.tab === k ? 'im-on' : '', text: t, onclick: () => setTab(k) })));
       let body = [];
       if (P.tab === 'album') body = albumView(mine);
+      else if (P.tab === 'cal') body = lettersCalendar(mine);
       else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
       else body = bookView(c, pact);
@@ -1094,6 +1122,11 @@ export function setup(ctx) {
         ...body,
         P.error || S.error ? el('div', { class: 'im-err', text: P.error || S.error }) : null,
       ].filter(Boolean));
+      if (P.focusLetter && P.tab === 'book') {
+        const target = panelRoot.querySelector(`[data-lid="${P.focusLetter}"]`);
+        P.focusLetter = '';
+        if (target) setTimeout(() => { target.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); target.classList.add('im-flash'); }, 30);
+      }
     },
   };
   views.add(panelView);
@@ -1104,7 +1137,7 @@ export function setup(ctx) {
     const exact = !!S.settings?.showExactEta;
     const nodes = c.letters.flatMap((l) => [
       el('div', { class: 'im-divider', text: l.from === 'me' ? (l.theirSentLabel ? `그쪽 ${l.theirSentLabel.replace('만난 지 ', '')} 무렵 · 내가 보냄` : '내가 보냄') : (l.theirWrittenLabel ? `그쪽 ${l.theirWrittenLabel.replace('만난 지 ', '')} · ${c.name}` : `${c.name}`) }),
-      letterNode(l),
+      (() => { const n = letterNode(l); n?.setAttribute?.('data-lid', l.id); return n; })(),
     ]);
     function letterNode(l) {
       if (l.from === 'me') {
@@ -1228,6 +1261,106 @@ export function setup(ctx) {
       gave.length ? el('div', { class: 'im-grid' }, gave.slice().reverse().map((x) => itemCard(x, `${c.name}에게`, c.id))) : el('div', { class: 'im-muted', text: '편지를 쓸 때 「동봉할 것」에 적으면 여기에 남습니다.' }),
       el('div', { class: 'im-muted', text: '물건마다 「그리기」로 그림을 만들 수 있습니다(이미지 1장 + 글 1회). 설정에서 도착할 때 자동으로 그리게 할 수도 있습니다.' }),
     ];
+  }
+
+  // ── 편지 달력(내 쪽 실제 날짜 기준) ──
+  const PALETTE = ['#a8322a', '#2f6b8a', '#6b8a2f', '#8a5a2f', '#6a3f8a', '#2f8a7a', '#8a2f62', '#4a5a6a'];
+  const colorOf = (id, list) => PALETTE[Math.max(0, list.findIndex((c) => c.id === id)) % PALETTE.length];
+  const dayKeyLocal = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const hhmm = (ms) => new Date(ms).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  // 날짜별 일: 보냄(sentAt) / 받음(도착한 상대 편지 arriveAt) / 가는 중·오는 중(도착 예정은 표시만)
+  function letterEvents(list) {
+    const ev = [];
+    const now = Date.now();
+    for (const c of list) {
+      for (const l of c.letters) {
+        if (l.from === 'me') {
+          ev.push({ at: l.sentAt, kind: 'sent', c, l, label: `${c.name}에게 보냄`, their: l.theirSentLabel || '', items: (l.enclosures || []).map((x) => x.item) });
+        } else if (l.state === 'in_transit') {
+          if (l.arriveAt > now) ev.push({ at: l.arriveAt, kind: 'coming', c, l, label: `${c.name}의 편지 도착 예정`, their: '', items: [] });
+        } else {
+          ev.push({ at: l.arriveAt, kind: 'got', c, l, label: `${c.name}에게서 받음${l.state === 'delivered' ? ' (안 읽음)' : ''}`, their: l.theirWrittenLabel || '', items: (l.enclosures || []).map((x) => x.item) });
+        }
+      }
+    }
+    return ev.sort((a, b) => a.at - b.at);
+  }
+  function lettersCalendar(list) {
+    const events = letterEvents(list);
+    const byDay = new Map();
+    for (const e of events) { const k = dayKeyLocal(e.at); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(e); }
+    const today = new Date();
+    if (!P.calMonth) {
+      const last = events.filter((e) => e.kind !== 'coming').slice(-1)[0];
+      const d = last ? new Date(last.at) : today;
+      P.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    const [Y, M] = P.calMonth.split('-').map(Number);
+    const first = new Date(Y, M - 1, 1);
+    const startDow = first.getDay();
+    const gridStart = new Date(Y, M - 1, 1 - startDow);
+    const move = (dm) => { const d = new Date(Y, M - 1 + dm, 1); P.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; P.calDay = ''; panelView.render(); };
+    const cells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      if (i >= 35 && d.getMonth() !== M - 1) break;
+      const k = dayKeyLocal(d.getTime());
+      const evs = byDay.get(k) || [];
+      // 상대별 묶음 표시: 받음(칠한 점)·보냄(테두리 점)·예정(흐린 점)
+      const groups = new Map();
+      for (const e of evs) { const g = `${e.c.id}|${e.kind}`; groups.set(g, { e, n: (groups.get(g)?.n || 0) + 1 }); }
+      cells.push(el('button', {
+        type: 'button',
+        class: `im-cal-day${d.getMonth() !== M - 1 ? ' im-out' : ''}${k === dayKeyLocal(today.getTime()) ? ' im-today' : ''}${P.calDay === k ? ' im-sel' : ''}`,
+        title: evs.map((e) => `${hhmm(e.at)} ${e.label}`).join('\n'),
+        onclick: () => { P.calDay = P.calDay === k ? '' : k; panelView.render(); },
+      }, [
+        el('span', { class: 'im-cal-n', text: String(d.getDate()) }),
+        groups.size ? el('div', { class: 'im-cal-marks' }, [...groups.values()].map(({ e, n }) => {
+          const col = colorOf(e.c.id, list);
+          return el('span', {
+            class: `im-cal-mark${e.kind === 'sent' ? ' im-out-mark' : ''}`,
+            style: e.kind === 'sent' ? `color:${col}` : `background:${col}${e.kind === 'coming' ? ';opacity:.45' : ''}`,
+            text: e.kind === 'sent' ? (n > 1 ? `✒${n}` : '✒') : (n > 1 ? `✉${n}` : '✉'),
+          });
+        })) : null,
+      ]));
+    }
+    const selEvents = P.calDay ? (byDay.get(P.calDay) || []) : [];
+    const monthEvents = events.filter((e) => { const d = new Date(e.at); return d.getFullYear() === Y && d.getMonth() === M - 1; });
+    const shown = P.calDay ? selEvents : monthEvents;
+    const goLetter = (e) => {
+      if (e.kind === 'coming') return;
+      P.id = e.c.id; P.tab = 'book'; P.focusLetter = e.l.id;
+      lsSet(`${LS_PANEL}.id`, e.c.id); lsSet(`${LS_PANEL}.tab`, 'book');
+      panelView.render();
+    };
+    const dateTitle = (k) => { const [y, m, dd] = k.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' }); };
+    return [el('div', { class: 'im-cal' }, [
+      el('div', { class: 'im-cal-head' }, [
+        el('button', { class: 'im-cal-nav', type: 'button', text: '‹', title: '이전 달', onclick: () => move(-1) }),
+        el('b', { text: `${Y}년 ${M}월` }),
+        el('button', { class: 'im-cal-nav', type: 'button', text: '›', title: '다음 달', onclick: () => move(1) }),
+      ]),
+      el('div', { class: 'im-cal-grid' }, [...['일', '월', '화', '수', '목', '금', '토'].map((t) => el('div', { class: 'im-cal-dow', text: t })), ...cells]),
+      el('div', { class: 'im-cal-legend' }, [
+        el('span', {}, [el('span', { class: 'im-cal-mark', style: 'background:#888', text: '✉' }), '받은 편지']),
+        el('span', {}, [el('span', { class: 'im-cal-mark im-out-mark', style: 'color:#888', text: '✒' }), '보낸 편지']),
+        el('span', {}, [el('span', { class: 'im-cal-mark', style: 'background:#888;opacity:.45', text: '✉' }), '도착 예정']),
+        ...list.map((c) => el('span', {}, [el('span', { class: 'im-cal-dot', style: `background:${colorOf(c.id, list)}` }), c.name])),
+      ]),
+      el('h4', { text: P.calDay ? dateTitle(P.calDay) : `${M}월에 오간 편지 · ${monthEvents.length}` }),
+      shown.length ? el('div', { class: 'im-cal-events' }, shown.slice().reverse().map((e) => el('div', { class: 'im-cal-ev', onclick: () => goLetter(e), title: e.kind === 'coming' ? '' : '눌러서 편지첩에서 보기' }, [
+        el('span', { class: 'im-cal-dot', style: `background:${colorOf(e.c.id, list)};margin-top:5px` }),
+        el('span', { class: 'im-t', text: P.calDay ? hhmm(e.at) : `${new Date(e.at).getDate()}일 ${hhmm(e.at)}` }),
+        el('div', { class: 'im-grow', style: 'min-width:0;display:flex;flex-direction:column;gap:2px' }, [
+          el('b', { style: 'font-size:13px', text: `${e.kind === 'sent' ? '✒ ' : '✉ '}${e.label}` }),
+          e.their ? el('div', { class: 'im-muted', style: 'font-size:11.5px', text: `그쪽 ${e.their}` }) : null,
+          e.l.body && e.l.state !== 'delivered' && e.kind !== 'coming' ? el('div', { class: 'im-x', text: e.l.body.replace(/\s+/g, ' ') }) : null,
+          e.items.length ? el('div', { class: 'im-muted', style: 'font-size:11.5px', text: `동봉 · ${e.items.join(', ')}` }) : null,
+        ]),
+      ]))) : el('div', { class: 'im-muted', text: P.calDay ? '이날은 오간 편지가 없어요.' : '이달은 오간 편지가 없어요.' }),
+    ])];
   }
 
   // 모음: 페르소나의 모든 편지 묶음 + 모든 물품

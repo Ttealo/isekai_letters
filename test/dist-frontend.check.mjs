@@ -155,6 +155,16 @@ clickIn(panelRoot, '.im-chip', '시드'); await tick();
 ok('모음: 페르소나 고르면 묶음 1', panelRoot.querySelectorAll('.im-bundle').length === 1);
 clickIn(panelRoot, '.im-bundle', '미렌'); await tick();
 ok('묶음 누르면 편지첩', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩');
+// 편지 달력(내 쪽 날짜)
+clickIn(panelRoot, '.im-tabs button', '달력'); await tick();
+const nowD = new Date();
+ok('달력: 이번 달 머리', panelRoot.textContent.includes(`${nowD.getFullYear()}년 ${nowD.getMonth() + 1}월`));
+ok('달력: 받은·보낸 표시', panelRoot.querySelectorAll('.im-cal-mark').length >= 3 && !!panelRoot.querySelector('.im-cal-mark.im-out-mark'));
+ok('달력: 이달 목록(받은 편지·본문 첫 줄·그쪽 날짜·동봉)', panelRoot.textContent.includes('미렌에게서 받음') && panelRoot.textContent.includes('잘 받았네') && panelRoot.textContent.includes('그쪽 3일째') && panelRoot.textContent.includes('동봉 · 조개'));
+ok('달력: 도착 예정 표시 없음(도착한 것만+보낸 것)', panelRoot.textContent.includes('미렌에게 보냄'));
+const evNode = [...panelRoot.querySelectorAll('.im-cal-ev')].find((x) => x.textContent.includes('미렌에게서 받음') && !x.textContent.includes('안 읽음'));
+evNode.dispatchEvent(new window.Event('click')); await tick(4);
+ok('달력: 항목 누르면 편지첩 그 편지로', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩' && !!panelRoot.querySelector('[data-lid="l2"]'));
 // 보조창에서 쓰기
 const tas = panelRoot.querySelectorAll('details textarea');
 tas[0].value = '세 번째 편지'; tas[0].dispatchEvent(new window.Event('input'));
