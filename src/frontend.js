@@ -687,7 +687,10 @@ export function setup(ctx) {
         el('b', { class: 'im-grow', text: '이세계 우체통 · 편지첩' }),
         el('button', { class: 'im-link', type: 'button', text: '닫기', onclick: () => togglePanel(false) }),
       ]);
-      const box = el('div', { style: `display:flex;flex-direction:column;width:${w}px;height:${h}px;background:var(--lumiverse-fill);color:var(--lumiverse-text)` }, [head, el('div', { style: 'flex:1;min-height:0;overflow:auto' }, [panelRoot])]);
+      // 창은 머리줄로만 옮긴다: 내용 칸에서 누르기가 위젯 끌기로 번지지 않게 막는다(글 고르기·스크롤·입력칸)
+      const content = el('div', { class: 'im-float-content', style: 'flex:1;min-height:0;overflow:auto' }, [panelRoot]);
+      for (const ev of ['pointerdown', 'mousedown', 'touchstart']) content.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+      const box = el('div', { style: `display:flex;flex-direction:column;width:${w}px;height:${h}px;background:var(--lumiverse-fill);color:var(--lumiverse-text)` }, [head, content]);
       fw.root.append(box);
       if (!removeStyle) fw.root.append(el('style', { text: CSS }));
       panel = {
