@@ -1192,11 +1192,16 @@ export function setup(ctx) {
   // 그림 작업 상태: 대상(편지지·우표·봉인·물건)마다 waiting/drawing/done/failed
   const artTarget = (c, kind, itemId = '') => (c?.artJob?.targets || []).find((t) => t.kind === kind && (t.itemId || '') === (itemId || '')) || null;
   const STATE_TEXT = { waiting: '기다리는 중', drawing: '그리는 중…', failed: '실패' };
+  const elapsed = (t) => {
+    if (!t?.startedAt) return '';
+    const s = Math.max(0, Math.round((Date.now() - t.startedAt) / 1000));
+    return s < 60 ? `${s}초째` : `${Math.floor(s / 60)}분 ${s % 60}초째`;
+  };
   const stateOverlay = (t) => {
     if (!t || t.state === 'done') return null;
     return el('div', { class: `im-state${t.state === 'failed' ? ' im-bad' : ''}`, title: t.error || '' }, [
       t.state === 'drawing' ? el('span', { class: 'im-spin' }) : null,
-      t.state === 'failed' ? `실패 — ${short(t.error || '', 40)}` : STATE_TEXT[t.state],
+      t.state === 'failed' ? `실패 — ${short(t.error || '', 40)}` : t.state === 'drawing' && t.startedAt ? `그리는 중… ${elapsed(t)}` : STATE_TEXT[t.state],
     ]);
   };
   // 그림 세트(편지지·우표·봉인) 상태와 버튼
@@ -1208,7 +1213,8 @@ export function setup(ctx) {
       const ts = job.targets || [];
       return el('div', { class: 'im-transit' }, [
         el('div', {}, [el('span', { class: 'im-spin' }), `그림을 그리는 중 ${job.done || 0}/${job.total}`]),
-        ...ts.map((t) => el('div', { class: t.state === 'failed' ? 'im-err' : 'im-muted', text: `· ${t.label}: ${t.state === 'done' ? '완성' : STATE_TEXT[t.state] || t.state}${t.error && t.state === 'failed' ? ` (${short(t.error, 80)})` : ''}` })),
+        ...ts.map((t) => el('div', { class: t.state === 'failed' ? 'im-err' : 'im-muted', text: `· ${t.label}: ${t.state === 'done' ? '완성' : t.state === 'drawing' && t.startedAt ? `그리는 중… ${elapsed(t)}` : STATE_TEXT[t.state] || t.state}${t.error && t.state === 'failed' ? ` (${short(t.error, 80)})` : ''}` })),
+        el('div', { class: 'im-muted', style: 'font-size:11px', text: '보통 30초~1분, 이미지 서버가 붐비면 몇 분 걸려요. 8분이 넘으면 실패로 표시돼요.' }),
       ]);
     }
     const missing = ['paper', 'stamp', 'seal'].filter((k) => !have.includes(k));
@@ -1452,11 +1458,13 @@ export function setup(ctx) {
 
   const offActivate = tab.onActivate(() => refresh());
   const timer = setInterval(refresh, 60 * 1000);
+  const tickArt = setInterval(() => { if (S.all.some((c) => c.artJob?.state === 'running')) refresh(); }, 15 * 1000);
   refresh();
   renderAll();
 
   return () => {
     clearInterval(timer);
+    clearInterval(tickArt);
     clearTimeout(soon);
     offActivate?.();
     offBack?.();

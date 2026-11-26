@@ -1585,6 +1585,7 @@ export function start(api) {
   const USAGE = 'art-usage.json';
   const WEBP = 'webp-queue.json';
   const drawing = new Set();
+  const ART_TIMEOUT_MIN = 8;
   const readUsage = async (user) => readJson(USAGE, user, { day: '', count: 0 });
   const pushWebp = (user, rows) => serial(user, async () => {
     const q = await readJson(WEBP, user, []);
@@ -1647,18 +1648,25 @@ export function start(api) {
             continue;
           }
           const prompt = composePrompt(j.kind, subject, art);
-          await setTarget(i, { state: 'drawing' });
+          const t0 = Date.now();
+          await setTarget(i, { state: 'drawing', startedAt: t0 });
           notify(user, { id });
+          log('info', `그림 시작(${c00.name} · ${targets[i].label}) 모델=${modelFor(art, j.kind) || '연결 기본'}`);
           try {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
             for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : art.size, art)) {
               try {
-                res = await api.imageGen.generate({
-                  prompt, connection_id: art.connectionId || undefined, model: modelFor(art, j.kind) || undefined,
-                  parameters, includeDataUrl: false, owner_character_id: c00.characterId || undefined, userId: user,
-                });
+                // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
+                let timer;
+                const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${ART_TIMEOUT_MIN}분 동안 응답이 없어 그만뒀어요(이미지 서버가 느림)`)), ART_TIMEOUT_MIN * 60000); });
+                try {
+                  res = await Promise.race([api.imageGen.generate({
+                    prompt, connection_id: art.connectionId || undefined, model: modelFor(art, j.kind) || undefined,
+                    parameters, includeDataUrl: false, owner_character_id: c00.characterId || undefined, userId: user,
+                  }), timeout]);
+                } finally { clearTimeout(timer); }
                 break;
               } catch (e) {
                 lastErr = e;
@@ -1686,7 +1694,8 @@ export function start(api) {
               }
               return { ...c, art: { ...c.art, [j.kind]: rec } };
             });
-            await setTarget(i, { state: 'done', error: prompts[j.key] ? '' : '주제 대신 이름·설명으로 그림' });
+            await setTarget(i, { state: 'done', error: prompts[j.key] ? '' : '주제 대신 이름·설명으로 그림', doneAt: Date.now() });
+            log('info', `그림 완성(${c00.name} · ${targets[i].label}) ${Math.round((Date.now() - t0) / 1000)}초`);
             doneCount++;
             await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0 }]);
             notify(user, { id });
@@ -2057,6 +2066,10 @@ export function start(api) {
         await mutate(user, id, (c) => {
           let base = firstRun ? recover(c) : c;
           if (firstRun && base.organize?.state === 'generating') base = { ...base, organize: { ...base.organize, state: 'waiting', nextTryAt: 0 } };
+          if (firstRun && base.artJob?.state === 'running' && !drawing.has(`${user}:${id}:art`)) {
+            const t = (base.artJob.targets || []).map((x) => (x.state === 'done' ? x : { ...x, state: 'failed', error: '확장이 다시 시작돼 그리기가 끊겼어요. 다시 그려 주세요.' }));
+            base = { ...base, artJob: { ...base.artJob, state: 'failed', targets: t, error: '확장이 다시 시작돼 그리기가 끊겼어요.' } };
+          }
           let r = advance(base, Date.now());
           delivered += r.delivered.length;
           if (r.delivered.length) arrivals.push({ name: r.c.name, count: r.delivered.length, stampId: r.c.art?.stamp?.imageId || r.c.art?.seal?.imageId || '' });
