@@ -639,3 +639,24 @@ test('편지지·우표 바뀜: 정리 단계가 사건을 찾으면 그 편지�
   assert.equal(shells.length, 2);
   assert.ok(shells.every((x) => x.imageId), '첫 편지·답장의 받은 물건 모두 자동 그림');
 });
+
+test('매칭 JSON이 고칠 수 없게 깨지면 한 번 더 받아 온다(JSON 전용 출력 요청)', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, MATCH);
+  const inner = host.api.generate.quiet;
+  let n = 0; const params = [];
+  host.api.generate.quiet = async (req) => {
+    if (/Isekai Mailbox/.test(req.messages[0].content)) {
+      params.push(req.parameters);
+      if (n++ === 0) return { content: '{"name": 미렌 "card" }}}', finish_reason: 'stop' };
+    }
+    return inner(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  assert.equal(draft.name, '미렌');
+  assert.equal(params.length, 2);
+  assert.equal(params[0].responseMimeType, 'application/json');
+  assert.ok(draft.roll);
+});

@@ -446,8 +446,53 @@ export function parseJsonLoose(text) {
   let t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
   const a = t.indexOf('{');
   const b = t.lastIndexOf('}');
-  if (a < 0 || b <= a) throw new Error('응답에서 JSON을 찾지 못했습니다.');
-  return JSON.parse(t.slice(a, b + 1));
+  if (a < 0) throw new Error('응답에서 JSON을 찾지 못했습니다.');
+  const body = b > a ? t.slice(a, b + 1) : t.slice(a);
+  try { return JSON.parse(body); } catch (e1) {
+    // 흔한 고장: 글 안의 따옴표·줄바꿈을 이스케이프하지 않음, 끝 쉼표, 중간에 끊김
+    try { return JSON.parse(repairJson(t.slice(a))); } catch {}
+    throw new Error(`모델 응답의 JSON이 깨졌습니다(${e1.message}).`);
+  }
+}
+
+// 글 안의 이스케이프 안 된 따옴표·제어 문자, 끝 쉼표, 끊긴 끝을 고친다(완벽하지 않음 — 실패하면 원래 오류)
+export function repairJson(src) {
+  let out = '';
+  let inStr = false;
+  const stack = [];
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inStr) {
+      if (ch === '\\') { out += ch + (src[i + 1] ?? ''); i++; continue; }
+      if (ch === '"') {
+        // 다음 의미 있는 글자가 , : } ] 이거나 끝이면 문자열의 끝, 아니면 글 속 따옴표
+        let j = i + 1;
+        while (j < src.length && /\s/.test(src[j])) j++;
+        const nx = src[j];
+        let ends = nx === undefined || nx === ':' || nx === '}' || nx === ']';
+        if (nx === ',') {
+          let k = j + 1;
+          while (k < src.length && /\s/.test(src[k])) k++;
+          ends = k >= src.length || /["{\[\]}\-0-9tfn]/.test(src[k]);
+        }
+        if (ends) { inStr = false; out += ch; } else out += '\\"';
+        continue;
+      }
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') continue;
+      if (ch === '\t') { out += '\\t'; continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') { inStr = true; out += ch; continue; }
+    if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+    else if (ch === '}' || ch === ']') stack.pop();
+    out += ch;
+  }
+  if (inStr) out += '"';
+  out = out.replace(/,\s*$/, '');
+  while (stack.length) out += stack.pop();
+  return out.replace(/,(\s*[}\]])/g, '$1');
 }
 
 const cleanList = (v, max, fn) => (Array.isArray(v) ? v.slice(0, max).map(fn).filter(Boolean) : []);

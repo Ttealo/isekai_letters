@@ -270,3 +270,16 @@ test('페르소나 없음: 이름 없이 현실의 나, 이쪽 현실 날짜·�
   const sys2 = M.buildReplyMessages(M.createCorrespondent(base, 0, () => 0), { now, personaName: "하루" })[0].content;
   assert.ok(!sys2.includes('user_side_now'));
 });
+
+test('JSON 고치기: 글 속 따옴표·줄바꿈, 끝 쉼표, 중간에 끊긴 응답', () => {
+  const broken = '```json\n{"name":"레아","card":{"personality":"speech=반말\n  - "그거 내 거야", 하고 웃음\n  - "됐어"","never":"Never beg."},"entries":[{"title":"세계 개요","keys":["섬",],"content":"바다"},],}\n```';
+  const j = M.parseJsonLoose(broken);
+  assert.equal(j.name, '레아');
+  assert.match(j.card.personality, /"그거 내 거야", 하고 웃음/);
+  assert.equal(j.entries[0].keys[0], '섬');
+  const cut = M.parseJsonLoose('{"name":"레아","entries":[{"title":"세계 개요","content":"바다가 얕');
+  assert.equal(cut.name, '레아');
+  assert.match(cut.entries[0].content, /바다가 얕/);
+  assert.deepEqual(M.parseJsonLoose('{"a":1}'), { a: 1 });
+  assert.throws(() => M.parseJsonLoose('그냥 글'), /JSON을 찾지 못했습니다/);
+});

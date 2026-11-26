@@ -452,11 +452,34 @@ export function start(api) {
   };
 
   // ── 상대 만들기(매칭) ──
+  // JSON 응답: 구글 계열은 JSON 전용 출력을 켠다(다른 공급자는 무시). 깨지면 한 번 더(온도 낮춰) 시도.
+  let jsonModeOk = true;
   const genJson = async (user, messages, settings) => {
-    const req = { messages, parameters: { temperature: settings.createTemperature, max_tokens: Math.max(settings.maxTokens, 8000) }, userId: user };
     const conn = settings.createConnectionId || settings.replyConnectionId;
-    const res = conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
-    return parseJsonLoose(res?.content);
+    const once = async (temperature) => {
+      const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 12000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
+      const req = { messages, parameters, userId: user };
+      try {
+        return conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
+      } catch (e) {
+        if (!jsonModeOk || !/responseMimeType|unknown|unrecognized|invalid/i.test(String(e?.message || e))) throw e;
+        jsonModeOk = false;
+        log('info', 'JSON 전용 출력을 받지 않는 연결이라 끄고 다시 보냄');
+        return once(temperature);
+      }
+    };
+    let res = await once(settings.createTemperature);
+    try { return parseJsonLoose(res?.content); } catch (e) {
+      const c0 = String(res?.content || '');
+      log('warn', `JSON 깨짐(${e.message}) 길이=${c0.length} 끝=${res?.finish_reason || '?'} 꼬리=${c0.slice(-160).replace(/\s+/g, ' ')}`);
+      const cut = res?.finish_reason === 'length' || res?.finish_reason === 'max_tokens' || res?.finish_reason === 'MAX_TOKENS';
+      res = await once(Math.min(0.7, Number(settings.createTemperature) || 0.7));
+      try { return parseJsonLoose(res?.content); } catch (e2) {
+        const c1 = String(res?.content || '');
+        log('warn', `JSON 다시 깨짐(${e2.message}) 길이=${c1.length} 끝=${res?.finish_reason || '?'}`);
+        throw new Error(`모델이 형식에 맞지 않는 답을 두 번 보냈습니다${cut || res?.finish_reason === 'length' ? '(응답이 길이 제한에서 잘림 — 설정의 최대 토큰을 늘려 주세요)' : ''}. 다시 눌러 주세요. (${e2.message})`);
+      }
+    }
   };
   const existingInfo = async (user, characterId) => {
     const ch = await api.characters.get(characterId, user);
