@@ -27,7 +27,9 @@ export const DEFAULT_ART = {
   autoItems: 'off', // 'off' | 'all'
   sendNegative: false, // 금지어를 negative_prompt로 보낼지(받지 않는 모델이 많음 — 거절되면 빼고 다시 시도)
   negative: NEGATIVE,
-  paperStrength: 70, // 편지 뒤 편지지 그림 진하기(0~100)
+  paperStrength: 70, // 편지지 가운데 글씨 칸을 덮는 크림색의 옅기(100=안 덮음)
+  paperBorder: 48, // 편지지 테두리 장식 두께(px) — 글씨는 이 안쪽에만
+  paperSlice: 14, // 그림 가장자리에서 테두리로 잘라 쓸 비율(%)
   kinds: {}, // { paper: { model, template }, … } 비면 기본
 };
 
@@ -52,6 +54,8 @@ export function cleanArt(a) {
     sendNegative: !!a?.sendNegative,
     negative: astr(a?.negative, 1500) || NEGATIVE,
     paperStrength: anum(a?.paperStrength, 0, 100, DEFAULT_ART.paperStrength),
+    paperBorder: anum(a?.paperBorder, 0, 200, DEFAULT_ART.paperBorder),
+    paperSlice: anum(a?.paperSlice, 1, 45, DEFAULT_ART.paperSlice),
     kinds,
   };
 }

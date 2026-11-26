@@ -675,15 +675,19 @@ export function setup(ctx) {
   let converting = false;
   async function toWebp(blob) {
     const bmp = await createImageBitmap(blob);
+    const MAX = 1280;
+    const k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+    const W = Math.round(bmp.width * k);
+    const H = Math.round(bmp.height * k);
     let out;
     if (typeof OffscreenCanvas !== 'undefined') {
-      const cv = new OffscreenCanvas(bmp.width, bmp.height);
-      cv.getContext('2d').drawImage(bmp, 0, 0);
+      const cv = new OffscreenCanvas(W, H);
+      cv.getContext('2d').drawImage(bmp, 0, 0, W, H);
       out = await cv.convertToBlob({ type: 'image/webp', quality: 0.85 });
     } else {
       const cv = document.createElement('canvas');
-      cv.width = bmp.width; cv.height = bmp.height;
-      cv.getContext('2d').drawImage(bmp, 0, 0);
+      cv.width = W; cv.height = H;
+      cv.getContext('2d').drawImage(bmp, 0, 0, W, H);
       out = await new Promise((res) => cv.toBlob(res, 'image/webp', 0.85));
     }
     bmp.close?.();
@@ -992,6 +996,8 @@ export function setup(ctx) {
       const ineg = el('input', { type: 'checkbox', style: 'width:auto', checked: !!A.sendNegative });
       const inegText = el('textarea', { value: A.negative || '', rows: 2, placeholder: '비우면 기본 금지어(사진·탁자·사람·글자·숫자 등)' });
       const istrength = el('input', { type: 'number', min: '0', max: '100', step: '5', value: String(A.paperStrength ?? 70) });
+      const iborder = el('input', { type: 'number', min: '0', max: '200', step: '2', value: String(A.paperBorder ?? 48) });
+      const islice = el('input', { type: 'number', min: '1', max: '45', step: '1', value: String(A.paperSlice ?? 14) });
       const isize = el('input', { value: A.size, placeholder: '1024x1024' });
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
@@ -1037,7 +1043,12 @@ export function setup(ctx) {
         ]),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [ineg, '금지어를 negative prompt로 보내기 (받지 않는 모델이 많아요. 거절되면 빼고 다시 시도합니다)']),
         field('금지어', inegText),
-        field('편지지 그림 진하기 (0~100)', istrength),
+        el('div', { class: 'im-pair' }, [
+          field('편지지 테두리 두께(px) — 글씨는 이 안쪽에만', iborder),
+          field('그림에서 테두리로 쓸 비율(%)', islice),
+          field('글씨 칸 선명도 (100=그림 그대로, 낮을수록 크림색으로 덮음)', istrength),
+        ]),
+        el('div', { class: 'im-muted', text: '편지지 그림은 액자처럼 씁니다: 모서리·테두리는 늘리지 않고 편지 길이에 맞춰 가장자리만 이어 붙입니다. 장식이 글씨에 닿으면 두께나 비율을 올려 주세요.' }),
         el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('받은 물건 자동 그리기', iauto)]),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
         el('h4', { text: '보조창 방식 (이 기기, 새로 고침 뒤 적용)' }),
@@ -1046,7 +1057,7 @@ export function setup(ctx) {
           el('option', { value: 'float', text: '떠 있는 창 (메인 화면 위에 겹침, 끌어서 옮김)', selected: lsGet(LS_PANEL_MODE, 'dock') === 'float' }),
         ]),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), autoItems: iauto.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])) }, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1297,9 +1308,15 @@ export function setup(ctx) {
     const meta = [l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · ');
     const paperImg = c.art?.paper?.imageId;
     const stampImg = c.art?.stamp?.imageId;
-    const strength = Number(S.settings?.art?.paperStrength ?? 70);
-    const fade = Math.max(0, Math.min(0.95, (100 - (Number.isFinite(strength) ? strength : 70)) / 100));
-    return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperImg ? `background-image:linear-gradient(rgba(246,238,222,${fade}),rgba(246,238,222,${fade})),url("${imgUrl(paperImg, 'lg')}");background-size:100% 100%;background-position:center;padding:28px 34px 24px` : undefined }, [
+    const A = S.settings?.art || {};
+    const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== null && v !== undefined ? Number(v) : d);
+    const fade = Math.max(0, Math.min(0.9, (100 - num(A.paperStrength, 70)) / 100));
+    const bw = Math.max(0, Math.min(200, num(A.paperBorder, 48)));
+    const slice = Math.max(1, Math.min(45, num(A.paperSlice, 14)));
+    const paperStyle = paperImg
+      ? `border:${bw}px solid transparent;border-image:url("${imgUrl(paperImg, 'lg')}") ${slice}% fill / ${bw}px stretch;background:${fade ? `rgba(246,238,222,${fade})` : 'transparent'};background-clip:padding-box;box-shadow:none;border-radius:0;padding:10px 12px`
+      : undefined;
+    return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperStyle }, [
       el('div', { class: 'im-stamp', title: [e.stamp && `우표: ${e.stamp}`, e.seal && `봉인: ${e.seal}`].filter(Boolean).join('\n') }, [
         stampImg ? el('img', { src: imgUrl(stampImg, 'sm'), alt: '우표' }) : el('span', { style: 'font-size:18px;line-height:1', text: '✉' }),
       ]),

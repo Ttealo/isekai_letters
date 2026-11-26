@@ -119,7 +119,8 @@ ok('편지첩: 상대 편지 편지지', !!panelRoot.querySelector('.im-paper.im
 ok('편지첩: 내 편지 편지지', !!panelRoot.querySelector('.im-paper.im-mine'));
 ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') && panelRoot.textContent.includes('<b>편지</b>'));
 ok('편지첩: 우표 칸(설명은 툴팁)', panelRoot.querySelector('.im-stamp')?.getAttribute('title')?.includes('등대 도장'));
-ok('그림: 편지지 배경', panelRoot.querySelector('.im-paper.im-has-paper')?.getAttribute('style')?.includes('/api/v1/images/pp?size=lg'));
+const paperStyle = panelRoot.querySelector('.im-paper.im-has-paper')?.getAttribute('style') || '';
+ok('그림: 편지지는 액자처럼(테두리 48px, 14% 잘라 씀, 글씨는 안쪽)', paperStyle.includes('border-image:url("/api/v1/images/pp?size=lg") 14% fill / 48px stretch') && paperStyle.includes('border:48px solid transparent'));
 ok('그림: 우표 그림', !!panelRoot.querySelector('.im-stamp img[src="/api/v1/images/st?size=sm"]'));
 ok('그림: 그리는 중 표시(대상별)', panelRoot.textContent.includes('그림을 그리는 중 0/2') && panelRoot.textContent.includes('· 봉인: 그리는 중…') && panelRoot.textContent.includes('· 깃털: 기다리는 중'));
 ok('그림: 위젯에 그리는 중', widgetRoot.textContent.includes('그림'));
