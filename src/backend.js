@@ -6,6 +6,10 @@ import {
 import {
   MATCH_MODES, GENRE_DICE, buildMatchMessages, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
 } from './match.js';
+import {
+  ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
+  queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
+} from './memory.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
 // 저장: userStorage  settings.json / c/<상대 id>.json   공용 storage  users.json(예약 실행이 돌 사용자 목록)
@@ -83,16 +87,160 @@ export function start(api) {
     }
     return out;
   };
-  const loreFor = async (user, c) => {
+  // 상대가 쓰는 로어북 항목 전체: 우체통 로어북(+원본 캐릭터 로어북) + 로컬 항목(로어북 없는 상대)
+  const allLore = async (user, c) => {
     const ids = new Set(c.worldBookId ? [c.worldBookId] : []);
     if (c.characterId) {
       try { for (const id of (await api.characters.get(c.characterId, user))?.world_book_ids || []) ids.add(id); } catch {}
     }
-    if (!ids.size) return '';
     const entries = [];
-    for (const id of ids) { try { entries.push(...await listEntries(user, id)); } catch {} }
+    for (const id of ids) {
+      try { for (const e of await listEntries(user, id)) entries.push({ ...e, _book: id, _original: id !== c.worldBookId }); } catch {}
+    }
+    for (const e of c.localLore || []) entries.push({ id: e.id, comment: e.title, key: e.keys || [], content: e.content, constant: !!e.constant, _local: true });
+    return entries;
+  };
+  const loreFor = async (user, c, budgetChars = 6000) => {
+    const entries = await allLore(user, c);
+    if (!entries.length) return { text: '', count: 0, dropped: 0, total: 0 };
     const recent = c.letters.slice(-4).map((l) => `${l.body || ''}\n${l.ps || ''}\n${l.enclosure || ''}`).join('\n');
-    return pickLore(entries, recent).text;
+    return { ...pickLore(entries, recent, budgetChars), total: entries.length };
+  };
+  const loreIndex = (entries) => entries.filter((e) => !e.disabled).map((e) => ({
+    title: e.comment || (e.key || []).join(', '), content: e.content, original: !!e._original,
+    ref: e._local ? { local: e.id } : { entryId: e.id, bookId: e._book },
+  }));
+
+  // 카드 글: 캐릭터가 있으면 앱 카드, 없으면 c.brief
+  const cardOf = async (user, c) => {
+    if (c.characterId) {
+      const ch = await api.characters.get(c.characterId, user);
+      if (ch) return { ch, description: ch.description || '', personality: ch.personality || '', never: ch.post_history_instructions || '' };
+    }
+    return { ch: null, description: c.brief || '', personality: '', never: '' };
+  };
+  const cardTextOf = (card) => [card.description, card.personality, card.never ? `never=${card.never}` : ''].filter(Boolean).join('\n');
+  const PERSONALITY_FIELDS = ['leak', 'voice', 'speech'];
+  // 카드 한 칸 바꾸기(앱 카드와 c.brief를 같이). value가 null이면 그 줄을 지운다(되돌리기용)
+  const writeCardField = async (user, c, field, value) => {
+    const card = await cardOf(user, c);
+    const put = (text) => (value === null ? text.replace(new RegExp(`^[ \\t]*${field}=.*\\n?`, 'm'), '') : setCardField(text, field, value));
+    let { description, personality, never } = card;
+    if (field === 'never') never = value || '';
+    else if (readCardField(description, field) !== null) description = put(description);
+    else if (readCardField(personality, field) !== null) personality = put(personality);
+    else if (PERSONALITY_FIELDS.includes(field) && card.ch) personality = put(personality);
+    else description = put(description);
+    if (card.ch) {
+      await api.characters.update(card.ch.id, { description, personality, post_history_instructions: never }, user);
+      return { ...c, brief: briefFromCard({ description, personality, never }) };
+    }
+    return { ...c, brief: description };
+  };
+
+  // 변경 하나 실행(apply) 또는 되돌리기(revert). 바뀐 상대를 돌려준다.
+  const execChange = async (user, c, ch, how = 'apply') => {
+    if (ch.target === 'lore' && ch.op === 'add') {
+      if (how === 'revert') {
+        if (ch.ref?.entryId) await api.world_books.entries.delete(ch.ref.entryId, user);
+        if (ch.ref?.local) c = { ...c, localLore: (c.localLore || []).filter((e) => e.id !== ch.ref.local) };
+        return { c, patch: { state: 'reverted' } };
+      }
+      if (c.worldBookId) {
+        const e = await api.world_books.entries.create(c.worldBookId, entryInput({ title: ch.key, keys: ch.keys?.length ? ch.keys : [ch.key], content: ch.after, constant: false }, 500), user);
+        return { c, patch: { state: 'applied', ref: { entryId: e.id, bookId: c.worldBookId } } };
+      }
+      const id = `ll${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+      return { c: { ...c, localLore: [...(c.localLore || []), { id, title: ch.key, keys: ch.keys?.length ? ch.keys : [ch.key], content: ch.after, constant: false }] }, patch: { state: 'applied', ref: { local: id } } };
+    }
+    if (ch.target === 'lore' && ch.op === 'edit') {
+      const content = how === 'revert' ? ch.before : ch.after;
+      if (ch.ref?.entryId) await api.world_books.entries.update(ch.ref.entryId, { content }, user);
+      else if (ch.ref?.local) c = { ...c, localLore: (c.localLore || []).map((e) => (e.id === ch.ref.local ? { ...e, content } : e)) };
+      else throw new Error('바꿀 로어북 항목을 찾지 못했습니다.');
+      return { c, patch: { state: how === 'revert' ? 'reverted' : 'applied' } };
+    }
+    if (ch.target === 'card') {
+      const value = how === 'revert' ? (ch.op === 'add' ? null : ch.before) : ch.after;
+      c = await writeCardField(user, c, ch.key, value);
+      return { c, patch: { state: how === 'revert' ? 'reverted' : 'applied' } };
+    }
+    throw new Error('실행할 수 없는 변경입니다.');
+  };
+  const runChanges = async (user, id, ids) => {
+    for (const chId of ids) {
+      await mutate(user, id, async (c) => {
+        c = ensureMemory(c);
+        const ch = c.memory.changes.find((x) => x.id === chId);
+        if (!ch || ch.state !== 'apply') return c;
+        try {
+          const r = await execChange(user, c, ch, 'apply');
+          return setChange(r.c, chId, { ...r.patch, doneAt: Date.now() });
+        } catch (e) {
+          return setChange(c, chId, { state: 'failed', error: String(e?.message || e).slice(0, 300) });
+        }
+      });
+    }
+  };
+
+  // ── 정리 단계 ──
+  const organizing = new Set();
+  const runOrganize = async (user, id) => {
+    const key = `${user}:${id}:org`;
+    if (organizing.has(key)) return;
+    organizing.add(key);
+    try {
+      let c = await mutate(user, id, (c) => {
+        c = ensureMemory(c);
+        return c.organize?.state === 'waiting' ? { ...c, organize: { ...c.organize, state: 'generating' } } : c;
+      });
+      if (c.organize?.state !== 'generating') return;
+      const settings = await loadSettings(user);
+      const letterIds = c.organize.forLetterIds.filter((lid) => c.letters.some((l) => l.id === lid && !(l.from === 'them' && l.state === 'in_transit' && !l.body)));
+      let org;
+      let idx;
+      let card;
+      try {
+        const personaName = await personaNameFor(user, c);
+        idx = loreIndex(await allLore(user, c));
+        card = await cardOf(user, c);
+        const due = chapterDue(c, settings.budgets);
+        const messages = buildOrganizeMessages(c, { letterIds, personaName, loreTitles: idx.map((e) => e.title), cardText: cardTextOf(card), chapterDue: due });
+        const req = { messages, parameters: { temperature: settings.organizeTemperature, max_tokens: 6000 }, userId: user };
+        const conn = settings.organizeConnectionId || settings.replyConnectionId;
+        const res = conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
+        org = cleanOrganize(parseJsonLoose(res?.content));
+      } catch (e) {
+        log('warn', `정리 실패(${c.name}): ${e?.message || e}`);
+        await mutate(user, id, (cur) => {
+          if (cur.organize?.state !== 'generating') return cur;
+          const attempts = (cur.organize.attempts || 0) + 1;
+          const wait = [1, 5, 30][attempts - 1];
+          return { ...cur, organize: wait === undefined
+            ? { ...cur.organize, state: 'failed', attempts, error: String(e?.message || e).slice(0, 300) }
+            : { ...cur.organize, state: 'waiting', attempts, nextTryAt: Date.now() + wait * MINUTE, error: String(e?.message || e).slice(0, 300) } };
+        });
+        notify(user, { id });
+        return;
+      }
+      const lastLetter = letterIds[letterIds.length - 1] || '';
+      let applyIds = [];
+      await mutate(user, id, (cur) => {
+        cur = ensureMemory(cur);
+        if (cur.organize?.state !== 'generating') return cur;
+        let next = applyMemory(cur, org, { letterIds, now: Date.now() });
+        const changes = planChanges(next, org, { letterId: lastLetter, now: Date.now(), loreIndex: idx, cardText: cardTextOf(card) });
+        applyIds = changes.filter((x) => x.state === 'apply').map((x) => x.id);
+        next = addChanges(next, changes);
+        const rest = (cur.organize.forLetterIds || []).filter((x) => !letterIds.includes(x));
+        return { ...next, organize: rest.length ? { ...cur.organize, state: 'waiting', forLetterIds: rest, attempts: 0 } : null };
+      });
+      await runChanges(user, id, applyIds);
+      log('info', `정리 완료(${c.name}): 변경 ${applyIds.length}건 자동 적용`);
+      notify(user, { id });
+    } finally {
+      organizing.delete(key);
+    }
   };
 
   // ── 상대 만들기(매칭) ──
@@ -222,8 +370,10 @@ export function start(api) {
       if (c.reply?.state !== 'generating') return;
       const settings = await loadSettings(user);
       const personaName = await personaNameFor(user, c);
-      const lore = await loreFor(user, c).catch((e) => { log('warn', `로어북 읽기 실패(${c.name}): ${e?.message || e}`); return ''; });
-      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore });
+      const budgets = cleanBudgets(settings.budgets);
+      const lore = await loreFor(user, c, budgets.loreChars).catch((e) => { log('warn', `로어북 읽기 실패(${c.name}): ${e?.message || e}`); return { text: '' }; });
+      const memory = memoryLayers(c, { budgets, recentLetters: settings.recentLetters });
+      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory });
       const req = {
         messages,
         parameters: { temperature: settings.temperature, max_tokens: settings.maxTokens },
@@ -242,7 +392,13 @@ export function start(api) {
         if (after.reply?.state === 'failed') log('error', `답장 재시도 소진(${c.name})`);
         return;
       }
-      await mutate(user, id, (cur) => (cur.reply?.state === 'generating' ? applyReply(cur, reply) : cur));
+      await mutate(user, id, async (cur) => {
+        if (cur.reply?.state !== 'generating') return cur;
+        const answered = cur.reply.forLetterIds || [];
+        const next = applyReply(cur, reply);
+        const newId = next.letters[next.letters.length - 1].id;
+        return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
+      });
       log('info', `답장 생성 완료 — 배송 시작(${c.name})`);
       notify(user, { id });
     } finally {
@@ -257,14 +413,18 @@ export function start(api) {
     recovered.add(user);
     let delivered = 0;
     const toGenerate = [];
+    const toOrganize = [];
     for (const id of ids) {
       if (busy.has(`${user}:${id}`)) continue;
       try {
         await mutate(user, id, (c) => {
-          const base = firstRun ? recover(c) : c;
+          let base = firstRun ? recover(c) : c;
+          if (firstRun && base.organize?.state === 'generating') base = { ...base, organize: { ...base.organize, state: 'waiting', nextTryAt: 0 } };
           const r = advance(base, Date.now());
           delivered += r.delivered.length;
           if (r.generate) toGenerate.push(id);
+          const o = r.c.organize;
+          if (o?.state === 'waiting' && Date.now() >= (o.nextTryAt || 0) && !r.generate) toOrganize.push(id);
           return r.c;
         });
       } catch (e) { log('warn', `진행 실패(${id}): ${e?.message || e}`); }
@@ -272,6 +432,7 @@ export function start(api) {
     if (delivered) notify(user, { delivered });
     // 생성은 기다리지 않는다(화면 요청이 생성 시간만큼 막히지 않게). 상대별 잠금은 busy가 맡는다.
     for (const id of toGenerate) generateReply(user, id).catch((e) => log('error', `생성 오류: ${e?.message || e}`));
+    for (const id of toOrganize) runOrganize(user, id).catch((e) => log('error', `정리 오류: ${e?.message || e}`));
   };
 
   let ticking = false;
@@ -340,6 +501,77 @@ export function start(api) {
       case 'open': {
         const c = await mutate(user, p.id, (c) => markOpened(c, p.letterId, now));
         return { c: publicView(c, now) };
+      }
+      case 'dossier': {
+        // 상대 서류함: 기억·규칙·변경 기록 + 다음 답장 모의 조립(모델 호출 없음)
+        const c = ensureMemory(await loadC(user, p.id));
+        const settings = await loadSettings(user);
+        const budgets = cleanBudgets(settings.budgets);
+        const personaName = await personaNameFor(user, c);
+        let lore = { text: '', count: 0, dropped: 0, total: 0 };
+        try { lore = await loreFor(user, c, budgets.loreChars); } catch {}
+        const memory = memoryLayers(c, { budgets, recentLetters: settings.recentLetters });
+        const sim = { ...c, reply: c.reply || { forLetterIds: c.letters.filter((l) => l.from === 'me' && l.state !== 'in_transit').slice(-1).map((l) => l.id) } };
+        const messages = buildReplyMessages(sim, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory });
+        const past = c.letters.filter((l) => !(l.from === 'me' && l.state === 'in_transit'));
+        const recentText = past.slice(-settings.recentLetters).map((l) => l.body || '').join('');
+        const report = [
+          { layer: '상대 카드', chars: (c.brief || '').length, note: '' },
+          { layer: '로어북', chars: lore.text.length, note: `${lore.count}/${lore.total}항목${lore.dropped ? ` (${lore.dropped} 예산 초과로 빠짐)` : ''}` },
+          { layer: '최근 원문', chars: recentText.length, note: `${Math.min(past.length, settings.recentLetters)}/${past.length}통` },
+          ...memory.report,
+        ].map((r) => ({ ...r, tokens: approxTokens('x'.repeat(r.chars)) }));
+        const total = messages.reduce((n, m) => n + m.content.length, 0);
+        return {
+          memory: c.memory, locks: c.locks, applyMode: c.applyMode, organize: c.organize, budgets, localLore: c.localLore || [],
+          report, totalChars: total, totalTokens: approxTokens(messages.map((m) => m.content).join('')), prompt: messages.map((m) => `[${m.role}]\n${m.content}`).join('\n\n'),
+          cardFields: CARD_FIELDS,
+        };
+      }
+      case 'setRules': {
+        const c = await mutate(user, p.id, (c) => {
+          c = ensureMemory(c);
+          const locks = Array.isArray(p.locks) ? p.locks.map((x) => String(x).trim().slice(0, 80)).filter(Boolean).slice(0, 40) : c.locks;
+          const am = { ...c.applyMode };
+          for (const k of Object.keys(am)) if (MODES.includes(p.applyMode?.[k])) am[k] = p.applyMode[k];
+          return { ...c, locks, applyMode: am };
+        });
+        return { locks: c.locks, applyMode: c.applyMode };
+      }
+      case 'change': {
+        // 승인 대기 승인/거절, 적용된 변경 되돌리기
+        const cur = ensureMemory(await loadC(user, p.id));
+        const ch = cur.memory.changes.find((x) => x.id === p.changeId);
+        if (!ch) throw new Error('변경 기록을 찾지 못했습니다.');
+        if (p.action === 'reject') {
+          if (!['pending', 'conflict', 'locked', 'failed'].includes(ch.state)) throw new Error('이 변경은 거절할 수 없습니다.');
+          await mutate(user, p.id, (c) => setChange(ensureMemory(c), ch.id, { state: 'rejected' }));
+        } else if (p.action === 'approve') {
+          if (!['pending', 'failed', 'locked'].includes(ch.state) || ch.target === 'conflict') throw new Error('이 변경은 승인할 수 없습니다.');
+          await mutate(user, p.id, (c) => setChange(ensureMemory(c), ch.id, { state: 'apply' }));
+          await runChanges(user, p.id, [ch.id]);
+        } else if (p.action === 'revert') {
+          if (ch.state !== 'applied') throw new Error('적용된 변경만 되돌릴 수 있습니다.');
+          await mutate(user, p.id, async (c) => {
+            c = ensureMemory(c);
+            const r = await execChange(user, c, ch, 'revert');
+            return setChange(r.c, ch.id, { ...r.patch, revertedAt: Date.now() });
+          });
+        } else throw new Error('모르는 동작');
+        const after = ensureMemory(await loadC(user, p.id));
+        return { change: after.memory.changes.find((x) => x.id === ch.id) };
+      }
+      case 'organizeNow': {
+        // 아직 정리하지 않은 편지(도착한 것)를 정리 대기열에 넣는다 — 0.3 이전 기록이나 실패 뒤 재시도용
+        const c = await mutate(user, p.id, (c) => {
+          c = ensureMemory(c);
+          const done = new Set((c.memory.summaries || []).map((s) => s.letterId));
+          const todo = c.letters.filter((l) => !done.has(l.id) && l.state !== 'in_transit').map((l) => l.id);
+          if (!todo.length) throw new Error('정리할 편지가 없습니다.');
+          return queueOrganize(c, todo);
+        });
+        tickUser(user).catch(() => {});
+        return { queued: c.organize.forLetterIds.length };
       }
       case 'retry': {
         await mutate(user, p.id, (c) => retryReply(c, now));

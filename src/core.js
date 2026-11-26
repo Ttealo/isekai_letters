@@ -36,6 +36,10 @@ export function cleanSettings(s) {
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
     showExactEta: !!s?.showExactEta,
+    organizeEnabled: s?.organizeEnabled !== false,
+    organizeConnectionId: str(s?.organizeConnectionId, 200),
+    organizeTemperature: num(s?.organizeTemperature, 0, 2, 0.3),
+    budgets: s?.budgets && typeof s.budgets === 'object' && !Array.isArray(s.budgets) ? Object.fromEntries(Object.entries(s.budgets).slice(0, 20).map(([k, v]) => [String(k).slice(0, 40), Number(v)])) : {},
   };
 }
 
@@ -378,7 +382,7 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
-export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '' } = {}) {
+export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '', memory = null } = {}) {
   c = normalize(c);
   const userName = personaName || c.personaName || '편지의 주인';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
@@ -414,8 +418,12 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
     gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
     `knows_about_user=only what their letters said; their name is ${userName}`,
-    omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here)` : '',
+    memory?.ledger ? `\n<relationship>\n${memory.ledger}\n</relationship>` : '',
+    omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here${memory?.summaries || memory?.chapters ? '; see <history>' : ''})` : '',
     '</correspondence>',
+    memory?.chapters || memory?.summaries ? `\n<history>\n${[memory.chapters && `chapters=\n${memory.chapters}`, memory.summaries && `earlier_letters=\n${memory.summaries}`].filter(Boolean).join('\n')}\n</history>` : '',
+    memory?.timeline ? `\n<your_life>\n${memory.timeline}\n</your_life>` : '',
+    memory?.recall ? `\n<recall>\nPassages from older letters that relate to {{user}}'s latest letter:\n${memory.recall}\n</recall>` : '',
     '',
     '<task>',
     '1. First write `between`: what happened to you from receiving the letter until finishing this reply, in your own time. Scale detail to the elapsed time; summarize long spans coarsely. Include at least one sensory detail per event.',

@@ -36,6 +36,10 @@ export function cleanSettings(s) {
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
     showExactEta: !!s?.showExactEta,
+    organizeEnabled: s?.organizeEnabled !== false,
+    organizeConnectionId: str(s?.organizeConnectionId, 200),
+    organizeTemperature: num(s?.organizeTemperature, 0, 2, 0.3),
+    budgets: s?.budgets && typeof s.budgets === 'object' && !Array.isArray(s.budgets) ? Object.fromEntries(Object.entries(s.budgets).slice(0, 20).map(([k, v]) => [String(k).slice(0, 40), Number(v)])) : {},
   };
 }
 
@@ -378,7 +382,7 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
-export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '' } = {}) {
+export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '', memory = null } = {}) {
   c = normalize(c);
   const userName = personaName || c.personaName || '편지의 주인';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
@@ -414,8 +418,12 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     lastTheirs ? `since_your_last_letter=${formatSpan(tNow - lastTheirs.theirWrittenAt)} (exactly; do not exaggerate)` : 'first_reply=yes (this is your first letter to {{user}})',
     gifts.length ? `gifts_exchanged=\n${gifts.map((g) => `- ${g}`).join('\n')}` : '',
     `knows_about_user=only what their letters said; their name is ${userName}`,
-    omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here)` : '',
+    memory?.ledger ? `\n<relationship>\n${memory.ledger}\n</relationship>` : '',
+    omitted > 0 ? `older_letters_omitted=${omitted}통 (not shown here${memory?.summaries || memory?.chapters ? '; see <history>' : ''})` : '',
     '</correspondence>',
+    memory?.chapters || memory?.summaries ? `\n<history>\n${[memory.chapters && `chapters=\n${memory.chapters}`, memory.summaries && `earlier_letters=\n${memory.summaries}`].filter(Boolean).join('\n')}\n</history>` : '',
+    memory?.timeline ? `\n<your_life>\n${memory.timeline}\n</your_life>` : '',
+    memory?.recall ? `\n<recall>\nPassages from older letters that relate to {{user}}'s latest letter:\n${memory.recall}\n</recall>` : '',
     '',
     '<task>',
     '1. First write `between`: what happened to you from receiving the letter until finishing this reply, in your own time. Scale detail to the elapsed time; summarize long spans coarsely. Include at least one sensory detail per event.',
@@ -573,6 +581,7 @@ const NO_PERSONA = '__none__';
 const ALL = '__all__';
 const LS_PERSONA = 'isekai_mailbox.persona';
 const LS_PANEL = 'isekai_mailbox.panel';
+const LS_PANEL_MODE = 'isekai_mailbox.panelMode';
 
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -720,7 +729,7 @@ export function setup(ctx) {
     };
 
     function render() {
-      const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView, match: matchView, preview: previewView }[view.name]?.() || [];
+      const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView, match: matchView, preview: previewView, dossier: dossierView }[view.name]?.() || [];
       const err = error || S.error;
       root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean));
     }
@@ -783,7 +792,7 @@ export function setup(ctx) {
         ]);
       });
       return [
-        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' })), el('span', { class: 'im-grow' }), panel ? link('편지첩으로 보기', () => openPanelFor(c.id)) : null, link('상대 정보 수정', async () => { await reloadPersonas(); go({ name: 'form', id: c.id }); })]),
+        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' })), el('span', { class: 'im-grow' }), panel ? link('편지첩으로 보기', () => openPanelFor(c.id)) : null, link('서류함', () => openDossier(c.id)), link('상대 정보 수정', async () => { await reloadPersonas(); go({ name: 'form', id: c.id }); })]),
         el('h3', { text: c.name }),
         el('div', { class: 'im-muted', text: `그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio} (나의 하루 = 그쪽 ${formatSpan(24 * c.ratio)})` }),
         s ? el('div', { class: s.failed ? 'im-err' : 'im-muted', text: s.status }) : null,
@@ -887,6 +896,15 @@ export function setup(ctx) {
         ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === s.createConnectionId })),
       ]);
       const ctemp = el('input', { type: 'number', step: '0.05', min: '0', max: '2', value: String(s.createTemperature ?? 1) });
+      const orgOn = el('input', { type: 'checkbox', style: 'width:auto', checked: s.organizeEnabled !== false });
+      const osel = el('select', {}, [
+        el('option', { value: '', text: '답장 연결과 같게' }),
+        ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === s.organizeConnectionId })),
+      ]);
+      const otemp = el('input', { type: 'number', step: '0.05', min: '0', max: '2', value: String(s.organizeTemperature ?? 0.3) });
+      const B = { summaries: 20, summaryChars: 2400, chapterChars: 1600, chapterEvery: 10, timelineItems: 12, ledgerChars: 1600, loreChars: 6000, recallChars: 1800, ...(s.budgets || {}) };
+      const BL = [['summaries', '편지 요약 통수'], ['summaryChars', '편지 요약 글자'], ['chapterChars', '시기 요약 글자'], ['chapterEvery', '시기 요약 간격(통)'], ['timelineItems', '그쪽 사건 개수'], ['ledgerChars', '관계 장부 글자'], ['loreChars', '로어북 글자'], ['recallChars', '옛 편지 회상 글자(0=끔)']];
+      const bIn = Object.fromEntries(BL.map(([k]) => [k, el('input', { type: 'number', step: '1', min: '0', value: String(B[k]) })]));
       const maxT = el('input', { type: 'number', step: '100', min: '500', value: String(s.maxTokens ?? 6000) });
       const recent = el('input', { type: 'number', step: '1', min: '1', max: '20', value: String(s.recentLetters ?? 6) });
       const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta, style: 'width:auto' });
@@ -896,12 +914,24 @@ export function setup(ctx) {
         field('답장 쓰기 연결', sel),
         field('상대 만들기 연결 (비우면 답장 연결)', csel),
         field('상대 만들기 온도', ctemp),
+        el('h4', { text: '정리 단계 (답장마다 1회 더 생성)' }),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [orgOn, '답장이 오면 요약·관계 장부·로어북·카드를 정리하기']),
+        field('정리 연결 (비우면 답장 연결)', osel),
+        field('정리 온도', otemp),
+        el('h4', { text: '기억 예산 (프롬프트에 넣는 양)' }),
+        el('div', { class: 'im-pair' }, BL.map(([k, t]) => field(t, bIn[k]))),
+        el('div', { class: 'im-muted', text: '최근 원문 통수는 위 「최근 편지 수」입니다. 예산을 넘어 빠진 양은 상대 서류함의 모의 조립에서 보입니다.' }),
         el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
         field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
+        el('h4', { text: '보조창 방식 (이 기기, 새로 고침 뒤 적용)' }),
+        el('select', { onchange: (e) => { lsSet(LS_PANEL_MODE, e.target.value); error = '보조창 방식을 바꿨습니다. 페이지를 새로 고치면 적용됩니다.'; render(); } }, [
+          el('option', { value: 'dock', text: '오른쪽에 붙이기 (메인 화면이 옆으로 밀림)', selected: lsGet(LS_PANEL_MODE, 'dock') !== 'float' }),
+          el('option', { value: 'float', text: '떠 있는 창 (메인 화면 위에 겹침, 끌어서 옮김)', selected: lsGet(LS_PANEL_MODE, 'dock') === 'float' }),
+        ]),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1038,6 +1068,85 @@ export function setup(ctx) {
       ];
     }
 
+    // ── 상대 서류함 ──
+    let D = null; // { id, data }
+    async function openDossier(id) {
+      view = { name: 'dossier', id };
+      D = null; render();
+      try { D = { id, data: await ask('dossier', { id }) }; } catch (e) { error = e.message; }
+      render();
+    }
+    const STATE = { applied: '적용됨', pending: '승인 대기', apply: '적용 중', failed: '실패', reverted: '되돌림', rejected: '거절', locked: '잠김(제안만)', conflict: '충돌' };
+    const MODE_LABEL = { auto: '자동', approve: '승인 후', off: '끔' };
+    function dossierView() {
+      const c = byId(view.id);
+      const back = el('div', { class: 'im-row' }, [link(`← ${c?.name || '상대'}`, () => go({ name: 'c', id: view.id })), el('span', { class: 'im-grow' }), link('새로 고침', () => openDossier(view.id))]);
+      if (!D || D.id !== view.id) return [back, el('div', { class: 'im-muted', text: '불러오는 중…' })];
+      const d = D.data;
+      const L = d.memory.ledger || {};
+      const list = (title, items, fmt) => (items?.length ? el('div', {}, [el('b', { text: title }), ...items.map((x) => el('div', { class: 'im-muted', text: `· ${fmt ? fmt(x) : x}` }))]) : null);
+      const o = d.organize;
+      const doAct = (fn) => act(async () => { await fn(); await openDossier(view.id); });
+      const changeRow = (x) => el('div', { class: 'im-letter' }, [
+        el('div', { class: 'im-row' }, [
+          el('b', { class: 'im-grow', text: `${x.target === 'lore' ? '로어북' : x.target === 'card' ? '카드' : '충돌'} · ${x.key}${x.op === 'add' ? ' (새로)' : ''}` }),
+          el('span', { class: x.state === 'failed' || x.state === 'conflict' ? 'im-err' : 'im-muted', text: STATE[x.state] || x.state }),
+        ]),
+        x.reason ? el('div', { class: 'im-muted', text: `이유: ${x.reason}` }) : null,
+        x.before ? el('div', { class: 'im-muted', style: 'text-decoration:line-through', text: short(x.before, 300) }) : null,
+        x.after ? el('div', { text: short(x.after, 400) }) : null,
+        x.error ? el('div', { class: 'im-err', text: x.error }) : null,
+        el('div', { class: 'im-row' }, [
+          ['pending', 'locked', 'failed'].includes(x.state) && x.target !== 'conflict' ? btn('적용', () => doAct(() => ask('change', { id: view.id, changeId: x.id, action: 'approve' }))) : null,
+          ['pending', 'locked', 'failed', 'conflict'].includes(x.state) ? btn(x.state === 'conflict' ? '확인함' : '거절', () => doAct(() => ask('change', { id: view.id, changeId: x.id, action: 'reject' }))) : null,
+          x.state === 'applied' ? btn('되돌리기', () => doAct(() => ask('change', { id: view.id, changeId: x.id, action: 'revert' }))) : null,
+        ]),
+      ]);
+      const changes = [...(d.memory.changes || [])].reverse();
+      const waiting = changes.filter((x) => ['pending', 'conflict', 'failed'].includes(x.state));
+      // 규칙
+      const lockText = el('input', { value: d.locks.join(', '), placeholder: 'first_line, core, fixed, never, 세계 개요' });
+      const modeSel = (k, label) => field(label, el('select', { 'data-k': k }, ['auto', 'approve', 'off'].map((m) => el('option', { value: m, text: MODE_LABEL[m], selected: d.applyMode[k] === m }))));
+      const modes = el('div', { class: 'im-pair' }, [
+        modeSel('loreAdd', '로어북 추가'), modeSel('loreEdit', '로어북 수정'), modeSel('cardAdd', '카드 칸 추가'), modeSel('cardEdit', '카드 칸 수정'), modeSel('origLore', '원본 캐릭터 로어북 수정'),
+      ]);
+      return [
+        back,
+        el('h3', { text: `${c?.name || ''} 서류함` }),
+        // 정리 상태
+        o ? el('div', { class: o.state === 'failed' ? 'im-err' : 'im-muted', text: o.state === 'failed' ? `정리 실패: ${o.error || ''}` : `정리 대기 중 · 편지 ${o.forLetterIds.length}통${o.error ? ` (재시도: ${o.error})` : ''}` }) : null,
+        el('div', { class: 'im-row' }, [btn('아직 정리 안 된 편지 정리하기(생성 1회)', () => doAct(() => ask('organizeNow', { id: view.id })))]),
+        // 관계 장부
+        el('h4', { text: '관계 장부' }),
+        L.stage || L.mood || L.calledMe ? el('div', { class: 'im-muted', text: [L.stage && `거리: ${L.stage}`, L.mood && `상대 마음: ${L.mood}`, L.calledMe && `나를 부르는 말: ${L.calledMe}`, L.calledThem && `내가 부르는 말: ${L.calledThem}`].filter(Boolean).join(' · ') }) : el('div', { class: 'im-muted', text: '아직 기록이 없습니다.' }),
+        list('약속', L.promises, (x) => `${x.who === 'me' ? '나' : '상대'}: ${x.what}${x.state === 'done' ? ' (지킴)' : ''}`),
+        list('아직 답 못 받은 질문', L.openQuestions, (x) => `${x.who === 'me' ? '내가' : '상대가'} 물음: ${x.q}`),
+        list('상대가 아는 나', L.knowsAboutMe),
+        list('내가 아는 상대', L.iKnow),
+        list('기억할 날', L.anniversaries),
+        // 연대기
+        el('h4', { text: '그쪽 연대기' }),
+        d.memory.timeline?.length ? el('div', {}, [...d.memory.timeline].reverse().slice(0, 40).map((e) => el('div', { class: e.open ? '' : 'im-muted', text: `${e.open ? '● ' : '· '}${e.when ? `[${e.when}] ` : ''}${e.event}` }))) : el('div', { class: 'im-muted', text: '아직 기록이 없습니다.' }),
+        d.memory.chapters?.length ? el('div', {}, [el('h4', { text: '시기 요약' }), ...d.memory.chapters.map((x, i) => el('div', { class: 'im-muted', text: `${i + 1}장 · ${x.text}` }))]) : null,
+        d.memory.summaries?.length ? el('details', {}, [el('summary', { class: 'im-muted', style: 'cursor:pointer', text: `편지 요약 ${d.memory.summaries.length}통` }), ...d.memory.summaries.map((x) => el('div', { class: 'im-muted', text: `[${x.when}] ${x.from === 'me' ? '나' : '상대'}: ${x.text}` }))]) : null,
+        // 변경 기록
+        el('h4', { text: `변경 기록 · 확인 필요 ${waiting.length}` }),
+        ...(changes.length ? changes.slice(0, 60).map(changeRow) : [el('div', { class: 'im-muted', text: '아직 변경이 없습니다.' })]),
+        // 규칙
+        el('h4', { text: '규칙' }),
+        field('잠근 칸 (쉼표로: first_line, core, fixed, never, look, … 또는 로어북 항목 제목)', lockText),
+        modes,
+        btn('규칙 저장', () => doAct(async () => {
+          const applyMode = Object.fromEntries([...modes.querySelectorAll('select')].map((x) => [x.getAttribute('data-k'), x.value]));
+          await ask('setRules', { id: view.id, locks: lockText.value.split(',').map((x) => x.trim()).filter(Boolean), applyMode });
+        })),
+        // 모의 조립
+        el('h4', { text: `다음 답장 모의 조립 · 약 ${d.totalTokens.toLocaleString()}토큰` }),
+        el('div', {}, d.report.map((r) => el('div', { class: 'im-row' }, [el('span', { class: 'im-grow', text: r.layer }), el('span', { class: 'im-muted', text: `${r.chars.toLocaleString()}자 · 약 ${r.tokens.toLocaleString()}토큰${r.note ? ` · ${r.note}` : ''}` })]))),
+        el('details', {}, [el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '실제로 보낼 프롬프트 전체 보기' }), el('pre', { style: 'white-space:pre-wrap;font-size:11px;max-height:420px;overflow:auto', text: d.prompt })]),
+      ];
+    }
+
     return { render, go };
   })();
   views.add(drawer);
@@ -1071,11 +1180,34 @@ export function setup(ctx) {
   let widget = null;
   const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '' };
   const panelRoot = el('div', { class: 'im-panel' });
+  // 보조창 방식: dock=오른쪽에 붙이기(메인 화면을 밀어냄) / float=떠 있는 창(메인 화면 위에 겹침). 새로 고침 뒤 적용
+  const panelMode = lsGet(LS_PANEL_MODE, 'dock') === 'float' ? 'float' : 'dock';
   try {
-    panel = ctx.ui.requestDockPanel({ edge: 'right', title: '이세계 우체통 · 편지첩', size: 440, minSize: 320, maxSize: 760, resizable: true, startCollapsed: true });
-    panel.root.append(panelRoot);
-    if (!removeStyle) panel.root.append(el('style', { text: CSS }));
-    panel.onVisibilityChange?.((visible) => { if (visible) refresh(); renderWidget(); drawer.render(); });
+    if (panelMode === 'float') {
+      const w = Math.min(460, Math.max(320, window.innerWidth - 40));
+      const h = Math.min(700, Math.max(360, window.innerHeight - 80));
+      const fw = ctx.ui.createFloatWidget({ width: w, height: h, initialPosition: { x: Math.max(8, window.innerWidth - w - 24), y: 40 }, snapToEdge: false, tooltip: '이세계 우체통 · 편지첩', chromeless: false, touchScrollMode: 'native' });
+      fw.setVisible(false);
+      const head = el('div', { class: 'im-row', style: 'padding:6px 10px;border-bottom:1px solid var(--lumiverse-border);cursor:move;font-size:12px' }, [
+        el('b', { class: 'im-grow', text: '이세계 우체통 · 편지첩' }),
+        el('button', { class: 'im-link', type: 'button', text: '닫기', onclick: () => togglePanel(false) }),
+      ]);
+      const box = el('div', { style: `display:flex;flex-direction:column;width:${w}px;height:${h}px;background:var(--lumiverse-fill);color:var(--lumiverse-text)` }, [head, el('div', { style: 'flex:1;min-height:0;overflow:auto' }, [panelRoot])]);
+      fw.root.append(box);
+      if (!removeStyle) fw.root.append(el('style', { text: CSS }));
+      panel = {
+        root: fw.root,
+        isCollapsed: () => !fw.isVisible(),
+        expand: () => fw.setVisible(true),
+        collapse: () => fw.setVisible(false),
+        destroy: () => fw.destroy(),
+      };
+    } else {
+      panel = ctx.ui.requestDockPanel({ edge: 'right', title: '이세계 우체통 · 편지첩', size: 440, minSize: 320, maxSize: 760, resizable: true, startCollapsed: true });
+      panel.root.append(panelRoot);
+      if (!removeStyle) panel.root.append(el('style', { text: CSS }));
+      panel.onVisibilityChange?.((visible) => { if (visible) refresh(); renderWidget(); drawer.render(); });
+    }
   } catch { panel = null; }
 
   function togglePanel(force) {

@@ -45,6 +45,21 @@ const replies = {
   characters: () => ({ characters: [{ id: 'chx', name: '진', imageId: '', books: 2 }] }),
   matchDraft: (m) => { sentLog.push(m); return { draft: { mode: m.mode, name: '미렌', dice: m.mode === 'random' ? '사막의 대상로' : '', firstBy: 'them', characterId: m.characterId || '', warnings: ['카드가 깁니다'], card: m.mode === 'existing' ? null : { description: '# 미렌 / 34 / 여성', personality: 'p', never: 'Never x.' }, worldTitle: '얼어붙는 곶', entries: [{ title: '세계 개요', keys: [], content: '얼어붙는 바다', constant: true }, { title: '등대', keys: ['등대'], content: '돌 등대', constant: false }], mail: { ratio: 7, ratioReason: '느린 겨울', deliveryMin: 1, deliveryMax: 3, writeMin: 6, writeMax: 12, medium: '양피지', seal: '', stampMotif: '', scent: '', texture: '' }, firstLetter: { body: '누구냐.', ps: '', envelope: { medium: '양피지' }, enclosures: [] } } }; },
   matchConfirm: (m) => { sentLog.push(m); return { id: 'c1' }; },
+  dossier: () => ({
+    memory: {
+      ledger: { calledMe: '시드 씨', calledThem: '칼렉', stage: '펜팔', mood: '궁금함', promises: [{ who: 'them', what: '닻줄 그림 보내기', state: 'open' }], openQuestions: [{ who: 'me', q: '별이 보여요?' }], knowsAboutMe: ['도시에 산다'], iKnow: [], anniversaries: [] },
+      timeline: [{ when: '2일째', event: '닻줄 균열', open: true }], chapters: [], summaries: [{ letterId: 'l1', from: 'me', when: '1일째', text: '첫 인사' }],
+      changes: [
+        { id: 'x1', target: 'lore', op: 'add', key: '토마', before: '', after: '견습생', reason: '새 사실', state: 'applied' },
+        { id: 'x2', target: 'card', op: 'edit', key: 'goal', before: '예산', after: '균열 원인', reason: '새 목표', state: 'pending' },
+        { id: 'x3', target: 'conflict', op: 'note', key: '달력', before: '', after: '', reason: '계절이 안 맞음', state: 'conflict' },
+      ],
+    },
+    locks: ['first_line', 'core'], applyMode: { loreAdd: 'auto', loreEdit: 'auto', cardAdd: 'auto', cardEdit: 'approve', origLore: 'off' }, organize: null,
+    report: [{ layer: '상대 카드', chars: 900, tokens: 530, note: '' }, { layer: '편지 요약', chars: 40, tokens: 24, note: '1/1통' }], totalChars: 5000, totalTokens: 2941, prompt: '[system]\n<relationship>',
+  }),
+  change: (m) => { sentLog.push(m); return { change: {} }; },
+  setRules: (m) => { sentLog.push(m); return { locks: m.locks, applyMode: m.applyMode }; },
 };
 let badge = null;
 const drawerRoot = document.createElement('div');
@@ -138,7 +153,40 @@ clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '새 상대'); await tick(4);
 clickIn(drawerRoot, 'button', '기존 캐릭터'); await tick(6);
 ok('기존 캐릭터: 목록', drawerRoot.textContent.includes('진 (로어북 2)'));
+// 서류함
+clickIn(drawerRoot, 'button', '← 우편함'); await tick();
+clickIn(drawerRoot, '.im-card', '미렌'); await tick(6);
+clickIn(drawerRoot, 'button', '서류함'); await tick(6);
+ok('서류함: 장부·연대기·변경·규칙·모의 조립', ['관계 장부', '나를 부르는 말: 시드 씨', '닻줄 그림 보내기', '상대가 아는 나', '● [2일째] 닻줄 균열', '변경 기록 · 확인 필요 2', '로어북 · 토마 (새로)', '승인 대기', '충돌', '규칙', '약 2,941토큰', '1/1통'].every((t) => drawerRoot.textContent.includes(t)));
+clickIn(drawerRoot, 'button', '되돌리기'); await tick(6);
+ok('서류함: 되돌리기 요청', sentLog.some((x) => x.type === 'change' && x.changeId === 'x1' && x.action === 'revert'));
+const lockIn = [...drawerRoot.querySelectorAll('input')].find((i) => i.value.startsWith('first_line'));
+lockIn.value = 'first_line, core, fixed'; lockIn.dispatchEvent(new window.Event('input'));
+clickIn(drawerRoot, 'button', '규칙 저장'); await tick(6);
+const sr = sentLog.find((x) => x.type === 'setRules');
+ok('서류함: 규칙 저장', sr && sr.locks.join(',') === 'first_line,core,fixed' && sr.applyMode.cardEdit === 'approve');
 stop();
+
+// 떠 있는 창 방식
+store.set('isekai_mailbox.panelMode', 'float');
+const floats = [];
+const ctx2 = {
+  ...ctx,
+  ui: {
+    ...ctx.ui,
+    requestDockPanel: () => { throw new Error('dock should not be used'); },
+    createFloatWidget: (o) => { const root = document.createElement('div'); document.body.append(root); let vis = true; const w = { o, root, setVisible: (v) => { vis = v; }, isVisible: () => vis, onDragEnd: () => () => {}, destroy() {} }; floats.push(w); return w; },
+  },
+};
+const stop2 = setup(ctx2);
+await tick(6);
+ok('떠 있는 창: 위젯 2개(편지첩 창 + 우체통)', floats.length === 2 && floats[0].o.chromeless === false && floats[1].o.chromeless === true);
+ok('떠 있는 창: 처음엔 숨김', floats[0].isVisible() === false);
+floats[1].root.querySelector('.im-box').dispatchEvent(new window.Event('click', { bubbles: true })); await tick(6);
+ok('떠 있는 창: 우체통 누르면 보임 + 편지첩 내용', floats[0].isVisible() === true && floats[0].root.textContent.includes('편지첩'));
+clickIn(floats[0].root, 'button', '닫기'); await tick();
+ok('떠 있는 창: 닫기', floats[0].isVisible() === false);
+stop2();
 
 let fail = 0;
 for (const [n, pass] of checks) { console.log(`${pass ? 'ok  ' : 'FAIL'} ${n}`); if (!pass) fail++; }

@@ -304,3 +304,82 @@ test('기존 캐릭터로 매칭: 원본 카드는 그대로, 우체통 로어�
   assert.equal(g.c.worldBookId, r.worldBookId);
   assert.match(g.c.brief, /진의 카드/);
 });
+
+test('정리 단계: 답장 뒤 자동 정리 → 기억·로어북·카드 반영, 서류함 모의 조립, 되돌리기·승인', async (t) => {
+  const realNow = Date.now;
+  let now = 6_000_000_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const host = fakeHost();
+  const lib = addLibrary(host, { ...MATCH, first_letter: null });
+  host.api.world_books.entries.update = async (id, input) => { const e = lib.entries.get(id); Object.assign(e, input); return e; };
+  host.api.world_books.entries.delete = async (id) => lib.entries.delete(id);
+  host.api.characters.update = async (id, input) => { const c = lib.chars.get(id); Object.assign(c, input); return c; };
+  let orgCalls = 0;
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/archivist/.test(req.messages[0].content)) {
+      orgCalls++;
+      const ids = [...req.messages[1].content.matchAll(/<letter id="([^"]+)"/g)].map((m) => m[1]);
+      return { content: JSON.stringify({
+        summaries: ids.map((id) => ({ letter_id: id, text: `요약 ${id}` })),
+        ledger: { called_me: '시드 씨', stage: '펜팔', knows_about_me_add: ['도시에 산다'] },
+        timeline_add: [{ when: '2일째', event: '닻줄 균열', open: true }],
+        lore_add: [{ title: '토마', keys: ['토마'], content: '견습생.' }],
+        lore_edit: [{ title: '등대', after: '돌 등대가 금이 갔다.', reason: '사건' }],
+        card: [{ field: 'goal', value: '균열 원인 찾기', reason: '새 목표' }, { field: 'core', value: '바뀜', reason: 'x' }],
+        conflicts: [],
+        chapter: '',
+      }) };
+    }
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x', personaId: 'p1' });
+  const r = await host.ask('u1', 'matchConfirm', { draft, personaId: 'p1' });
+  await host.ask('u1', 'send', { id: r.id, body: '토마는 누구예요?' });
+  now += 1 * H; // 도착
+  await host.ask('u1', 'load'); await settle();
+  now += 1 * H; // 답장 생성 → 정리 대기
+  await host.ask('u1', 'load'); await settle();
+  let d = await host.ask('u1', 'dossier', { id: r.id });
+  assert.ok(d.organize === null || d.organize?.state === 'waiting'); // 답장 시간이 0이라 이미 정리됐을 수 있음
+  await host.ask('u1', 'load'); await settle(); await settle(); // 정리 실행
+  assert.equal(orgCalls, 1);
+  d = await host.ask('u1', 'dossier', { id: r.id });
+  assert.equal(d.organize, null);
+  assert.equal(d.memory.summaries.length, 2);
+  assert.equal(d.memory.ledger.calledMe, '시드 씨');
+  const st = Object.fromEntries(d.memory.changes.map((x) => [x.key, x.state]));
+  assert.deepEqual(st, { 토마: 'applied', 등대: 'applied', goal: 'applied', core: 'locked' });
+  const toma = [...lib.entries.values()].find((e) => e.comment === '토마');
+  assert.ok(toma);
+  assert.equal([...lib.entries.values()].find((e) => e.comment === '등대').content, '돌 등대가 금이 갔다.');
+  const ch = lib.chars.get(r.characterId);
+  assert.match(ch.description, /goal=균열 원인 찾기/);
+  const g = await host.ask('u1', 'get', { id: r.id });
+  assert.match(g.c.brief, /goal=균열 원인 찾기/);
+  // 모의 조립 보고
+  assert.ok(d.report.find((x) => x.layer === '관계 장부').chars > 0);
+  assert.match(d.prompt, /<relationship>/);
+  assert.match(d.prompt, /토마/);
+  // 되돌리기: 로어북 추가 → 항목 삭제, 카드 → 원래대로
+  const add = d.memory.changes.find((x) => x.key === '토마');
+  await host.ask('u1', 'change', { id: r.id, changeId: add.id, action: 'revert' });
+  assert.ok(![...lib.entries.values()].some((e) => e.comment === '토마'));
+  const goal = d.memory.changes.find((x) => x.key === 'goal');
+  await host.ask('u1', 'change', { id: r.id, changeId: goal.id, action: 'revert' });
+  assert.doesNotMatch(lib.chars.get(r.characterId).description, /goal=/);
+  // 잠긴 변경을 사람이 승인하면 적용
+  const core = d.memory.changes.find((x) => x.key === 'core');
+  await host.ask('u1', 'change', { id: r.id, changeId: core.id, action: 'approve' });
+  assert.match(lib.chars.get(r.characterId).description, /core=바뀜/);
+  // 규칙 바꾸기
+  const rules = await host.ask('u1', 'setRules', { id: r.id, locks: ['first_line'], applyMode: { cardEdit: 'approve', loreAdd: 'nope' } });
+  assert.deepEqual(rules.locks, ['first_line']);
+  assert.equal(rules.applyMode.cardEdit, 'approve');
+  assert.equal(rules.applyMode.loreAdd, 'auto');
+  // 지금 정리하기: 정리할 편지 없음
+  await assert.rejects(host.ask('u1', 'organizeNow', { id: r.id }), /정리할 편지가 없습니다/);
+});
