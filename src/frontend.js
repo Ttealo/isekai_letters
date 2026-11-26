@@ -56,6 +56,15 @@ const CSS = `
 .im-env-postdate{position:absolute;top:calc(9% + 28px);right:calc(17% + 18px);font:700 11px system-ui,sans-serif;opacity:.65;transform:rotate(-12deg)}
 .im-env-seal2{position:absolute;left:50%;top:52%;width:17%;transform:translate(-50%,-50%);border-radius:50%;filter:drop-shadow(0 2px 3px #0006)}
 .im-themed{position:relative;margin-right:22px}
+.im-themed-wrap{display:flex;flex-direction:column}
+.im-env-btn{align-self:flex-start;font-size:12px;margin:0 0 4px 2px}
+.im-env-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.im-env-card{cursor:zoom-in;border-radius:3px;box-shadow:0 3px 8px -3px #0006}
+.im-env-big .im-env-postdate{color:#6b2f2a}
+.im-env-thumb{float:left;width:96px;margin:0 12px 6px 0;cursor:zoom-in;border-radius:3px;box-shadow:0 2px 6px #0004;transform:rotate(-2deg)}
+.im-env-overlay{position:fixed;inset:0;z-index:99999;background:#000b;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:zoom-out;padding:20px}
+.im-env-big{width:min(92vw,760px);border-radius:6px;box-shadow:0 10px 30px #000a}
+.im-env-cap{color:#f3ead8;font:13px system-ui,sans-serif;text-align:center}
 .im-themed .im-corners{position:absolute;inset:0;pointer-events:none}
 .im-tstamp{float:right;width:44px;height:52px;object-fit:cover;margin:0 0 6px 10px;transform:rotate(2deg);box-shadow:0 2px 4px #0004;cursor:zoom-in;background:#fff;padding:2px}
 .im-tmeta{font-family:system-ui,sans-serif;font-size:11px;white-space:normal;margin:0 0 10px;line-height:1.5}
@@ -100,7 +109,7 @@ const CSS = `
 .im-note{position:absolute;right:0;bottom:100%;margin-bottom:6px;white-space:nowrap;background:var(--lumiverse-fill);color:var(--lumiverse-text);border:1px solid var(--lumiverse-border);border-radius:6px;padding:4px 8px;font-size:11px;pointer-events:none}
 `;
 const CSS2 = `
-.im-tab,.im-panel,.im-page{--im-ink:color-mix(in srgb,var(--lumiverse-text) 72%,#6b4a2b 28%);--im-wax:#a8322a;--im-wax2:#c7493b;--im-cream:color-mix(in srgb,var(--lumiverse-bg-elevated,#fff) 84%,#d9b98a 16%);--im-cream2:color-mix(in srgb,var(--lumiverse-bg,#f4f4f6) 88%,#c8a46a 12%);--im-line:color-mix(in srgb,var(--lumiverse-border) 55%,#b08a5a 45%);--im-serif:"Nanum Myeongjo","Noto Serif KR","Batang",Georgia,serif}
+.im-tab,.im-panel,.im-page{--im-ink:color-mix(in srgb,var(--lumiverse-text) 72%,#6b4a2b 28%);--im-wax:#a8322a;--im-wax2:#c7493b;--im-cream:color-mix(in srgb,var(--lumiverse-bg-elevated,#fff) 84%,#d9b98a 16%);--im-cream2:color-mix(in srgb,var(--lumiverse-bg,#f4f4f6) 88%,#c8a46a 12%);--im-line:color-mix(in srgb,var(--lumiverse-border) 55%,#b08a5a 45%);--im-serif:inherit}
 .im-page{background:radial-gradient(1200px 600px at 20% -10%,color-mix(in srgb,var(--im-cream2) 70%,transparent),transparent),var(--im-cream2)}
 .im-page-head{gap:12px;padding:12px 20px;background:color-mix(in srgb,var(--lumiverse-bg-elevated,#fff) 80%,transparent);backdrop-filter:blur(6px)}
 .im-page-head .im-title{font-family:var(--im-serif);font-size:18px;font-weight:700;letter-spacing:.02em;color:var(--im-ink)}
@@ -413,6 +422,24 @@ export function setup(ctx) {
   const setKindsUi = () => (htmlPaper() ? ['envelope', 'stamp', 'seal'] : ['paper', 'stamp', 'seal']);
   const KIND_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' };
   const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
+  // 연 편지에도 봉투가 보이게: 작은 봉투(우표·봉인 붙은 채), 누르면 크게
+  const envelopeFace = (c, l, cls) => {
+    const envImg = c.art?.envelope?.imageId;
+    if (!envImg) return null;
+    const st = l?.art?.stamp || c.art?.stamp?.imageId;
+    const se = c.art?.seal?.imageId;
+    return el('div', { class: `im-env-art ${cls}`, style: `background-image:url("${imgUrl(envImg, 'lg')}")` }, [
+      st ? el('img', { class: 'im-env-stamp', src: imgUrl(st, 'sm'), alt: '우표' }) : null,
+      se ? el('img', { class: 'im-env-seal2', src: imgUrl(se, 'sm'), alt: '봉인' }) : null,
+    ]);
+  };
+  const showEnvelope = (c, l) => {
+    const big = envelopeFace(c, l, 'im-env-big');
+    if (!big) return;
+    if (l?.arriveAt) big.append(el('span', { class: 'im-env-postdate', text: new Date(l.arriveAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) }));
+    const box = el('div', { class: 'im-env-overlay', onclick: () => box.remove() }, [big, el('div', { class: 'im-env-cap', text: [`${c.name}의 봉투`, l?.writtenLabel || l?.theirWrittenLabel, l?.envelope?.medium, l?.envelope?.stamp && `우표: ${l.envelope.stamp}`].filter(Boolean).join(' · ') })]);
+    document.body.append(box);
+  };
   if (!removeStyle) tab.root.append(el('style', { text: CSS + CSS2 }));
   const root = el('div', { class: 'im-tab' });
   tab.root.append(root);
@@ -1175,10 +1202,10 @@ export function setup(ctx) {
       : undefined;
     if (htmlPaper() && !l.art?.paper) {
       const look = paperLook(themeOf(c, l), { seed: l.id, narrow });
-      return el('div', { class: 'im-themed im-theirs', style: look.outer }, [
+      const envBtn = c.art?.envelope?.imageId ? el('button', { class: 'im-link im-env-btn', type: 'button', text: '✉ 봉투 보기', onclick: () => showEnvelope(c, l) }) : null;
+      return el('div', { class: 'im-themed-wrap' }, [envBtn, el('div', { class: 'im-themed im-theirs', style: look.outer }, [
         el('span', { class: 'im-corners', html: look.corners }),
         el('div', { style: look.inner }, [
-          stampImg ? el('img', { class: 'im-tstamp', src: imgUrl(stampImg, 'sm'), alt: '우표', title: e.stamp || '', onclick: () => openImage(stampImg, `${c.name} · 우표`, e.stamp || '') }) : null,
           el('div', { class: 'im-tmeta', style: `color:${look.metaColor}`, text: `${c.name}의 편지 · ${meta}` }),
           el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
           l.enclosures?.length ? el('div', { class: 'im-tencl', style: `border-color:${look.accent}88` }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
@@ -1186,7 +1213,7 @@ export function setup(ctx) {
           l.late ? el('div', { class: 'im-tmeta', style: `margin:6px 0 0;color:${look.accent}`, text: `✦ 우체부가 늦었다 — ${l.late}` }) : null,
           el('div', { class: 'im-tmeta', style: `margin:10px 0 0;color:${look.metaColor}`, text: `받은 시각 ${when(l.arriveAt)}` }),
         ]),
-      ]);
+      ])]);
     }
     return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperStyle }, [
       el('div', { class: 'im-stamp', title: [e.stamp && `우표: ${e.stamp}`, e.seal && `봉인: ${e.seal}`].filter(Boolean).join('\n') }, [
@@ -1721,6 +1748,18 @@ ${gallery}
           ]),
         ]);
       }),
+      (() => {
+        const envs = list.flatMap((c) => (c.art?.envelope?.imageId ? c.letters.filter((l) => l.from === 'them' && l.state !== 'in_transit').map((l) => ({ c, l })) : []));
+        envs.sort((a, b) => (b.l.arriveAt || 0) - (a.l.arriveAt || 0));
+        return el('div', {}, [
+          el('h4', { text: `받은 봉투 · ${envs.length}` }),
+          envs.length ? el('div', { class: 'im-env-grid' }, envs.map(({ c, l }) => {
+            const f = envelopeFace(c, l, 'im-env-card');
+            f.addEventListener('click', () => showEnvelope(c, l));
+            return el('div', {}, [f, el('div', { class: 'im-muted', style: 'font-size:11px;margin-top:4px', text: `${c.name} · ${l.writtenLabel || l.theirWrittenLabel || when(l.arriveAt)}` })]);
+          })) : el('div', { class: 'im-muted', text: '봉투 그림이 있는 상대의 편지가 여기에 모입니다(서류함 → 그림 세트에서 봉투를 그려 주세요).' }),
+        ]);
+      })(),
       el('h4', { text: `모든 물건 · ${items.length}` }),
       items.length ? el('div', { class: 'im-grid' }, items.map(({ x, c }) => itemCard(x, x.from === 'me' ? `→ ${c.name}` : `${c.name} →`, c.id))) : el('div', { class: 'im-muted', text: '아직 오간 물건이 없습니다.' }),
     ];
