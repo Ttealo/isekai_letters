@@ -84,7 +84,7 @@ ok('상대 화면: 가속 반영 배송 시간', drawerRoot.textContent.includes
 ok('상대 화면: 남은 시간', drawerRoot.textContent.includes('도착까지 약 5시간'));
 // 위젯
 ok('위젯: 깃발 올라감 + 숫자', widgetRoot.querySelector('svg path[d^="M53.5 12"]') && widgetRoot.textContent.includes('1'));
-widgetRoot.querySelector('.im-box').dispatchEvent(new window.Event('click')); await tick(6);
+widgetRoot.querySelector('.im-box').dispatchEvent(new window.Event('click', { bubbles: true })); await tick(6);
 ok('위젯 누르면 보조창 열림', collapsed === false);
 // 보조창 편지첩
 ok('편지첩: 상대 편지 편지지', !!panelRoot.querySelector('.im-paper.im-theirs'));
