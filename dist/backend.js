@@ -35,6 +35,9 @@ export function cleanSettings(s) {
     temperature: num(s?.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
+    // 편지 길이(본문 글자 수, 한국어 기준). max 0 = 위 제한 없음
+    letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
+    letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
     showExactEta: !!s?.showExactEta,
     initiativeEnabled: s?.initiativeEnabled !== false, // 먼저 오는 편지
     initiativePerDay: Math.round(num(s?.initiativePerDay, 0, 50, 3)),
@@ -550,7 +553,14 @@ export function realNowLabel(now = Date.now(), tz = '') {
   try { return `${fmt(tz || 'Asia/Seoul')} (${tz || 'Asia/Seoul'})`; } catch { return `${fmt('Asia/Seoul')} (Asia/Seoul)`; }
 }
 
-export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '', memory = null } = {}) {
+export function letterLengthRule(min = 1000, max = 0) {
+  if (!min && !max) return 'Length: whatever fits the moment and the character.';
+  if (min && max) return `Length of \`body\`: about ${min}~${Math.max(min, max)} Korean characters. Stay in that range.`;
+  if (max) return `Length of \`body\`: at most about ${max} Korean characters; short letters are fine.`;
+  return `Length of \`body\`: at least about ${min} Korean characters; write longer when much happened or feelings run high.`;
+}
+
+export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '', memory = null, letterMin = 1000, letterMax = 0 } = {}) {
   c = normalize(c);
   const userName = (c.noPersona ? '' : personaName || c.personaName) || '편지의 주인';
   const realNow = c.noPersona ? realNowLabel(now, c.userTz) : '';
@@ -604,9 +614,11 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     c.reply?.initiative
       ? '3. {{user}} has not replied. Write because you want to: share what happened, wonder about them, or keep a promise — in a way that fits your character and the relationship (pride, worry, teasing, restraint). Do not invent anything {{user}} said.'
       : '3. Respond to what {{user}} actually wrote. Answer or deliberately avoid their questions.',
-    '4. The letter must feel like a physical object from your world: describe `envelope` and any `enclosures` in concrete sensory terms.',
+    '4. The letter must feel like a physical object from your world: describe `envelope` in concrete sensory terms.',
+    '   Enclosures are occasional, not a habit: include one only when there is a real reason (a promise, an answer to something {{user}} sent, an event, a gift that means something). Most letters have none (`enclosures`: []). Never more than 2.',
     '5. Stay consistent with the character and world above. New facts are allowed when they follow from events.',
     `6. Time is fixed by <correspondence>. \`read_at\`, \`written_at\`, and every \`their_date\` must fall between the first arrival and their_now, written in the same form as their_now ("${theirLabel(c, tNow)}"). When mentioning how long you waited or how many days passed, use only those numbers.`,
+    `7. ${letterLengthRule(letterMin, letterMax)}`,
     'Output JSON only, in Korean, with this shape:',
     '{"between":[{"their_date":"","event":"","senses":"","open":false}],"read_at":"","written_at":"","envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}',
     '</task>',
@@ -2149,7 +2161,7 @@ export function start(api) {
       const budgets = cleanBudgets(settings.budgets);
       const lore = await loreFor(user, c, budgets.loreChars).catch((e) => { log('warn', `로어북 읽기 실패(${c.name}): ${e?.message || e}`); return { text: '' }; });
       const memory = memoryLayers(c, { budgets, recentLetters: settings.recentLetters });
-      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory });
+      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory, letterMin: settings.letterMin, letterMax: settings.letterMax });
       const req = {
         messages,
         parameters: { temperature: settings.temperature, max_tokens: settings.maxTokens },
@@ -2385,7 +2397,7 @@ export function start(api) {
         try { lore = await loreFor(user, c, budgets.loreChars); } catch {}
         const memory = memoryLayers(c, { budgets, recentLetters: settings.recentLetters });
         const sim = { ...c, reply: c.reply || { forLetterIds: c.letters.filter((l) => l.from === 'me' && l.state !== 'in_transit').slice(-1).map((l) => l.id) } };
-        const messages = buildReplyMessages(sim, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory });
+        const messages = buildReplyMessages(sim, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory, letterMin: settings.letterMin, letterMax: settings.letterMax });
         const past = c.letters.filter((l) => !(l.from === 'me' && l.state === 'in_transit'));
         const recentText = past.slice(-settings.recentLetters).map((l) => l.body || '').join('');
         const report = [

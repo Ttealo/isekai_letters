@@ -626,7 +626,7 @@ export function start(api) {
       const budgets = cleanBudgets(settings.budgets);
       const lore = await loreFor(user, c, budgets.loreChars).catch((e) => { log('warn', `로어북 읽기 실패(${c.name}): ${e?.message || e}`); return { text: '' }; });
       const memory = memoryLayers(c, { budgets, recentLetters: settings.recentLetters });
-      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory });
+      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory, letterMin: settings.letterMin, letterMax: settings.letterMax });
       const req = {
         messages,
         parameters: { temperature: settings.temperature, max_tokens: settings.maxTokens },
@@ -862,7 +862,7 @@ export function start(api) {
         try { lore = await loreFor(user, c, budgets.loreChars); } catch {}
         const memory = memoryLayers(c, { budgets, recentLetters: settings.recentLetters });
         const sim = { ...c, reply: c.reply || { forLetterIds: c.letters.filter((l) => l.from === 'me' && l.state !== 'in_transit').slice(-1).map((l) => l.id) } };
-        const messages = buildReplyMessages(sim, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory });
+        const messages = buildReplyMessages(sim, { now: Date.now(), personaName, recent: settings.recentLetters, lore: lore.text, memory, letterMin: settings.letterMin, letterMax: settings.letterMax });
         const past = c.letters.filter((l) => !(l.from === 'me' && l.state === 'in_transit'));
         const recentText = past.slice(-settings.recentLetters).map((l) => l.body || '').join('');
         const report = [

@@ -298,3 +298,15 @@ test('사진 동봉: 글 동봉과 함께 물건이 되고 그림 id를 갖는�
   assert.match(user, /사진 — 우리 집 고양이/);
   assert.match(user, /하루의 세계에서 찍은 사진/);
 });
+
+test('답장 길이 규칙과 동봉은 가끔', () => {
+  let c = M.createCorrespondent(base, 0, () => 0);
+  c = M.sendLetter(c, { body: '안녕' }, 0, () => 0);
+  c = M.advance(c, 10 * H).c;
+  const sys = M.buildReplyMessages(c, { now: 10 * H, letterMin: 0, letterMax: 1000 })[0].content;
+  assert.match(sys, /at most about 1000 Korean characters/);
+  assert.match(sys, /Enclosures are occasional/);
+  assert.match(M.buildReplyMessages(c, { now: 10 * H })[0].content, /at least about 1000/);
+  assert.equal(M.cleanSettings({}).letterMin, 1000);
+  assert.equal(M.cleanSettings({ letterMax: 1500 }).letterMax, 1500);
+});
