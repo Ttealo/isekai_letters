@@ -2525,6 +2525,68 @@ export function start(api) {
         const list = await api.connections.list(user);
         return { connections: (list || []).map((x) => ({ id: x.id, name: x.name, provider: x.provider, model: x.model, is_default: !!x.is_default })) };
       }
+      case 'exportAll': {
+        // 백업: 설정 + 상대 전부(+ 캐릭터 카드·로어북 항목 사본). 그림은 루미버스 이미지라 id만 남는다.
+        const out = { kind: 'isekai_mailbox_backup', version: 1, exportedAt: now, settings: await loadSettings(user), correspondents: [] };
+        const only = Array.isArray(p.ids) && p.ids.length ? new Set(p.ids) : null;
+        for (const id of await listIds(user)) {
+          if (only && !only.has(id)) continue;
+          try {
+            const c = await loadC(user, id);
+            const row = { c, character: null, book: null };
+            if (c.characterId) {
+              try {
+                const ch = await api.characters.get(c.characterId, user);
+                if (ch) row.character = { name: ch.name, description: ch.description || '', personality: ch.personality || '', scenario: ch.scenario || '', post_history_instructions: ch.post_history_instructions || '', creator_notes: ch.creator_notes || '', tags: ch.tags || [] };
+              } catch {}
+            }
+            if (c.worldBookId) {
+              try {
+                const b = await api.world_books.get(c.worldBookId, user);
+                if (b) row.book = { name: b.name, description: b.description || '', entries: (await listEntries(user, b.id)).map((e) => ({ key: e.key || [], comment: e.comment || '', content: e.content || '', constant: !!e.constant, order_value: e.order_value, disabled: !!e.disabled })) };
+              } catch {}
+            }
+            out.correspondents.push(row);
+          } catch {}
+        }
+        return out;
+      }
+      case 'importAll': {
+        // 되살리기: 같은 id가 있으면 건너뜀(replace면 덮어씀). 캐릭터·로어북이 이 서버에 없으면 사본으로 새로 만든다.
+        const b = p.backup;
+        if (!b || b.kind !== 'isekai_mailbox_backup' || !Array.isArray(b.correspondents)) throw new Error('이세계 우체통 백업 파일이 아닙니다.');
+        const have = new Set(await listIds(user));
+        const res = { added: 0, replaced: 0, skipped: 0, characters: 0, books: 0 };
+        for (const row of b.correspondents) {
+          let c = row?.c;
+          if (!c?.id || !c?.name || !Array.isArray(c.letters)) { res.skipped++; continue; }
+          if (have.has(c.id) && !p.replace) { res.skipped++; continue; }
+          let bookOk = false; let charOk = false;
+          try { bookOk = !!(c.worldBookId && await api.world_books.get(c.worldBookId, user)); } catch {}
+          try { charOk = !!(c.characterId && await api.characters.get(c.characterId, user)); } catch {}
+          if (!bookOk && row.book) {
+            const nb = await api.world_books.create({ name: row.book.name, description: row.book.description, metadata: { isekai_mailbox: true } }, user);
+            for (const e of row.book.entries || []) { try { await api.world_books.entries.create(nb.id, e, user); } catch {} }
+            c = { ...c, worldBookId: nb.id };
+            res.books++;
+          }
+          if (!charOk && row.character) {
+            const ch = await api.characters.create({ ...row.character, world_book_ids: c.worldBookId ? [c.worldBookId] : [], extensions: { isekai_mailbox: { mail: c.mail || {}, worldBookId: c.worldBookId || '' } } }, user);
+            c = { ...c, characterId: ch.id };
+            res.characters++;
+          }
+          if (!charOk && !row.character) c = { ...c, characterId: '' };
+          if (!bookOk && !row.book) c = { ...c, worldBookId: '' };
+          // 진행 중이던 일은 비우고 다시 계산하게(배송·답장 시각은 그대로)
+          c = { ...c, artJob: null, organize: c.organize?.state === 'generating' ? { ...c.organize, state: 'waiting', nextTryAt: 0 } : c.organize };
+          if (c.reply?.state === 'generating') c = { ...c, reply: { ...c.reply, state: 'waiting' } };
+          await serial(user, () => saveC(user, c));
+          if (have.has(c.id)) res.replaced++; else res.added++;
+        }
+        if (p.withSettings && b.settings) await serial(user, () => api.userStorage.setJson(SETTINGS, cleanSettings(b.settings), { userId: user }));
+        log('info', `백업 되살리기: 추가 ${res.added} · 덮어씀 ${res.replaced} · 건너뜀 ${res.skipped} · 캐릭터 ${res.characters} · 로어북 ${res.books}`);
+        return res;
+      }
       case 'saveSettings': {
         const s = cleanSettings(p.settings);
         await serial(user, () => api.userStorage.setJson(SETTINGS, s, { userId: user }));

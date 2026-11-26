@@ -1373,6 +1373,35 @@ export function setup(ctx) {
           const r = await ask('pushTest', { delaySec: 30 });
           error = `${r.delaySec}초 뒤에 시험 알림을 보냅니다. 그사이 루미버스 화면(모든 탭·창)을 닫거나 다른 앱으로 가 주세요.`;
         })),
+        el('h4', { text: '백업' }),
+        el('div', { class: 'im-muted', text: '모든 상대의 편지·물건·기억·설정과 캐릭터 카드·로어북 사본을 파일 하나로 저장합니다. 그림은 루미버스에 남아 있는 것만 다시 보입니다.' }),
+        el('div', { class: 'im-row' }, [
+          btn('백업 파일 받기', () => act(async () => {
+            const data = await ask('exportAll', {}, 120000);
+            const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+            const a = el('a', { href: URL.createObjectURL(blob), download: `isekai-mailbox-${new Date().toISOString().slice(0, 10)}.json` });
+            document.body.append(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            error = `상대 ${data.correspondents.length}명을 백업했습니다.`;
+          })),
+          (() => {
+            const file = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: (e) => act(async () => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (!f) return;
+              let backup;
+              try { backup = JSON.parse(await f.text()); } catch { throw new Error('JSON 파일을 읽지 못했습니다.'); }
+              if (backup?.kind !== 'isekai_mailbox_backup') throw new Error('이세계 우체통 백업 파일이 아닙니다.');
+              const n = backup.correspondents?.length || 0;
+              const replace = confirm(`백업의 상대 ${n}명을 되살립니다.\n\n이미 있는 상대를 백업 내용으로 덮어쓸까요?\n확인 = 덮어쓰기 / 취소 = 없는 상대만 추가`);
+              const withSettings = confirm('백업의 설정도 되살릴까요? (취소 = 지금 설정 유지)');
+              const r = await ask('importAll', { backup, replace, withSettings }, 300000);
+              await refresh();
+              error = `되살렸습니다: 추가 ${r.added} · 덮어씀 ${r.replaced} · 건너뜀 ${r.skipped}${r.characters ? ` · 캐릭터 새로 ${r.characters}` : ''}${r.books ? ` · 로어북 새로 ${r.books}` : ''}`;
+            }) });
+            return el('span', {}, [file, btn('백업 파일 되살리기', () => file.click())]);
+          })(),
+        ]),
         el('h4', { text: '편지첩 여는 방식 (이 기기, 새로 고침 뒤 적용)' }),
         el('select', { onchange: (e) => { lsSet(LS_PANEL_MODE, e.target.value); error = '여는 방식을 바꿨습니다. 페이지를 새로 고치면 적용됩니다.'; render(); } }, [
           el('option', { value: 'page', text: '채팅창처럼 화면 가득 (왼쪽 상대 목록 + 편지첩) — 권한 app_manipulation 필요', selected: lsGet(LS_PANEL_MODE, 'page') === 'page' }),

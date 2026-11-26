@@ -689,3 +689,30 @@ test('imageIdsOf: 편지지·우표·편지마다 고정된 그림·물건', asy
   const ids = imageIdsOf({ art: { paper: { imageId: 'a' }, stamp: { imageId: 'b' } }, letters: [{ art: { paper: 'c' } }, { art: { paper: 'a' } }], items: [{ imageId: 'd' }, {}] });
   assert.deepEqual(ids.sort(), ['a', 'b', 'c', 'd']);
 });
+
+test('백업: 내보내고 다른 서버에 되살리면 캐릭터·로어북을 새로 만든다', async (t) => {
+  const a = fakeHost();
+  addLibrary(a, MATCH);
+  const stopA = start(a.api);
+  const { draft } = await a.ask('u1', 'matchDraft', { mode: 'random' });
+  const r = await a.ask('u1', 'matchConfirm', { draft });
+  const backup = await a.ask('u1', 'exportAll', {});
+  stopA();
+  assert.equal(backup.kind, 'isekai_mailbox_backup');
+  assert.equal(backup.correspondents.length, 1);
+  assert.ok(backup.correspondents[0].character.description);
+  assert.ok(backup.correspondents[0].book.entries.length >= 3);
+  const b = fakeHost();
+  const lib = addLibrary(b, MATCH);
+  const stopB = start(b.api);
+  t.after(stopB);
+  const res = await b.ask('u1', 'importAll', { backup: JSON.parse(JSON.stringify(backup)) });
+  assert.deepEqual([res.added, res.characters, res.books], [1, 1, 1]);
+  assert.equal(lib.chars.size, 1);
+  const again = await b.ask('u1', 'importAll', { backup });
+  assert.equal(again.skipped, 1);
+  const c = (await b.ask('u1', 'get', { id: r.id })).c;
+  assert.equal(c.name, draft.name);
+  assert.ok(c.characterId && c.characterId === [...lib.chars.keys()][0]);
+  await assert.rejects(b.ask('u1', 'importAll', { backup: { kind: 'x' } }), /백업 파일이 아닙니다/);
+});
