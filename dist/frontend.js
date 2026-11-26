@@ -711,6 +711,173 @@ export function etaLabel(ms, exact) {
   return `도착까지 약 ${Math.round(h)}시간`;
 }
 
+// 편지지 꾸미기(그림 대신 HTML·SVG): 상대마다 테마(종이색·잉크·결·가장자리·글꼴·장식 무늬)를 정하고 화면·HTML 저장에 같이 쓴다. 부수 효과 없음.
+
+export const PAPER_FONTS = {
+  myeongjo: { family: 'Nanum Myeongjo', label: '나눔명조 (단정한 명조)', size: 1, google: 'Nanum+Myeongjo:wght@400;700' },
+  gowun: { family: 'Gowun Batang', label: '고운바탕 (부드러운 바탕)', size: 1, google: 'Gowun+Batang:wght@400;700' },
+  hahmlet: { family: 'Hahmlet', label: '함렡 (고전 활자)', size: 1, google: 'Hahmlet:wght@400;600' },
+  songmyung: { family: 'Song Myung', label: '송명 (옛 인쇄체)', size: 1.02, google: 'Song+Myung' },
+  pen: { family: 'Nanum Pen Script', label: '나눔손글씨 펜 (빠른 손글씨)', size: 1.32, google: 'Nanum+Pen+Script' },
+  brush: { family: 'Nanum Brush Script', label: '나눔손글씨 붓 (굵은 붓)', size: 1.3, google: 'Nanum+Brush+Script' },
+  gaegu: { family: 'Gaegu', label: '개구 (둥근 손글씨)', size: 1.12, google: 'Gaegu:wght@400;700' },
+  dokdo: { family: 'East Sea Dokdo', label: '동해독도 (거친 손글씨)', size: 1.45, google: 'East+Sea+Dokdo' },
+  himelody: { family: 'Hi Melody', label: '하이멜로디 (가벼운 손글씨)', size: 1.22, google: 'Hi+Melody' },
+  poor: { family: 'Poor Story', label: '푸어스토리 (삐뚤한 손글씨)', size: 1.12, google: 'Poor+Story' },
+  yeonsung: { family: 'Yeon Sung', label: '연성 (단단한 손글씨)', size: 1.15, google: 'Yeon+Sung' },
+  gamja: { family: 'Gamja Flower', label: '감자꽃 (동글한 손글씨)', size: 1.2, google: 'Gamja+Flower' },
+};
+export const PAPER_FONT_URL = `https://fonts.googleapis.com/css2?${Object.values(PAPER_FONTS).map((f) => `family=${f.google}`).join('&')}&display=swap`;
+
+// 24×24 선 무늬
+export const PAPER_MOTIFS = {
+  leaf: 'M4 20C4 10 10 4 20 4C20 14 14 20 4 20Z M4 20L14 10',
+  star: 'M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.5 6.7 19.4l1.2-6L3.4 9.3l6-.7z',
+  wave: 'M2 10c3-4 6-4 9 0s6 4 9 0 M2 16c3-4 6-4 9 0s6 4 9 0',
+  gear: 'M12 8a4 4 0 1 0 .01 0 M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2',
+  snow: 'M12 2v20 M3.3 7l17.4 10 M3.3 17l17.4-10 M9 3.5l3 2 3-2 M9 20.5l3-2 3 2',
+  vine: 'M2 16c5 0 6-8 10-8s5 8 10 8 M8 11c-1-3 1-5 3-5 M16 11c1-3-1-5-3-5',
+  rune: 'M8 3v18 M8 4l8 6-8 6 M16 14v7',
+  feather: 'M20 4C10 4 5 10 4 20 M20 4c0 8-6 13-14 14 M9 15l6-1 M11 11l6-1',
+  scale: 'M2 12a5 5 0 0 1 10 0a5 5 0 0 1 10 0 M7 18a5 5 0 0 1 10 0',
+  flower: 'M12 9a3 3 0 1 0 .01 0 M12 3c2 2 2 4 0 6c-2-2-2-4 0-6 M12 15c2 2 2 4 0 6c-2-2-2-4 0-6 M3 12c2-2 4-2 6 0c-2 2-4 2-6 0 M15 12c2-2 4-2 6 0c-2 2-4 2-6 0',
+  moon: 'M15 3a9 9 0 1 0 6 13a7 7 0 1 1-6-13Z',
+  shell: 'M12 20L3 9c3-4 15-4 18 0Z M12 20L8 7 M12 20V6 M12 20l4-13',
+  flame: 'M12 21c-4 0-6-3-6-6 0-4 4-6 4-10 3 2 4 5 4 7 1-1 2-2 2-4 2 2 2 4 2 7 0 3-2 6-6 6Z',
+  key: 'M7 9a3 3 0 1 0 .01 0 M10 12h11 M17 12v3 M20 12v2',
+};
+export const PAPER_MOTIF_LABEL = {
+  leaf: '잎', star: '별', wave: '물결', gear: '톱니바퀴', snow: '눈꽃', vine: '덩굴', rune: '룬 문자', feather: '깃털',
+  scale: '비늘', flower: '꽃', moon: '달', shell: '조개', flame: '불꽃', key: '열쇠',
+};
+export const PAPER_TEXTURES = { lined: '줄', grid: '모눈', parchment: '양피지 얼룩', fiber: '섬유 결', dots: '점', plain: '민무늬' };
+export const PAPER_EDGES = { straight: '곧은 가장자리', deckle: '손으로 뜬 종이(울퉁불퉁)', torn: '찢어 낸 가장자리', stitched: '바느질 테두리' };
+
+const hexOk = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v.trim()) ? v.trim().toLowerCase() : '');
+const lum = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((x) => { const s = x / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+};
+export const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+const PALETTES = [
+  ['#f4ead6', '#3b2f22', '#8a5a2b'], ['#eef1e6', '#24331f', '#5f7d3a'], ['#f3ede4', '#2d2a3a', '#6b4e8a'], ['#e9eef3', '#1f2e3d', '#3d6c8f'],
+  ['#f6e9e4', '#3a2420', '#a0473b'], ['#efe6cf', '#2f2a1d', '#8b7330'], ['#2a2630', '#ece2cf', '#c9a45a'], ['#f2f0ea', '#262626', '#7a7a7a'],
+];
+const hashStr = (s) => { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+
+// 글 생성 전에도 보기 좋게: 상대 id로 고정된 기본 테마
+export function defaultTheme(c) {
+  const h = hashStr(c?.id || c?.name || 'x');
+  const pal = PALETTES[h % PALETTES.length];
+  const pick = (obj, k) => Object.keys(obj)[(h >>> k) % Object.keys(obj).length];
+  return { paper: pal[0], ink: pal[1], accent: pal[2], texture: pick(PAPER_TEXTURES, 3), edge: pick(PAPER_EDGES, 7), font: pick(PAPER_FONTS, 11), motif: pick(PAPER_MOTIFS, 15), density: 2, note: '', auto: true };
+}
+
+export function cleanTheme(t, fallback = null) {
+  const f = fallback || defaultTheme({});
+  const paper = hexOk(t?.paper) || f.paper;
+  let ink = hexOk(t?.ink) || f.ink;
+  if (contrast(paper, ink) < 4.5) ink = lum(paper) > 0.4 ? '#2b2420' : '#f1e9da'; // 글씨가 안 읽히면 바꿈
+  const accent = hexOk(t?.accent) || f.accent;
+  const one = (v, obj, d) => (typeof v === 'string' && Object.hasOwn(obj, v) ? v : d);
+  const dn = Math.round(Number(t?.density));
+  return {
+    paper, ink, accent,
+    texture: one(t?.texture, PAPER_TEXTURES, f.texture),
+    edge: one(t?.edge, PAPER_EDGES, f.edge),
+    font: one(t?.font, PAPER_FONTS, f.font),
+    motif: one(t?.motif, PAPER_MOTIFS, f.motif),
+    density: Number.isFinite(dn) ? Math.min(3, Math.max(1, dn)) : 2,
+    note: typeof t?.note === 'string' ? t.note.trim().slice(0, 200) : '',
+    ...(t?.auto ? { auto: true } : {}),
+  };
+}
+
+// 글 생성 1회로 테마를 고른다(사건이 있으면 이전 테마에서 조금 바꿈)
+export function buildThemeMessages(c, { reason = '', prev = null } = {}) {
+  const m = c.mail || {};
+  const system = [
+    'You design the stationery of a correspondent from another world, as data for an HTML letter page (no image).',
+    'Pick values that fit their world, letter medium and personality. Colors are hex; ink must be easy to read on paper.',
+    `font (handwriting/typeface of their letters): ${Object.entries(PAPER_FONTS).map(([k, v]) => `${k}=${v.label}`).join(', ')}`,
+    `texture: ${Object.keys(PAPER_TEXTURES).join(' / ')}; edge: ${Object.keys(PAPER_EDGES).join(' / ')}`,
+    `motif (border ornament): ${Object.keys(PAPER_MOTIFS).join(' / ')}; density 1 (sparse) ~ 3 (rich)`,
+    'note: one short Korean phrase describing the stationery.',
+  ].join('\n');
+  const user = [
+    `<correspondent name="${c.name}">`,
+    String(c.brief || '').slice(0, 1500),
+    '</correspondent>',
+    `letter medium=${m.medium || '-'}; texture=${m.texture || '-'}; scent=${m.scent || '-'}; seal=${m.seal || '-'}`,
+    m.imageKeywords?.length ? `world keywords=${m.imageKeywords.join(', ')}` : '',
+    prev ? `current stationery=${JSON.stringify(prev)}` : '',
+    reason ? `Something happened, so this letter's stationery changes: ${reason}. Change only what the event would change (1~3 values).` : '',
+    'Output JSON only: {"paper":"#","ink":"#","accent":"#","texture":"","edge":"","font":"","motif":"","density":2,"note":""}',
+  ].filter(Boolean).join('\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+
+// ── 그리기(화면·HTML 저장 공용): 스타일 글과 SVG 문자열 ──
+const enc = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+const motifSvg = (t, size, opacity) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-6 -6 36 36"><path d="${PAPER_MOTIFS[t.motif]}" fill="none" stroke="${t.accent}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"/></svg>`;
+const TEXTURE_CSS = (t) => ({
+  lined: `repeating-linear-gradient(transparent 0 27px, ${t.ink}22 27px 28px, transparent 28px 30px)`,
+  grid: `repeating-linear-gradient(transparent 0 23px, ${t.ink}1a 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, ${t.ink}1a 23px 24px)`,
+  parchment: `radial-gradient(circle at 18% 22%, ${t.ink}12, transparent 38%), radial-gradient(circle at 82% 68%, ${t.ink}10, transparent 42%), radial-gradient(circle at 55% 95%, ${t.accent}14, transparent 35%)`,
+  fiber: `repeating-linear-gradient(37deg, transparent 0 3px, ${t.ink}08 3px 4px), repeating-linear-gradient(-53deg, transparent 0 5px, ${t.ink}06 5px 6px)`,
+  dots: `radial-gradient(${t.ink}26 1px, transparent 1.3px) 0 0 / 18px 18px`,
+  plain: 'none',
+}[t.texture]);
+// 가장자리: 정해진 씨앗으로 울퉁불퉁한 다각형(매번 같은 모양)
+function edgePath(t, seed) {
+  if (t.edge !== 'deckle' && t.edge !== 'torn') return '';
+  let s = hashStr(seed) || 1;
+  const r = () => { s = (s * 1103515245 + 12345) >>> 0; return (s % 1000) / 1000; };
+  const amp = t.edge === 'torn' ? 1.4 : 0.6;
+  const pts = [];
+  const N = 28;
+  for (let i = 0; i <= N; i++) pts.push(`${(i / N) * 100}% ${(r() * amp).toFixed(2)}%`);
+  for (let i = 1; i <= N; i++) pts.push(`${100 - (r() * amp * 0.6).toFixed(2)}% ${(i / N) * 100}%`);
+  for (let i = N - 1; i >= 0; i--) pts.push(`${(i / N) * 100}% ${(100 - r() * amp).toFixed(2)}%`);
+  for (let i = N - 1; i >= 1; i--) pts.push(`${(r() * amp * 0.6).toFixed(2)}% ${(i / N) * 100}%`);
+  return `polygon(${pts.join(',')})`;
+}
+export function paperLook(theme, { seed = '', narrow = false } = {}) {
+  const t = cleanTheme(theme);
+  const f = PAPER_FONTS[t.font];
+  const band = narrow ? 18 : [0, 20, 28, 36][t.density];
+  const tile = [0, 40, 30, 24][t.density];
+  const clip = edgePath(t, seed);
+  const outer = [
+    `background:${t.paper} ${enc(motifSvg(t, tile, 0.55))} repeat`,
+    `background-size:${tile}px ${tile}px`,
+    `padding:${band}px`,
+    'position:relative',
+    clip ? `clip-path:${clip}` : '',
+    t.edge === 'stitched' ? `outline:2px dashed ${t.accent}99;outline-offset:-7px` : '',
+    `box-shadow:0 10px 22px -12px #0008`,
+    'margin:4px 0 14px',
+  ].filter(Boolean).join(';');
+  const inner = [
+    `background-color:${t.paper}`,
+    `background-image:${TEXTURE_CSS(t)}`,
+    `color:${t.ink}`,
+    `font-family:"${f.family}","Nanum Myeongjo","Noto Serif KR",Georgia,serif`,
+    `font-size:${(14.5 * f.size).toFixed(1)}px`,
+    // 줄·모눈 종이는 글줄을 줄 간격(30px·24px)에 맞춘다
+    t.texture === 'lined' ? 'line-height:30px' : t.texture === 'grid' ? 'line-height:24px' : `line-height:${f.size > 1.1 ? 1.75 : 1.95}`,
+    `border:1px solid ${t.accent}55`,
+    `padding:${narrow ? '14px 12px' : '22px 24px 18px'}`,
+    'white-space:pre-wrap',
+    'position:relative',
+  ].join(';');
+  const corner = (rot) => `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="-6 -6 36 36" style="position:absolute;${rot}"><path d="${PAPER_MOTIFS[t.motif]}" fill="${t.accent}22" stroke="${t.accent}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const corners = narrow ? '' : [corner('top:4px;left:4px'), corner('top:4px;right:4px;transform:scaleX(-1)'), corner('bottom:4px;left:4px;transform:scaleY(-1)'), corner('bottom:4px;right:4px;transform:scale(-1,-1)')].join('');
+  return { theme: t, outer, inner, corners, metaColor: `${t.ink}aa`, accent: t.accent };
+}
+
 
 // 이세계 우체통 프런트
 // 1) 서랍 탭: 페르소나별 상대 목록, 새 상대·수정, 편지 쓰기, 설정
@@ -761,6 +928,17 @@ const CSS = `
 .im-paper.im-mine .im-encl{border-color:#b8c2cc;color:#55626e}
 .im-envelope{display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:6px;border:1px solid #cdb68e;background:#e9d9b8;color:#3b2f22;margin-right:22px;position:relative}
 .im-envelope dt{font-size:11px;color:#7a6a52}
+.im-env-art{position:relative;aspect-ratio:3/2;background-size:cover;background-position:center;border-radius:4px;color:#6b2f2a}
+.im-env-stamp{position:absolute;top:7%;right:5%;width:15%;aspect-ratio:5/6;object-fit:cover;transform:rotate(3deg);box-shadow:0 2px 4px #0005;background:#fff;padding:2px;border-radius:2px}
+.im-env-face .im-env-stamp{top:10px;right:12px;width:44px}
+.im-env-post{position:absolute;top:9%;right:17%;opacity:.55;transform:rotate(-12deg)}
+.im-env-postdate{position:absolute;top:calc(9% + 28px);right:calc(17% + 18px);font:700 11px system-ui,sans-serif;opacity:.65;transform:rotate(-12deg)}
+.im-env-seal2{position:absolute;left:50%;top:52%;width:17%;transform:translate(-50%,-50%);border-radius:50%;filter:drop-shadow(0 2px 3px #0006)}
+.im-themed{position:relative;margin-right:22px}
+.im-themed .im-corners{position:absolute;inset:0;pointer-events:none}
+.im-tstamp{float:right;width:44px;height:52px;object-fit:cover;margin:0 0 6px 10px;transform:rotate(2deg);box-shadow:0 2px 4px #0004;cursor:zoom-in;background:#fff;padding:2px}
+.im-tmeta{font-family:system-ui,sans-serif;font-size:11px;white-space:normal;margin:0 0 10px;line-height:1.5}
+.im-tencl{margin-top:12px;padding-top:8px;border-top:1px dashed;font-size:.9em}
 .im-envelope dd{margin:0 0 4px}
 .im-envelope .im-btn{align-self:flex-start;background:#8a5a2b;color:#fff;border-color:transparent}
 .im-transit{border:1px dashed var(--lumiverse-border);border-radius:6px;padding:8px 12px;color:var(--lumiverse-text-muted);font-size:12px}
@@ -1103,6 +1281,17 @@ export function setup(ctx) {
     headerTitle: '이세계 우체통', iconSvg: ICON,
   });
   const removeStyle = typeof ctx.dom?.addStyle === 'function' ? ctx.dom.addStyle(CSS + CSS2) : null;
+  let fontLink = null;
+  try {
+    if (typeof document !== 'undefined' && !document.getElementById('im-paper-fonts')) {
+      fontLink = el('link', { id: 'im-paper-fonts', rel: 'stylesheet', href: PAPER_FONT_URL });
+      document.head.append(fontLink);
+    }
+  } catch {}
+  const htmlPaper = () => (S.settings?.art?.paperMode || 'html') !== 'image';
+  const setKindsUi = () => (htmlPaper() ? ['envelope', 'stamp', 'seal'] : ['paper', 'stamp', 'seal']);
+  const KIND_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' };
+  const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
   if (!removeStyle) tab.root.append(el('style', { text: CSS + CSS2 }));
   const root = el('div', { class: 'im-tab' });
   tab.root.append(root);
@@ -1246,6 +1435,42 @@ export function setup(ctx) {
         ]),
       ];
     }
+    // 편지지 테마 편집(미리보기 + 글 생성으로 다시 만들기 + 직접 고르기)
+    function themeEditor(c, doAct) {
+      const t = { ...themeOf(c) };
+      const narrow = typeof window !== 'undefined' && window.innerWidth < 520;
+      const preview = el('div', {});
+      const draw = () => {
+        const look = paperLook(t, { seed: `${c.id}-preview`, narrow });
+        preview.replaceChildren(el('div', { class: 'im-themed', style: look.outer }, [
+          el('span', { class: 'im-corners', html: look.corners }),
+          el('div', { style: look.inner }, [el('div', { class: 'im-tmeta', style: `color:${look.metaColor}`, text: `${c.name}의 편지지 미리보기${t.note ? ` · ${t.note}` : ''}` }), el('div', { text: '바람이 바뀌는 계절이에요.\n당신 쪽에도 이런 냄새가 나는지 궁금합니다.' })]),
+        ]));
+      };
+      const sel = (k, obj, labelOf = (v) => v) => el('select', { onchange: (e) => { t[k] = e.target.value; draw(); } }, Object.keys(obj).map((v) => el('option', { value: v, text: labelOf(v), selected: t[k] === v })));
+      const color = (k) => el('input', { type: 'color', value: t[k], style: 'width:48px;height:30px;padding:0', oninput: (e) => { t[k] = e.target.value; draw(); } });
+      draw();
+      return el('div', { style: 'margin:4px 0 12px' }, [
+        el('div', { class: 'im-row' }, [
+          el('b', { class: 'im-grow', text: `편지지 꾸미기${c.paperTheme ? '' : ' (기본값 — 아직 만들지 않음)'}` }),
+          link(c.paperTheme ? '다시 만들기(글 1회)' : '세계에 맞게 만들기(글 1회)', () => doAct(async () => { await ask('makeTheme', { id: c.id }, 120000); })),
+        ]),
+        preview,
+        el('details', {}, [
+          el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '직접 고르기' }),
+          el('div', { class: 'im-pair' }, [
+            field('글씨체', sel('font', PAPER_FONTS, (v) => PAPER_FONTS[v].label)),
+            field('장식 무늬', sel('motif', PAPER_MOTIFS, (v) => PAPER_MOTIF_LABEL[v] || v)),
+            field('종이 결', sel('texture', PAPER_TEXTURES, (v) => PAPER_TEXTURES[v])),
+            field('가장자리', sel('edge', PAPER_EDGES, (v) => PAPER_EDGES[v])),
+            field('장식 양', el('select', { onchange: (e) => { t.density = Number(e.target.value); draw(); } }, [[1, '적게'], [2, '보통'], [3, '많이']].map(([v, n]) => el('option', { value: String(v), text: n, selected: t.density === v })))),
+          ]),
+          el('div', { class: 'im-row', style: 'gap:12px;flex-wrap:wrap' }, [el('label', {}, ['종이 ', color('paper')]), el('label', {}, ['잉크 ', color('ink')]), el('label', {}, ['장식 ', color('accent')])]),
+          btn('이 편지지로 저장', () => doAct(async () => { await ask('setTheme', { id: c.id, theme: t }); })),
+          el('div', { class: 'im-muted', text: '예전 편지는 그때 편지지 그대로 남습니다(사건으로 바뀐 경우). 글씨체는 구글 글꼴을 불러오며, 막히면 기본 명조로 보입니다.' }),
+        ]),
+      ]);
+    }
     function formView() {
       const editing = !!view.id;
       const cur = editing ? byId(view.id) : null;
@@ -1368,6 +1593,11 @@ export function setup(ctx) {
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
       const icday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perCorrespondentDay ?? 0) });
+      const ipmode = el('select', {}, [
+        el('option', { value: 'html', text: '꾸미기 — 편지지는 글씨체·무늬로 꾸미고, 봉투를 그림', selected: A.paperMode !== 'image' }),
+        el('option', { value: 'image', text: '그림 — 예전처럼 편지지를 그림으로', selected: A.paperMode === 'image' }),
+      ]);
+      const iesize = el('input', { value: A.envelopeSize || '1536x1024', placeholder: '1536x1024' });
       const PP = A.portrait || {};
       const psel = el('select', {}, [
         el('option', { value: '', text: '(고르기 — NovelAI 연결)' }),
@@ -1435,7 +1665,7 @@ export function setup(ctx) {
           field('글씨 칸 선명도 (100=그림 그대로, 낮을수록 크림색으로 덮음)', istrength),
         ]),
         el('div', { class: 'im-muted', text: '편지지 그림은 액자처럼 씁니다: 모서리·테두리는 늘리지 않고 편지 길이에 맞춰 가장자리만 이어 붙입니다. 장식이 글씨에 닿으면 두께나 비율을 올려 주세요.' }),
-        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('하루 최대 장수', iday), field('상대 한 명 하루 최대(0=제한 없음)', icday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
+        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('편지지 방식', ipmode), field('봉투 크기', iesize), field('하루 최대 장수', iday), field('상대 한 명 하루 최대(0=제한 없음)', icday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
         el('div', { class: 'im-muted', text: '편지지·우표가 바뀌면 그 편지부터 새 그림을 쓰고, 예전 편지는 그때 그림을 그대로 가집니다. 바뀔 때마다 그림 1~2장 + 글 1회, 하루 최대 장수 안에서만. 「사건」은 정리 단계가 편지 내용에서 찾습니다(정리 단계를 끄면 계절 바뀜만).' }),
         el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
         el('h4', { text: '초상화 (NovelAI V4.5 Full)' }),
@@ -1494,7 +1724,7 @@ export function setup(ctx) {
         ]),
         el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1735,9 +1965,10 @@ export function setup(ctx) {
             ]),
           ]);
         })() : null,
-        el('div', { class: 'im-grid' }, ['paper', 'stamp', 'seal'].map((k) => {
+        c && htmlPaper() ? themeEditor(c, doAct) : null,
+        el('div', { class: 'im-grid' }, setKindsUi().map((k) => {
           const img = c?.art?.[k]?.imageId;
-          const label = { paper: '편지지', stamp: '우표', seal: '봉인' }[k];
+          const label = KIND_LABEL[k];
           return el('div', { class: 'im-item' }, [
             el('div', { class: 'im-pic' }, [img ? el('img', { src: imgUrl(img, 'lg'), alt: label, loading: 'lazy', style: 'cursor:zoom-in', title: '눌러서 크게 보기', onclick: () => openImage(img, `${c?.name || ''} · ${label}`) }) : el('span', { html: PIC }), stateOverlay(artTarget(c, k))]),
             el('div', { class: 'im-cap' }, [el('b', { text: label }), link(img ? '다시 그리기' : '그리기', () => doAct(async () => {
@@ -1787,8 +2018,18 @@ export function setup(ctx) {
     if (l.state === 'delivered') {
       const rows = [['매체', e.medium], ['손끝에 닿는 것', e.texture], ['냄새', e.scent], ['흔적', e.marks], ['봉인', e.seal], ['우표', e.stamp]].filter(([, v]) => v);
       const sealImg = c.art?.seal?.imageId;
+      const envImg = c.art?.envelope?.imageId;
+      const stampImg0 = l.art?.stamp || c.art?.stamp?.imageId;
+      const face = envImg
+        ? el('div', { class: 'im-env-art', style: `background-image:url("${imgUrl(envImg, 'lg')}")` }, [
+          stampImg0 ? el('img', { class: 'im-env-stamp', src: imgUrl(stampImg0, 'sm'), alt: '우표' }) : null,
+          el('span', { class: 'im-env-post', html: `<svg viewBox="0 0 80 80" width="74" height="74"><circle cx="40" cy="40" r="30" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="40" cy="40" r="24" fill="none" stroke="currentColor" stroke-width="1"/><path d="M4 34h18M4 40h16M4 46h18M58 34h18M60 40h16M58 46h18" stroke="currentColor" stroke-width="1.5"/></svg>` }),
+          el('span', { class: 'im-env-postdate', text: new Date(l.arriveAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) }),
+          sealImg ? el('img', { class: 'im-env-seal2', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : null,
+        ])
+        : el('div', { class: 'im-env-face' }, [sealImg ? el('img', { class: 'im-env-seal', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : el('span', { class: 'im-env-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) }), stampImg0 ? el('img', { class: 'im-env-stamp', src: imgUrl(stampImg0, 'sm'), alt: '우표' }) : null]);
       return el('div', { class: 'im-envelope' }, [
-        el('div', { class: 'im-env-face' }, [sealImg ? el('img', { class: 'im-env-seal', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : el('span', { class: 'im-env-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) })]),
+        face,
         el('div', { class: 'im-env-body' }, [
         el('div', { style: 'font-size:12px;color:#7a6a52;text-align:center', text: `${c.name}에게서 · ${when(l.arriveAt)} 도착` }),
         el('dl', { style: 'margin:0' }, rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })])),
@@ -1811,6 +2052,21 @@ export function setup(ctx) {
     const paperStyle = paperImg
       ? `border:${bw}px solid transparent;border-image:url("${imgUrl(paperImg, 'lg')}") ${slice}% fill / ${bw}px stretch;background:${fade ? `rgba(246,238,222,${fade})` : 'transparent'};background-clip:padding-box;box-shadow:none;border-radius:0;padding:${narrow ? '10px 8px' : '16px 18px'}`
       : undefined;
+    if (htmlPaper() && !l.art?.paper) {
+      const look = paperLook(themeOf(c, l), { seed: l.id, narrow });
+      return el('div', { class: 'im-themed im-theirs', style: look.outer }, [
+        el('span', { class: 'im-corners', html: look.corners }),
+        el('div', { style: look.inner }, [
+          stampImg ? el('img', { class: 'im-tstamp', src: imgUrl(stampImg, 'sm'), alt: '우표', title: e.stamp || '', onclick: () => openImage(stampImg, `${c.name} · 우표`, e.stamp || '') }) : null,
+          el('div', { class: 'im-tmeta', style: `color:${look.metaColor}`, text: `${c.name}의 편지 · ${meta}` }),
+          el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
+          l.enclosures?.length ? el('div', { class: 'im-tencl', style: `border-color:${look.accent}88` }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
+          l.artNote ? el('div', { class: 'im-tmeta', style: `margin:10px 0 0;color:${look.accent}`, text: `✦ ${l.artNote}` }) : null,
+          l.late ? el('div', { class: 'im-tmeta', style: `margin:6px 0 0;color:${look.accent}`, text: `✦ 우체부가 늦었다 — ${l.late}` }) : null,
+          el('div', { class: 'im-tmeta', style: `margin:10px 0 0;color:${look.metaColor}`, text: `받은 시각 ${when(l.arriveAt)}` }),
+        ]),
+      ]);
+    }
     return el('div', { class: `im-paper im-theirs${paperImg ? ' im-has-paper' : ''}`, style: paperStyle }, [
       el('div', { class: 'im-stamp', title: [e.stamp && `우표: ${e.stamp}`, e.seal && `봉인: ${e.seal}`].filter(Boolean).join('\n') }, [
         stampImg ? el('img', { src: imgUrl(stampImg, 'sm'), alt: '우표', style: 'cursor:zoom-in', onclick: () => openImage(stampImg, `${c.name} · 우표`, e.stamp || '') }) : el('span', { style: 'font-size:18px;line-height:1', text: '✉' }),
@@ -1841,7 +2097,7 @@ export function setup(ctx) {
     const letters = (c.letters || []).filter((l) => !(l.from === 'them' && l.state === 'in_transit'));
     const plan = letters.map((l) => ({
       l,
-      paper: l.from === 'them' ? want(l.art?.paper || c.art?.paper?.imageId, 'lg') : '',
+      paper: l.from === 'them' && (!htmlPaper() || l.art?.paper) ? want(l.art?.paper || c.art?.paper?.imageId, 'lg') : '',
       stamp: l.from === 'them' ? want(l.art?.stamp || c.art?.stamp?.imageId, 'sm') : '',
     }));
     const portrait = want(c.art?.portrait?.imageId, 'lg');
@@ -1858,6 +2114,16 @@ export function setup(ctx) {
       const mine = l.from === 'me';
       const unread = !mine && l.state === 'delivered';
       const e = l.envelope || {};
+      if (!mine && htmlPaper() && !l.art?.paper) {
+        const look = paperLook(themeOf(c, l), { seed: l.id });
+        const enc0 = (l.enclosures || []).map((x) => `<div>동봉 · ${escHtml(x.item)}${x.note ? ` — ${escHtml(x.note)}` : ''}</div>`).join('');
+        return `<article class="themed theirs" style="${escHtml(look.outer)}"><span class="corners">${look.corners}</span><div style="${escHtml(look.inner)}">
+${src(stamp) ? `<img class="tstamp" src="${src(stamp)}" alt="우표">` : ''}
+<div class="tmeta" style="color:${look.metaColor}">${escHtml(c.name)}의 편지 · ${escHtml([l.writtenLabel || l.theirWrittenLabel, e.medium, e.scent].filter(Boolean).join(' · '))}</div>
+<div>${unread ? '<i>(아직 열지 않은 편지)</i>' : escHtml(l.body + (l.ps ? `\n\n추신. ${l.ps}` : ''))}</div>
+${enc0 && !unread ? `<div class="tencl" style="border-color:${look.accent}88">${enc0}</div>` : ''}
+<div class="tmeta" style="margin:10px 0 0;color:${look.metaColor}">받은 시각 ${escHtml(date(l.arriveAt))}</div></div></article>`;
+      }
       const p = src(paper);
       const style = p ? ` style="border:${bw}px solid transparent;border-image:url('${p}') ${slice}% fill / ${bw}px stretch;background:${fade ? `rgba(246,238,222,${fade})` : 'transparent'};background-clip:padding-box;box-shadow:none;border-radius:0"` : '';
       const meta = mine
@@ -1877,7 +2143,12 @@ ${!mine ? `<div class="meta foot">받은 시각 ${escHtml(date(l.arriveAt))}</di
     const html = `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escHtml(c.name)}와 주고받은 편지</title>
+<link rel="stylesheet" href="${PAPER_FONT_URL}">
 <style>
+.themed{position:relative;margin:0 7% 30px 0}.themed .corners{position:absolute;inset:0;pointer-events:none}
+.tstamp{float:right;width:52px;height:60px;object-fit:cover;margin:0 0 8px 12px;transform:rotate(2deg);box-shadow:0 2px 4px #0004;background:#fff;padding:2px}
+.tmeta{font-family:system-ui,sans-serif;font-size:11.5px;white-space:normal;margin:0 0 10px;line-height:1.5}
+.tencl{margin-top:12px;padding-top:8px;border-top:1px dashed;font-size:.9em}
 body{margin:0;background:#e9e1d1;background-image:radial-gradient(#d9ccb2 1px,transparent 1px);background-size:18px 18px;color:#3b2f22;font-family:"Nanum Myeongjo","Noto Serif KR","Batang",Georgia,serif}
 main{max-width:760px;margin:0 auto;padding:40px 18px 80px}
 header{display:flex;gap:20px;align-items:flex-end;margin-bottom:34px;border-bottom:1px solid #c9b38c;padding-bottom:18px}
@@ -2138,7 +2409,8 @@ ${gallery}
   };
   // 그림 세트(편지지·우표·봉인) 상태와 버튼
   function artBar(c, act) {
-    const have = ['paper', 'stamp', 'seal'].filter((k) => c.art?.[k]?.imageId);
+    const SK = setKindsUi();
+    const have = SK.filter((k) => c.art?.[k]?.imageId);
     const job = c.artJob;
     const left = S.art?.left;
     if (job?.state === 'running') {
@@ -2149,7 +2421,7 @@ ${gallery}
         el('div', { class: 'im-muted', style: 'font-size:11px', text: '보통 30초~1분, 이미지 서버가 붐비면 몇 분 걸려요. 8분이 넘으면 실패로 표시돼요.' }),
       ]);
     }
-    const missing = ['paper', 'stamp', 'seal'].filter((k) => !have.includes(k));
+    const missing = SK.filter((k) => !have.includes(k));
     return el('div', {}, [
       job?.state === 'failed' ? el('div', { class: 'im-row' }, [
         el('span', { class: 'im-err im-grow', text: `지난 그리기 실패 ${(job.total || 0) - (job.done || 0)}장: ${short(job.error || '', 160)}` }),
@@ -2158,8 +2430,8 @@ ${gallery}
       el('div', { class: 'im-row' }, [
         el('span', { class: 'im-muted im-grow', text: `그림 세트 ${have.length}/3${left !== undefined ? ` · 오늘 남은 그림 ${left}장` : ''}` }),
         link(missing.length ? `그림 세트 만들기(${missing.length}장)` : '세트 다시 그리기(3장)', () => act(async () => {
-          const kinds = missing.length ? missing : ['paper', 'stamp', 'seal'];
-          if (!confirm(`${c.name}의 ${kinds.map((k) => ({ paper: '편지지', stamp: '우표', seal: '봉인' })[k]).join('·')}을 그립니다.\n이미지 ${kinds.length}장 + 글 생성 1회. 계속할까요?`)) return;
+          const kinds = missing.length ? missing : SK;
+          if (!confirm(`${c.name}의 ${kinds.map((k) => KIND_LABEL[k]).join('·')}을 그립니다.\n이미지 ${kinds.length}장 + 글 생성 1회. 계속할까요?`)) return;
           await ask('drawSet', { id: c.id, kinds });
           await refresh();
         })),

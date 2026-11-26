@@ -7,12 +7,13 @@ import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
 } from './match.js';
 import { cleanPortrait, buildPortraitMessages, cleanPortraitPrompt, composePortrait } from './portrait.js';
+import { cleanTheme, defaultTheme, buildThemeMessages } from './paper.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
 } from './memory.js';
 import {
-  ART_KINDS, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, artChangeJobs, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
+  ART_KINDS, setKinds, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, artChangeJobs, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
 } from './art.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -207,7 +208,7 @@ export function start(api) {
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
-    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
     // 대상마다 상태: waiting → drawing → done | failed
     const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
     const setTarget = (i, patch) => mutate(user, id, (c) => {
@@ -241,7 +242,7 @@ export function start(api) {
         }
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
-          : j.kind === 'paper' ? [m.medium, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+          : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
         for (let i = 0; i < named.length; i++) {
@@ -262,7 +263,7 @@ export function start(api) {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
-            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : art.size, art)) {
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' ? art.envelopeSize : art.size, art)) {
               try {
                 // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
                 let timer;
@@ -437,22 +438,48 @@ export function start(api) {
   };
 
   // 편지지·우표 바뀜: 정리 단계가 찾은 사건(event) 또는 그쪽 계절 바뀜(season)
+  // 편지지 테마(글 1회). letterId가 있으면 그 편지부터 새 테마, 그 전 편지들은 예전 테마로 고정
+  const makeTheme = async (user, id, { reason = '', letterId = '' } = {}) => {
+    const settings = await loadSettings(user);
+    const c0 = await loadC(user, id);
+    const prev = c0.paperTheme ? cleanTheme(c0.paperTheme) : null;
+    const raw = await genJson(user, buildThemeMessages(c0, { reason, prev }), { ...settings, createConnectionId: settings.organizeConnectionId || settings.createConnectionId, createTemperature: reason ? 0.6 : 0.9 });
+    const t = cleanTheme(raw, prev || defaultTheme(c0));
+    const before = prev || defaultTheme(c0);
+    const c = await mutate(user, id, (c) => {
+      const letters = c.letters.map((l) => {
+        if (letterId && l.id === letterId) return { ...l, theme: t, artNote: [l.artNote, `새 편지지 — ${reason}`].filter(Boolean).join(' · ') };
+        if (letterId && l.from === 'them' && !l.theme) return { ...l, theme: before };
+        return l;
+      });
+      return { ...c, letters, paperTheme: t };
+    });
+    log('info', `편지지 테마(${c.name})${reason ? ` 바뀜: ${reason}` : ''} → ${t.font}/${t.motif}/${t.texture}`);
+    notify(user, { id });
+    return t;
+  };
   const maybeChangeArt = async (user, id, letterId, change) => {
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
-    if (!api.imageGen?.generate || (art.paperChange === 'off' && art.stampChange === 'off')) return;
+    if (art.paperChange === 'off' && art.stampChange === 'off') return;
     const c = await loadC(user, id);
     const l = c.letters.find((x) => x.id === letterId);
-    if (!l || l.from !== 'them' || l.art?.paper || l.art?.stamp) return; // 상대 편지에만, 한 번만
+    if (!l || l.from !== 'them' || l.art?.paper || l.art?.stamp || l.theme) return; // 상대 편지에만, 한 번만
     let seasonChanged = false;
     if (c.calendar?.months?.length) {
       const prevTheirs = [...c.letters].filter((x) => x.from === 'them' && x.id !== l.id && x.theirWrittenAt <= l.theirWrittenAt).pop();
       if (prevTheirs) seasonChanged = calendarDate(c.calendar, prevTheirs.theirWrittenAt).month !== calendarDate(c.calendar, l.theirWrittenAt).month;
     }
-    const jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: !!c.art?.paper?.imageId, stamp: !!c.art?.stamp?.imageId } });
+    const html = art.paperMode !== 'image';
+    let jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: html || !!c.art?.paper?.imageId, stamp: !!c.art?.stamp?.imageId } });
     if (!jobs.length) return;
     log('info', `편지지·우표 바뀜(${c.name}): ${jobs.map((j) => `${j.kind}=${j.reason}`).join(', ')}`);
-    await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
+    if (html) {
+      const pj = jobs.find((j) => j.kind === 'paper');
+      if (pj) await makeTheme(user, id, { reason: [pj.reason, pj.medium].filter(Boolean).join(' — '), letterId }).catch((e) => log('warn', `편지지 테마 바꾸기 실패: ${e?.message || e}`));
+      jobs = jobs.filter((j) => j.kind !== 'paper');
+    }
+    if (jobs.length && api.imageGen?.generate) await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
   };
 
   // ── 정리 단계 ──
@@ -644,6 +671,7 @@ export function start(api) {
       const settingsA = await loadSettings(user);
       const firstItems = (c.items || []).filter((x) => x.from === 'them' && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
       if (api.imageGen?.generate && firstItems.length && cleanArt(settingsA.art).autoItems === 'all') drawArtWhenFree(user, c.id, firstItems).catch((e) => log('info', `첫 편지 물건 자동 그림 건너뜀: ${e?.message || e}`));
+      if (cleanArt(settingsA.art).paperMode !== 'image') makeTheme(user, c.id).catch((e) => log('info', `편지지 테마 건너뜀: ${e?.message || e}`));
       return { id: c.id, characterId: charId, worldBookId: book.id };
     } catch (e) {
       // 중간에 실패하면 이번에 만든 것만 지운다
@@ -1007,9 +1035,14 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'makeTheme': return { theme: await makeTheme(user, p.id, { reason: String(p.reason || '').slice(0, 300) }) };
+      case 'setTheme': {
+        const c = await mutate(user, p.id, (c) => ({ ...c, paperTheme: cleanTheme(p.theme, c.paperTheme ? cleanTheme(c.paperTheme) : defaultTheme(c)) }));
+        return { theme: c.paperTheme };
+      }
       case 'drawSet': {
         const c = ensureArt(await loadC(user, p.id));
-        const kinds = (Array.isArray(p.kinds) ? p.kinds : ART_KINDS).filter((k) => ART_KINDS.includes(k));
+        const kinds = (Array.isArray(p.kinds) ? p.kinds : setKinds(cleanArt((await loadSettings(user)).art))).filter((k) => ART_KINDS.includes(k));
         if (!kinds.length) throw new Error('그릴 것이 없습니다.');
         return drawOrQueue(user, c.id, kinds.map((kind) => ({ kind })));
       }

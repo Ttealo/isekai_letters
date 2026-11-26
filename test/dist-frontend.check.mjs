@@ -118,21 +118,21 @@ ok('위젯: 깃발 올라감 + 숫자', widgetRoot.querySelector('svg path[d^="M
 widgetRoot.querySelector('.im-box').dispatchEvent(new window.Event('click', { bubbles: true })); await tick(6);
 ok('위젯 누르면 보조창 열림', collapsed === false);
 // 보조창 편지첩
-ok('편지첩: 상대 편지 편지지', !!panelRoot.querySelector('.im-paper.im-theirs'));
+ok('편지첩: 상대 편지 편지지(꾸민 HTML)', !!panelRoot.querySelector('.im-themed.im-theirs'));
 ok('편지첩: 날짜 구분선·상대 정보 카드', panelRoot.querySelectorAll('.im-divider').length >= 3 && !!panelRoot.querySelector('.im-info .im-seal'));
 ok('편지첩: 내 편지 편지지', !!panelRoot.querySelector('.im-paper.im-mine'));
 ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') && panelRoot.textContent.includes('<b>편지</b>'));
-ok('편지첩: 우표 칸(설명은 툴팁)', panelRoot.querySelector('.im-stamp')?.getAttribute('title')?.includes('등대 도장'));
-const paperStyle = panelRoot.querySelector('.im-paper.im-has-paper')?.getAttribute('style') || '';
-ok('그림: 편지지는 액자처럼(테두리 64px, 20% 잘라 씀, 글씨는 안쪽)', paperStyle.includes('border-image:url("/api/v1/images/pp?size=lg") 20% fill / 64px stretch') && paperStyle.includes('border:64px solid transparent'));
-ok('그림: 우표 그림', !!panelRoot.querySelector('.im-stamp img[src="/api/v1/images/st?size=sm"]'));
+ok('편지첩: 우표 붙음(설명은 툴팁)', panelRoot.querySelector('.im-tstamp')?.getAttribute('title')?.includes('등대 도장'));
+const themed = panelRoot.querySelector('.im-themed.im-theirs');
+ok('편지지 꾸미기: 무늬 띠·모서리 장식 4개·글씨체', (themed?.getAttribute('style') || '').includes('data:image/svg+xml') && themed.querySelectorAll('.im-corners svg').length === 4 && /font-family/.test(themed.children[1]?.getAttribute('style') || ''));
+ok('그림: 우표 그림', !!panelRoot.querySelector('.im-tstamp[src="/api/v1/images/st?size=sm"]'));
 ok('그림: 그리는 중 표시(대상별)', panelRoot.textContent.includes('그림을 그리는 중 0/2') && panelRoot.textContent.includes('· 봉인: 그리는 중…') && panelRoot.textContent.includes('· 깃털: 기다리는 중'));
 ok('그림: 위젯에 그리는 중', widgetRoot.textContent.includes('그림'));
 ok('편지첩: 동봉 줄', panelRoot.textContent.includes('동봉 · 조개 — 얼음 틈에서'));
 ok('편지첩: 안 연 봉투', !!panelRoot.querySelector('.im-envelope') && panelRoot.textContent.includes('거칠다'));
 ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 편지가 가는 중'));
 clickIn(panelRoot, 'button', '봉투 열기'); await tick(8);
-ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-paper.im-theirs').length === 2);
+ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-themed.im-theirs').length === 2);
 // 물품
 clickIn(panelRoot, '.im-tabs button', '물품'); await tick();
 ok('물품: 받은 것 3 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 3') && panelRoot.textContent.includes('보낸 것 · 1'));

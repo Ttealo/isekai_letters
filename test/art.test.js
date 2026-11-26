@@ -110,3 +110,21 @@ test('상대별 하루 그림 상한', () => {
   assert.equal(A.quotaLeft(u, A.cleanArt({ perDay: 6 }), day1, 'c1'), 4);
   assert.equal(A.quotaLeft(u, art, day1 + 24 * 3600e3, 'c1'), 2);
 });
+
+test('편지지 테마: 기본값 고정, 값 검사·대비, 화면용 스타일', async () => {
+  const P = await import('../src/paper.js');
+  const a = P.defaultTheme({ id: 'c1' });
+  assert.deepEqual(P.defaultTheme({ id: 'c1' }), a);
+  assert.ok(P.PAPER_FONTS[a.font] && P.PAPER_MOTIFS[a.motif]);
+  const t = P.cleanTheme({ paper: '#ffffff', ink: '#fefefe', font: 'gaegu', motif: 'gear', texture: 'grid', edge: 'torn', density: 9 });
+  assert.ok(P.contrast(t.paper, t.ink) >= 4.5);
+  assert.equal(t.density, 3);
+  const look = P.paperLook(t, { seed: 'l1' });
+  assert.match(look.outer, /clip-path:polygon/);
+  assert.match(look.inner, /Gaegu/);
+  assert.equal((look.corners.match(/<svg/g) || []).length, 4);
+  assert.equal(P.paperLook(t, { seed: 'l1' }).outer, look.outer);
+  assert.match(P.PAPER_FONT_URL, /^https:\/\/fonts\.googleapis\.com\/css2\?family=Nanum\+Myeongjo/);
+  assert.deepEqual(A.setKinds(A.cleanArt({})), ['envelope', 'stamp', 'seal']);
+  assert.deepEqual(A.setKinds(A.cleanArt({ paperMode: 'image' })), ['paper', 'stamp', 'seal']);
+});

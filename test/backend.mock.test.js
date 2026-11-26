@@ -262,7 +262,7 @@ test('매칭: 초안 → 확정하면 로어북·캐릭터·상대가 생기고,
   now += 1 * H;
   await host.ask('u1', 'load');
   await settle();
-  const replyReq = host.calls.find((c) => !/Isekai Mailbox/.test(c.messages[0].content));
+  const replyReq = host.calls.find((c) => !/Isekai Mailbox|design the stationery/.test(c.messages[0].content));
   assert.ok(replyReq);
   const sys = replyReq.messages[0].content;
   assert.match(sys, /돌 등대 이야기/);
@@ -408,7 +408,7 @@ test('그림: 세트 3장 → 상대에 기록·상한 소모·WebP 대기열 �
   };
   const stop = start(host.api);
   t.after(stop);
-  await host.ask('u1', 'saveSettings', { settings: { art: { connectionId: 'ic1', perDay: 4, size: '1024x1024', paperSize: '768x1024' } } });
+  await host.ask('u1', 'saveSettings', { settings: { art: { connectionId: 'ic1', perDay: 4, size: '1024x1024', paperSize: '768x1024', paperMode: 'image' } } });
   const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
   const r = await host.ask('u1', 'matchConfirm', { draft });
   const ic = await host.ask('u1', 'imageConnections');
@@ -611,7 +611,7 @@ test('편지지·우표 바뀜: 정리 단계가 사건을 찾으면 그 편지�
   };
   const stop = start(host.api);
   t.after(stop);
-  await host.ask('u1', 'saveSettings', { settings: { art: { perDay: 20 } } });
+  await host.ask('u1', 'saveSettings', { settings: { art: { perDay: 20, paperMode: 'image' } } });
   const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
   const r = await host.ask('u1', 'matchConfirm', { draft });
   const q = await host.ask('u1', 'drawSet', { id: r.id, kinds: ['paper', 'stamp'] });
@@ -749,4 +749,41 @@ test('초상화: NovelAI 연결로 그리고 WebP 뒤 아바타로', async (t) =
   await host.ask('u1', 'webpDone', { imageId: 'img0', data: Buffer.alloc(200, 1).toString('base64'), originalBytes: 1000 });
   assert.equal(avatars.length, 1);
   assert.equal(avatars[0][1], 'image/webp');
+});
+
+test('편지지 꾸미기(HTML): 매칭 뒤 테마, 사건이면 그 편지부터 새 테마·예전 편지는 예전 테마, 세트는 봉투·우표·봉인', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  const themes = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/design the stationery/.test(req.messages[0].content)) {
+      const changed = /Something happened/.test(req.messages[1].content);
+      themes.push(changed);
+      return { content: JSON.stringify(changed ? { paper: '#1f1d24', ink: '#eeeeee', accent: '#c9a45a', texture: 'plain', edge: 'torn', font: 'brush', motif: 'moon', density: 1, note: '상중의 검은 종이' } : { paper: '#f4ead6', ink: '#3b2f22', accent: '#8a5a2b', texture: 'lined', edge: 'deckle', font: 'pen', motif: 'leaf', density: 2, note: '잎맥 무늬' }) };
+    }
+    return quiet(req);
+  };
+  const gens = []; let n = 0;
+  host.api.imageGen = { generate: async (req) => { gens.push(req); return { imageId: `img${n++}` }; }, listConnections: async () => [] };
+  host.api.images = { upload: async () => ({ id: `w${n++}` }), delete: async () => true };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const { id } = await host.ask('u1', 'matchConfirm', { draft });
+  for (let i = 0; i < 30 && !(await host.ask('u1', 'get', { id })).c.paperTheme; i++) await new Promise((r) => setTimeout(r, 10));
+  let c = (await host.ask('u1', 'get', { id })).c;
+  assert.equal(c.paperTheme.font, 'pen');
+  assert.equal(c.paperTheme.motif, 'leaf');
+  // 세트: 봉투·우표·봉인
+  await host.ask('u1', 'saveSettings', { settings: { ...(await host.ask('u1', 'load')).settings, art: { perDay: 10 } } });
+  await host.ask('u1', 'drawSet', { id });
+  for (let i = 0; i < 50 && gens.length < 3; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.match(gens[0].prompt, /front face of a closed envelope/);
+  assert.equal(gens[0].parameters.size, '1536x1024');
+  // 수동 테마 고치기(잘못된 값은 버림, 안 읽히는 잉크는 바꿈)
+  const r2 = await host.ask('u1', 'setTheme', { id, theme: { ...c.paperTheme, font: 'nope', ink: '#f4ead6' } });
+  assert.equal(r2.theme.font, 'pen');
+  assert.notEqual(r2.theme.ink, '#f4ead6');
+  assert.deepEqual(themes, [false]);
 });

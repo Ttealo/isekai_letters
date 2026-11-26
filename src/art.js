@@ -2,15 +2,18 @@
 // 편지지·우표·봉인은 "그래픽 도안"(정면 평면, 배경·탁자·그림자 없음), 물건은 세밀한 일러스트.
 // 사람·얼굴·손·글자는 그리지 않는다. 종류마다 양식(템플릿)과 모델을 설정에서 바꿀 수 있다.
 
-export const ART_KINDS = ['paper', 'stamp', 'seal'];
-export const ALL_KINDS = ['paper', 'stamp', 'seal', 'item'];
-export const ART_LABEL = { paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
+export const ART_KINDS = ['envelope', 'paper', 'stamp', 'seal'];
+export const ALL_KINDS = ['envelope', 'paper', 'stamp', 'seal', 'item'];
+export const ART_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
+// 세트: 편지지를 HTML로 꾸미면(기본) 봉투·우표·봉인, 그림이면 편지지·우표·봉인
+export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'stamp', 'seal']);
 
 export const DEFAULT_STYLE = 'hand-painted storybook illustration, delicate ink linework, soft watercolor washes, muted vintage palette, not a photograph';
 export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render, table, desk, wooden surface, background scene, perspective, shadow, people, person, face, hands, fingers, human figure, text, letters, writing, words, numbers, digits, watermark, signature, logo';
 
 // {subject} = 글 생성이 써 준 영어 주제, {style} = 전체 룩
 export const DEFAULT_TEMPLATES = {
+  envelope: 'flat 2D front face of a closed envelope seen straight-on and filling the whole frame, made of {subject}, empty upper-right corner area for a stamp, wide blank address area, worn edges, {style}, no stamp, no seal, no lettering, no text, no table, no background, no shadows',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
   seal: 'flat 2D illustration of a seal impression seen from directly above, {subject}, engraved relief detail, centered on plain cream background, {style}, no lettering',
@@ -23,6 +26,8 @@ export const DEFAULT_ART = {
   style: DEFAULT_STYLE,
   size: '1024x1024',
   paperSize: '1024x1024',
+  envelopeSize: '1536x1024',
+  paperMode: 'html', // 'html'(편지지는 테마로 꾸미고 봉투를 그림) | 'image'(예전처럼 편지지를 그림)
   perDay: 6, // 하루 전체 장수(세트 포함)
   autoItems: 'all', // 'off' | 'all' — 상대가 보낸 물건을 답장이 만들어질 때 그림
   paperChange: 'event', // 편지지 바뀜: 'event'(사건이 있을 때 — 계절 변화 포함) | 'season'(그쪽 계절이 바뀔 때만) | 'off'
@@ -51,6 +56,8 @@ export function cleanArt(a) {
     style: astr(a?.style, 1500) || DEFAULT_STYLE,
     size: asize(a?.size, DEFAULT_ART.size),
     paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
+    envelopeSize: asize(a?.envelopeSize, DEFAULT_ART.envelopeSize),
+    paperMode: a?.paperMode === 'image' ? 'image' : 'html',
     perDay: anum(a?.perDay, 0, 100, DEFAULT_ART.perDay),
     perCorrespondentDay: anum(a?.perCorrespondentDay, 0, 100, 0),
     autoItems: a?.autoItems === 'off' ? 'off' : 'all',
@@ -96,6 +103,7 @@ export function buildArtPromptMessages(c, jobs) {
   const m = c.mail || {};
   const lines = jobs.map((j) => {
     const why = j.reason ? `; this letter's paper/stamp changed because: ${j.reason}` : '';
+    if (j.kind === 'envelope') return `- key=${j.key}: the material, color, texture, wear and small printed or embossed marks of ${c.name}'s envelope (letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'}; scent hint: ${m.scent || '-'})`;
     if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${j.medium || m.medium || '-'}; texture: ${m.texture || '-'}${why})`;
     if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${j.motif || m.stampMotif || '-'}${why})`;
     if (j.kind === 'seal') return `- key=${j.key}: the design pressed into ${c.name}'s letter seal (seal: ${m.seal || '-'})`;
