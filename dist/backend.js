@@ -8,6 +8,8 @@ export const RECENT_LETTERS = 6; // 1단계: 프롬프트에 넣는 최근 원�
 
 export const DEFAULT_SETTINGS = {
   replyConnectionId: '', // 비면 사용자의 기본 연결(quiet)
+  createConnectionId: '', // 상대 만들기 연결. 비면 답장 연결
+  createTemperature: 1.0,
   temperature: 0.9,
   maxTokens: 6000,
   recentLetters: RECENT_LETTERS,
@@ -28,6 +30,8 @@ export function newId(prefix, now = Date.now(), rand = Math.random) {
 export function cleanSettings(s) {
   return {
     replyConnectionId: str(s?.replyConnectionId, 200),
+    createConnectionId: str(s?.createConnectionId, 200),
+    createTemperature: num(s?.createTemperature, 0, 2, DEFAULT_SETTINGS.createTemperature),
     temperature: num(s?.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
@@ -103,6 +107,20 @@ export function cleanCorrespondentInput(p) {
     timeScale: num(p?.timeScale, 1, 3600, 1),
     personaId: str(p?.personaId, 200),
     personaName: str(p?.personaName, 80),
+    // 매칭으로 만든 상대: 앱의 캐릭터·로어북과 우편 설정
+    characterId: str(p?.characterId, 200),
+    worldBookId: str(p?.worldBookId, 200),
+    origin: ['manual', 'prompt', 'random', 'existing'].includes(p?.origin) ? p.origin : 'manual',
+    mail: cleanMail(p?.mail),
+  };
+}
+
+export function cleanMail(m) {
+  return {
+    ratioReason: str(m?.ratioReason, 300),
+    medium: str(m?.medium, 200), stampMotif: str(m?.stampMotif, 200), seal: str(m?.seal, 200),
+    scent: str(m?.scent, 200), texture: str(m?.texture, 200),
+    imageKeywords: Array.isArray(m?.imageKeywords) ? m.imageKeywords.map((k) => str(k, 40)).filter(Boolean).slice(0, 12) : [],
   };
 }
 
@@ -158,6 +176,7 @@ export function toInput(c) {
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
     maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
+    characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {},
   };
 }
 
@@ -359,7 +378,7 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
-export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS } = {}) {
+export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '' } = {}) {
   c = normalize(c);
   const userName = personaName || c.personaName || '편지의 주인';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
@@ -383,7 +402,8 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     '<character>',
     c.brief,
     '</character>',
-    c.world ? `\n<world>\n${c.world}\n</world>` : '',
+    c.world || lore ? `\n<world>\n${[c.world, lore].filter(Boolean).join('\n\n')}\n</world>` : '',
+    c.mail?.medium ? `\n<your_letters>\nmedium=${c.mail.medium}${c.mail.texture ? `\ntexture=${c.mail.texture}` : ''}${c.mail.scent ? `\nscent=${c.mail.scent}` : ''}${c.mail.seal ? `\nseal=${c.mail.seal}` : ''}${c.mail.stampMotif ? `\nstamp=${c.mail.stampMotif}` : ''}\n(keep these unless events change them)\n</your_letters>` : '',
     '',
     '<correspondence>',
     `their_now=${formatTheirTime(tNow)}`,
@@ -407,7 +427,7 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     'Output JSON only, in Korean, with this shape:',
     '{"between":[{"their_date":"","event":"","senses":"","open":false}],"read_at":"","written_at":"","envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}',
     '</task>',
-  ].filter((x) => x !== '').join('\n').replaceAll('{{user}}', userName);
+  ].filter((x) => x !== '').join('\n').replaceAll('{{user}}', userName).replaceAll('{{char}}', c.name);
 
   const history = shown.map((l) => letterText(l, c)).join('\n\n---\n\n').replaceAll('{{user}}', userName);
   const user = `<letters>\n${history || '(아직 편지 없음)'}\n</letters>\n\n위 편지에 답장을 쓴다. JSON만 출력.`;
@@ -477,6 +497,267 @@ export function etaLabel(ms, exact) {
 }
 
 
+
+// 상대 자동 생성(매칭): 프롬프트, 결과 검사, 카드·로어북·우편 설정으로 나누기. 부수 효과 없음.
+// 카드 양식은 D:\AI\Marinara-Engine_설정\CHARACTER_CARD_COMPACT.md(압축판) 요약. 원본이 바뀌면 여기도 맞춘다.
+
+export const MATCH_MODES = ['prompt', 'random', 'existing'];
+
+export const GENRE_DICE = [
+  '눈과 얼음의 변방', '사막의 대상로', '바다 위 군도', '숲의 정령 마을', '하늘에 뜬 섬', '증기 기관 도시',
+  '몰락한 왕국의 수도원', '별을 읽는 천문대', '지하 광산 도시', '마법 학원', '전쟁 중인 국경 요새', '유령이 사는 항구',
+  '꽃이 지지 않는 계곡', '거대한 도서관 탑', '용이 잠든 산맥', '시간이 느리게 흐르는 호수', '인어와 등대', '사라져 가는 유목민',
+];
+
+const CARD_GUIDE = `
+<card_format>
+Follow this compact character card format exactly (Korean, keep spaces between words; one kind of information per line).
+description (starts with the first line, then fields):
+  # 이름 / 나이 / 성별
+  real:
+    look=키 / 체형 / 피부 / 머리 / 눈 / 눈에 띄는 특징
+    outfit=평소 옷
+    job=직업·소속 / {{user}}와의 접점(편지로만 이어짐)
+    impression=처음 보는 사람이 받는 인상 한 줄
+  core=성격 핵심 2~3개 (/로 구분)
+  surface_inner: surface=겉으로 보이는 태도 / inner=실제로 움직이는 이유
+  desire=원하는 것
+  goal=지금 하려는 것
+  fixed=무슨 일이 있어도 바뀌지 않는 행동 1~2개 (;로 구분)
+  skill=할 줄 아는 일
+personality:
+  leak=호감·감정이 새는 단계 (첫 신호 → 갈등 → 전환 → 깊은 단계), each step a visible action
+  voice=목소리 / 감정에 따라 어떻게 바뀌나 (for letters: how the handwriting and sentences change)
+  speech=말투 규칙 (높임 / 길이 / 습관)
+    - "예시 문장 1 (평소)"
+    - "예시 문장 2 (감정이 흔들릴 때)"
+never=One short English imperative sentence this character would most likely break (starts with "Never").
+Rules: prefer actions over adjectives; surface and inner are layers, not contradictions; world facts, places and other people go to the lorebook, not the card; total card about 300~450 tokens; use {{user}} and {{char}} instead of names inside the card body.
+</card_format>`;
+
+const WORLD_GUIDE = `
+<world_format>
+lorebook entries (Korean). Each: title, keys (2~4 plain words that would appear in letters; no regex), content (40~200 words, facts only, compressed "key=value" or short sentences).
+Required entries: "세계 개요" (constant), "달력과 시간" (constant: month names, seasons, day length, how {{char}} writes dates), "우편 수단" (constant: how letters travel between worlds, what the letter physically is in this world).
+Add 2~5 more: places in {{char}}'s daily life, 1~3 people around {{char}}, one ongoing situation or tension.
+</world_format>`;
+
+const MAIL_GUIDE = `
+<mail_format>
+Time and post settings that fit this world (numbers):
+ratio = their time / {{user}}'s time (1 = same speed, 7 = one of {{user}}'s days is a week there, 0.25 = a {{user}} day is 6 hours there). Choose from the world's nature; explain in ratio_reason (one Korean sentence).
+delivery_min / delivery_max = real hours a letter travels (between 1 and 24).
+write_min / write_max = hours in THEIR time that {{char}} usually takes to answer (depends on personality and circumstances).
+medium = what a letter is in this world (paper is not the default: shell, leaf, oiled cloth, glass shard, map back...).
+stamp_motif, seal, scent, texture = typical look/feel of {{char}}'s letters.
+image_keywords = 6~10 English keywords for still-life illustrations of their letters and objects (materials, colors, light; no people).
+</mail_format>`;
+
+const OUT_SHAPE = '{"name":"","card":{"description":"","personality":"","never":""},"world_title":"","entries":[{"title":"","keys":[""],"content":"","constant":false}],"mail":{"ratio":1,"ratio_reason":"","delivery_min":1,"delivery_max":24,"write_min":2,"write_max":48,"medium":"","stamp_motif":"","seal":"","scent":"","texture":"","image_keywords":[""]},"first_letter":null}';
+const LETTER_SHAPE = '{"envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}';
+
+const rangeText = (r) => {
+  if (!r) return '';
+  const parts = [];
+  const pair = (lo, hi, label) => {
+    const a = Number(lo); const b = Number(hi);
+    if (Number.isFinite(a) && a > 0 && Number.isFinite(b) && b > 0) parts.push(`${label} must be between ${Math.min(a, b)} and ${Math.max(a, b)}`);
+  };
+  pair(r.ratioMin, r.ratioMax, 'ratio');
+  pair(r.deliveryMin, r.deliveryMax, 'delivery hours');
+  return parts.length ? `\nConstraints from the user: ${parts.join('; ')}.` : '';
+};
+
+// 매칭 프롬프트
+export function buildMatchMessages({ mode, request = '', dice = '', exclude = '', existing = null, personaName = '', firstBy = 'them', ranges = null }) {
+  const userName = personaName || '편지의 주인';
+  const system = [
+    '<system>',
+    'You design a correspondent for "Isekai Mailbox": a person in another world who exchanges only handwritten letters with {{user}} across worlds.',
+    'They never meet. Time flows at a different speed on each side. Letters are physical objects of that world.',
+    'Make the person specific, grounded and quietly interesting; give them a daily life, a reason to keep writing, and something unresolved.',
+    'Avoid clichés of "chosen one" or instant romance. No real people or existing copyrighted characters.',
+    '</system>',
+    mode === 'existing' ? '' : CARD_GUIDE,
+    WORLD_GUIDE,
+    MAIL_GUIDE,
+  ].filter(Boolean).join('\n').replaceAll('{{user}}', userName);
+
+  let task;
+  if (mode === 'existing') {
+    task = [
+      'The correspondent already exists. Do NOT rewrite their card. Read it and their lore, then:',
+      '- set `name` to their name, `card` to null;',
+      '- write only the three required lorebook entries ("세계 개요" only if the existing lore lacks one, "달력과 시간", "우편 수단") plus at most 2 entries the letters will need;',
+      '- choose mail settings that fit them.',
+      `<existing_card>\n${existing?.card || ''}\n</existing_card>`,
+      existing?.lore ? `<existing_lore>\n${existing.lore}\n</existing_lore>` : '',
+    ].filter(Boolean).join('\n');
+  } else if (mode === 'random') {
+    task = [
+      `Invent a new correspondent. Setting seed: ${dice || '자유'}.`,
+      exclude ? `Never use these: ${exclude}.` : '',
+      'Vary gender, age, occupation and tone; do not default to a young woman or a lonely scholar.',
+    ].filter(Boolean).join('\n');
+  } else {
+    task = `Expand the user's request into a full correspondent. Keep every detail the user gave; fill the rest consistently.\n<request>\n${request}\n</request>`;
+  }
+  const first = firstBy === 'them'
+    ? `first_letter: {{char}} writes the very first letter to an unknown reader (they found a strange mailbox, or a letter appeared). Use this shape: ${LETTER_SHAPE}`
+    : 'first_letter: null ({{user}} will write first).';
+
+  const user = [
+    '<task>',
+    task,
+    rangeText(ranges),
+    first,
+    'Output JSON only, in Korean (image_keywords in English), with this shape:',
+    OUT_SHAPE,
+    '</task>',
+  ].filter(Boolean).join('\n').replaceAll('{{user}}', userName);
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+
+const s = (v, max, d = '') => (typeof v === 'string' ? v.trim().slice(0, max) : d);
+const n = (v, lo, hi, d) => {
+  const x = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  return typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d;
+};
+const keysOf = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,，、]/) : [])
+  .map((k) => s(typeof k === 'string' ? k : '', 40)).filter(Boolean).slice(0, 6);
+
+const REQUIRED = ['달력과 시간', '우편 수단'];
+
+// 생성 결과 검사·정리 → 초안. 문제는 warnings로 돌려준다(초안은 미리보기에서 사람이 고칠 수 있다).
+export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '' } = {}) {
+  const warnings = [];
+  const name = s(raw?.name, 80) || existingName;
+  if (!name) throw new Error('생성 결과에 이름이 없습니다.');
+  let card = null;
+  if (mode !== 'existing') {
+    const c = raw?.card || {};
+    card = { description: s(c.description, 6000), personality: s(c.personality, 4000), never: s(c.never, 400) };
+    if (!card.description) throw new Error('생성 결과에 카드 description이 없습니다.');
+    if (!/^#\s*\S/.test(card.description)) warnings.push('description 첫 줄이 「# 이름 / 나이 / 성별」 형식이 아닙니다.');
+    if (!card.personality) warnings.push('personality가 비어 있습니다.');
+    if (card.never && !/^never\b/i.test(card.never)) warnings.push('never가 "Never …" 문장이 아닙니다.');
+    const approxTokens = Math.round((card.description.length + card.personality.length + card.never.length) / 1.6);
+    if (approxTokens > 700) warnings.push(`카드가 깁니다(대략 ${approxTokens}토큰, 권장 300~450).`);
+  }
+  const entries = (Array.isArray(raw?.entries) ? raw.entries : []).slice(0, 12).map((e) => ({
+    title: s(e?.title, 80),
+    keys: keysOf(e?.keys),
+    content: s(e?.content, 3000),
+    constant: !!e?.constant,
+  })).filter((e) => e.title && e.content);
+  for (const t of ['세계 개요', ...REQUIRED]) {
+    const e = entries.find((x) => x.title.replace(/\s/g, '') === t.replace(/\s/g, ''));
+    if (e) e.constant = true;
+    else if (!(mode === 'existing' && t === '세계 개요')) warnings.push(`로어북에 「${t}」 항목이 없습니다.`);
+  }
+  for (const e of entries) if (!e.constant && !e.keys.length) e.keys = [e.title];
+  const m = raw?.mail || {};
+  let ratio = n(m.ratio, 0.01, 1000, 1);
+  let dMin = n(m.delivery_min, 0.05, 72, 1);
+  let dMax = n(m.delivery_max, dMin, 96, Math.max(dMin, 24));
+  if (ranges) {
+    const clampTo = (v, lo, hi) => {
+      const a = Number(lo); const b = Number(hi);
+      if (!(Number.isFinite(a) && a > 0 && Number.isFinite(b) && b > 0)) return v;
+      return Math.min(Math.max(a, b), Math.max(Math.min(a, b), v));
+    };
+    ratio = clampTo(ratio, ranges.ratioMin, ranges.ratioMax);
+    dMin = clampTo(dMin, ranges.deliveryMin, ranges.deliveryMax);
+    dMax = Math.max(dMin, clampTo(dMax, ranges.deliveryMin, ranges.deliveryMax));
+  }
+  const wMin = n(m.write_min, 0, 24 * 365, 2);
+  const wMax = n(m.write_max, wMin, 24 * 365 * 2, Math.max(wMin, 48));
+  const mail = {
+    ratio: Math.round(ratio * 100) / 100,
+    ratioReason: s(m.ratio_reason, 300),
+    deliveryMin: Math.round(dMin * 10) / 10,
+    deliveryMax: Math.round(dMax * 10) / 10,
+    writeMin: Math.round(wMin * 10) / 10,
+    writeMax: Math.round(wMax * 10) / 10,
+    medium: s(m.medium, 200), stampMotif: s(m.stamp_motif, 200), seal: s(m.seal, 200), scent: s(m.scent, 200), texture: s(m.texture, 200),
+    imageKeywords: (Array.isArray(m.image_keywords) ? m.image_keywords : []).map((k) => s(k, 40)).filter(Boolean).slice(0, 12),
+  };
+  let firstLetter = null;
+  const f = raw?.first_letter;
+  if (f && typeof f === 'object' && s(f.body, 20000)) {
+    const e = f.envelope || {};
+    firstLetter = {
+      body: s(f.body, 20000), ps: s(f.ps, 2000),
+      envelope: { medium: s(e.medium, 200), texture: s(e.texture, 500), scent: s(e.scent, 500), marks: s(e.marks, 500), seal: s(e.seal, 500), stamp: s(e.stamp, 500) },
+      enclosures: (Array.isArray(f.enclosures) ? f.enclosures : []).slice(0, 5).map((x) => ({ item: s(x?.item, 200), note: s(x?.note, 500) })).filter((x) => x.item),
+    };
+  }
+  return { mode, name, card, worldTitle: s(raw?.world_title, 80) || `${name}의 세계`, entries, mail, firstLetter, warnings };
+}
+
+// 미리보기에서 사람이 고친 초안을 다시 검사(같은 규칙, 경고는 버림)
+export function cleanEditedDraft(d) {
+  const raw = {
+    name: d?.name,
+    card: d?.card ? { description: d.card.description, personality: d.card.personality, never: d.card.never } : null,
+    world_title: d?.worldTitle,
+    entries: d?.entries,
+    mail: {
+      ratio: d?.mail?.ratio, ratio_reason: d?.mail?.ratioReason, delivery_min: d?.mail?.deliveryMin, delivery_max: d?.mail?.deliveryMax,
+      write_min: d?.mail?.writeMin, write_max: d?.mail?.writeMax, medium: d?.mail?.medium, stamp_motif: d?.mail?.stampMotif,
+      seal: d?.mail?.seal, scent: d?.mail?.scent, texture: d?.mail?.texture, image_keywords: d?.mail?.imageKeywords,
+    },
+    first_letter: d?.firstLetter,
+  };
+  return cleanMatchDraft(raw, { mode: d?.mode, existingName: d?.name });
+}
+
+// 카드 본문 → 편지 프롬프트용 상대 설명
+export function briefFromCard(card) {
+  return [card.description, card.personality, card.never ? `never=${card.never}` : ''].filter(Boolean).join('\n');
+}
+
+// 로어북 항목 → 앱 항목 생성 입력
+export function entryInput(e, order = 100) {
+  return {
+    key: e.constant ? [] : e.keys,
+    content: e.content,
+    comment: e.title,
+    constant: !!e.constant,
+    selective: false,
+    use_regex: false,
+    case_sensitive: false,
+    position: 0,
+    order_value: order,
+    disabled: false,
+  };
+}
+
+// 편지 프롬프트용 로어북 고르기: 상시 항목 + 최근 편지 글에 키워드가 나온 항목. 글자 수 예산 안에서.
+export function pickLore(entries, recentText, budgetChars = 6000) {
+  const text = (recentText || '').toLowerCase();
+  const usable = (entries || []).filter((e) => !e.disabled && e.content);
+  const constant = usable.filter((e) => e.constant);
+  const hit = usable.filter((e) => !e.constant && (e.key || []).some((k) => k && text.includes(String(k).toLowerCase())));
+  const out = [];
+  let used = 0;
+  let dropped = 0;
+  for (const e of [...constant, ...hit]) {
+    const line = `[${e.comment || '항목'}]\n${e.content}`;
+    if (used + line.length > budgetChars) { dropped++; continue; }
+    out.push(line);
+    used += line.length;
+  }
+  return { text: out.join('\n\n'), count: out.length, dropped };
+}
+
+// 상대가 먼저 쓴 첫 편지를 배송 상태로 넣는다(core의 applyReply와 같은 모양)
+export function firstLetterReply(fl) {
+  return { body: fl.body, ps: fl.ps, envelope: fl.envelope, enclosures: fl.enclosures, between: [], readAt: '', writtenAt: '' };
+}
+
+
+
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
 // 저장: userStorage  settings.json / c/<상대 id>.json   공용 storage  users.json(예약 실행이 돌 사용자 목록)
 // 설치 범위가 operator여도 사용자마다 따로 동작하도록 모든 호출에 userId를 넘긴다.
@@ -542,6 +823,124 @@ export function start(api) {
     try { api.sendToFrontend({ type: 'changed', ...extra }, user); } catch {}
   };
 
+  // ── 로어북 ──
+  // 상대의 로어북(우체통이 만든 것 + 캐릭터에 붙은 것) 항목을 읽어, 상시 항목과 최근 편지에 키워드가 나온 항목만 고른다
+  const listEntries = async (user, bookId) => {
+    const out = [];
+    for (let offset = 0; offset < 1000; offset += 200) {
+      const r = await api.world_books.entries.list(bookId, { limit: 200, offset, userId: user });
+      out.push(...(r?.data || []));
+      if (!r?.data?.length || out.length >= (r.total || 0)) break;
+    }
+    return out;
+  };
+  const loreFor = async (user, c) => {
+    const ids = new Set(c.worldBookId ? [c.worldBookId] : []);
+    if (c.characterId) {
+      try { for (const id of (await api.characters.get(c.characterId, user))?.world_book_ids || []) ids.add(id); } catch {}
+    }
+    if (!ids.size) return '';
+    const entries = [];
+    for (const id of ids) { try { entries.push(...await listEntries(user, id)); } catch {} }
+    const recent = c.letters.slice(-4).map((l) => `${l.body || ''}\n${l.ps || ''}\n${l.enclosure || ''}`).join('\n');
+    return pickLore(entries, recent).text;
+  };
+
+  // ── 상대 만들기(매칭) ──
+  const genJson = async (user, messages, settings) => {
+    const req = { messages, parameters: { temperature: settings.createTemperature, max_tokens: Math.max(settings.maxTokens, 8000) }, userId: user };
+    const conn = settings.createConnectionId || settings.replyConnectionId;
+    const res = conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
+    return parseJsonLoose(res?.content);
+  };
+  const existingInfo = async (user, characterId) => {
+    const ch = await api.characters.get(characterId, user);
+    if (!ch) throw new Error('고른 캐릭터를 찾지 못했습니다.');
+    const card = [ch.description, ch.personality, ch.scenario].filter(Boolean).join('\n\n').slice(0, 8000);
+    const lines = [];
+    for (const id of ch.world_book_ids || []) {
+      try {
+        for (const e of await listEntries(user, id)) if (!e.disabled && e.content) lines.push(`[${e.comment || (e.key || []).join(', ')}]\n${e.content}`);
+      } catch {}
+    }
+    return { ch, card, lore: lines.join('\n\n').slice(0, 8000) };
+  };
+  const matchDraft = async (user, p) => {
+    const mode = MATCH_MODES.includes(p.mode) ? p.mode : 'prompt';
+    if (mode === 'prompt' && !String(p.request || '').trim()) throw new Error('어떤 상대를 원하는지 적어 주세요.');
+    const settings = await loadSettings(user);
+    let personaName = '';
+    try { personaName = p.personaId ? (await api.personas.get(p.personaId, user))?.name || '' : (await api.personas.getActive(user))?.name || ''; } catch {}
+    let existing = null;
+    if (mode === 'existing') {
+      if (!p.characterId) throw new Error('캐릭터를 골라 주세요.');
+      existing = await existingInfo(user, p.characterId);
+    }
+    const dice = mode === 'random' ? (String(p.dice || '').trim() || GENRE_DICE[Math.floor(Math.random() * GENRE_DICE.length)]) : '';
+    const firstBy = p.firstBy === 'me' ? 'me' : 'them';
+    const messages = buildMatchMessages({
+      mode, request: String(p.request || '').slice(0, 4000), dice, exclude: String(p.exclude || '').slice(0, 500),
+      existing: existing && { card: existing.card, lore: existing.lore }, personaName, firstBy, ranges: p.ranges || null,
+    });
+    const raw = await genJson(user, messages, settings);
+    const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '' });
+    return { draft: { ...draft, dice, firstBy, characterId: existing?.ch?.id || '' } };
+  };
+  const matchConfirm = async (user, p, now) => {
+    const d = cleanEditedDraft(p.draft);
+    const mode = d.mode;
+    const characterId = mode === 'existing' ? String(p.draft?.characterId || '') : '';
+    if (mode === 'existing' && !characterId) throw new Error('기존 캐릭터 id가 없습니다.');
+    // 1) 로어북
+    const book = await api.world_books.create({
+      name: mode === 'existing' ? `${d.name} · 우체통` : `${d.worldTitle} · 우체통`,
+      description: '이세계 우체통이 만든 로어북. 편지가 오가며 항목이 늘어날 수 있다.',
+      metadata: { isekai_mailbox: true },
+    }, user);
+    const made = { bookId: book.id, characterId: '' };
+    try {
+      let order = 100;
+      for (const e of d.entries) { await api.world_books.entries.create(book.id, entryInput(e, order), user); order += 10; }
+      // 2) 캐릭터(기존 상대면 원본을 건드리지 않음)
+      let charId = characterId;
+      let brief;
+      if (mode === 'existing') {
+        brief = (await existingInfo(user, characterId)).card;
+      } else {
+        const ch = await api.characters.create({
+          name: d.name,
+          description: d.card.description,
+          personality: d.card.personality,
+          post_history_instructions: d.card.never,
+          creator_notes: '이세계 우체통에서 만든 편지 상대입니다.',
+          tags: ['이세계 우체통'],
+          world_book_ids: [book.id],
+          extensions: { isekai_mailbox: { mail: d.mail, worldBookId: book.id } },
+        }, user);
+        charId = ch.id;
+        made.characterId = ch.id;
+        brief = briefFromCard(d.card);
+      }
+      // 3) 우체통 상대
+      const persona = p.personaId ? await api.personas.get(p.personaId, user).catch(() => null) : null;
+      let c = createCorrespondent({
+        name: d.name, brief, world: '', ratio: d.mail.ratio,
+        deliveryMin: d.mail.deliveryMin, deliveryMax: d.mail.deliveryMax, writeMin: d.mail.writeMin, writeMax: d.mail.writeMax,
+        maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
+        personaId: persona?.id || '', personaName: persona?.name || '',
+        characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
+      }, now);
+      if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
+      await serial(user, () => saveC(user, c));
+      return { id: c.id, characterId: charId, worldBookId: book.id };
+    } catch (e) {
+      // 중간에 실패하면 이번에 만든 것만 지운다
+      try { if (made.characterId) await api.characters.delete(made.characterId, user); } catch {}
+      try { await api.world_books.delete(made.bookId, user); } catch {}
+      throw e;
+    }
+  };
+
   // ── 답장 생성 ──
   // 보내는 사람 이름: 상대에 묶인 페르소나(지금 이름) → 저장해 둔 이름 → 마지막 편지의 이름 → 활성 페르소나
   const personaNameFor = async (user, c) => {
@@ -574,7 +973,8 @@ export function start(api) {
       if (c.reply?.state !== 'generating') return;
       const settings = await loadSettings(user);
       const personaName = await personaNameFor(user, c);
-      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters });
+      const lore = await loreFor(user, c).catch((e) => { log('warn', `로어북 읽기 실패(${c.name}): ${e?.message || e}`); return ''; });
+      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore });
       const req = {
         messages,
         parameters: { temperature: settings.temperature, max_tokens: settings.maxTokens },
@@ -697,6 +1097,14 @@ export function start(api) {
         tickUser(user).catch(() => {});
         return {};
       }
+      case 'characters': {
+        const r = await api.characters.list({ limit: 200, userId: user });
+        return { characters: (r?.data || []).map((x) => ({ id: x.id, name: x.name, imageId: x.image_id || '', books: (x.world_book_ids || []).length })) };
+      }
+      case 'matchDraft':
+        return matchDraft(user, p);
+      case 'matchConfirm':
+        return matchConfirm(user, p, now);
       case 'connections': {
         const list = await api.connections.list(user);
         return { connections: (list || []).map((x) => ({ id: x.id, name: x.name, provider: x.provider, model: x.model, is_default: !!x.is_default })) };

@@ -8,6 +8,8 @@ export const RECENT_LETTERS = 6; // 1단계: 프롬프트에 넣는 최근 원�
 
 export const DEFAULT_SETTINGS = {
   replyConnectionId: '', // 비면 사용자의 기본 연결(quiet)
+  createConnectionId: '', // 상대 만들기 연결. 비면 답장 연결
+  createTemperature: 1.0,
   temperature: 0.9,
   maxTokens: 6000,
   recentLetters: RECENT_LETTERS,
@@ -28,6 +30,8 @@ export function newId(prefix, now = Date.now(), rand = Math.random) {
 export function cleanSettings(s) {
   return {
     replyConnectionId: str(s?.replyConnectionId, 200),
+    createConnectionId: str(s?.createConnectionId, 200),
+    createTemperature: num(s?.createTemperature, 0, 2, DEFAULT_SETTINGS.createTemperature),
     temperature: num(s?.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
@@ -103,6 +107,20 @@ export function cleanCorrespondentInput(p) {
     timeScale: num(p?.timeScale, 1, 3600, 1),
     personaId: str(p?.personaId, 200),
     personaName: str(p?.personaName, 80),
+    // 매칭으로 만든 상대: 앱의 캐릭터·로어북과 우편 설정
+    characterId: str(p?.characterId, 200),
+    worldBookId: str(p?.worldBookId, 200),
+    origin: ['manual', 'prompt', 'random', 'existing'].includes(p?.origin) ? p.origin : 'manual',
+    mail: cleanMail(p?.mail),
+  };
+}
+
+export function cleanMail(m) {
+  return {
+    ratioReason: str(m?.ratioReason, 300),
+    medium: str(m?.medium, 200), stampMotif: str(m?.stampMotif, 200), seal: str(m?.seal, 200),
+    scent: str(m?.scent, 200), texture: str(m?.texture, 200),
+    imageKeywords: Array.isArray(m?.imageKeywords) ? m.imageKeywords.map((k) => str(k, 40)).filter(Boolean).slice(0, 12) : [],
   };
 }
 
@@ -158,6 +176,7 @@ export function toInput(c) {
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
     maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
+    characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {},
   };
 }
 
@@ -359,7 +378,7 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
-export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS } = {}) {
+export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '' } = {}) {
   c = normalize(c);
   const userName = personaName || c.personaName || '편지의 주인';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
@@ -383,7 +402,8 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     '<character>',
     c.brief,
     '</character>',
-    c.world ? `\n<world>\n${c.world}\n</world>` : '',
+    c.world || lore ? `\n<world>\n${[c.world, lore].filter(Boolean).join('\n\n')}\n</world>` : '',
+    c.mail?.medium ? `\n<your_letters>\nmedium=${c.mail.medium}${c.mail.texture ? `\ntexture=${c.mail.texture}` : ''}${c.mail.scent ? `\nscent=${c.mail.scent}` : ''}${c.mail.seal ? `\nseal=${c.mail.seal}` : ''}${c.mail.stampMotif ? `\nstamp=${c.mail.stampMotif}` : ''}\n(keep these unless events change them)\n</your_letters>` : '',
     '',
     '<correspondence>',
     `their_now=${formatTheirTime(tNow)}`,
@@ -407,7 +427,7 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     'Output JSON only, in Korean, with this shape:',
     '{"between":[{"their_date":"","event":"","senses":"","open":false}],"read_at":"","written_at":"","envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}',
     '</task>',
-  ].filter((x) => x !== '').join('\n').replaceAll('{{user}}', userName);
+  ].filter((x) => x !== '').join('\n').replaceAll('{{user}}', userName).replaceAll('{{char}}', c.name);
 
   const history = shown.map((l) => letterText(l, c)).join('\n\n---\n\n').replaceAll('{{user}}', userName);
   const user = `<letters>\n${history || '(아직 편지 없음)'}\n</letters>\n\n위 편지에 답장을 쓴다. JSON만 출력.`;
@@ -700,7 +720,7 @@ export function setup(ctx) {
     };
 
     function render() {
-      const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView }[view.name]?.() || [];
+      const body = { home: homeView, c: cView, letter: letterView, form: formView, settings: settingsView, match: matchView, preview: previewView }[view.name]?.() || [];
       const err = error || S.error;
       root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean));
     }
@@ -710,7 +730,7 @@ export function setup(ctx) {
       return [
         el('div', { class: 'im-row' }, [
           el('h3', { class: 'im-grow', text: '우편함' }),
-          btn('새 상대', async () => { await reloadPersonas(); go({ name: 'form' }); }, { primary: true }),
+          btn('새 상대', async () => { await reloadPersonas(); go({ name: 'match' }); }, { primary: true }),
           btn('설정', () => go({ name: 'settings' })),
         ]),
         S.list.length ? personaChips() : null,
@@ -862,6 +882,11 @@ export function setup(ctx) {
         ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}${x.is_default ? ' (기본)' : ''}`, selected: x.id === s.replyConnectionId })),
       ]);
       const temp = el('input', { type: 'number', step: '0.05', min: '0', max: '2', value: String(s.temperature ?? 0.9) });
+      const csel = el('select', {}, [
+        el('option', { value: '', text: '답장 연결과 같게' }),
+        ...connections.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === s.createConnectionId })),
+      ]);
+      const ctemp = el('input', { type: 'number', step: '0.05', min: '0', max: '2', value: String(s.createTemperature ?? 1) });
       const maxT = el('input', { type: 'number', step: '100', min: '500', value: String(s.maxTokens ?? 6000) });
       const recent = el('input', { type: 'number', step: '1', min: '1', max: '20', value: String(s.recentLetters ?? 6) });
       const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta, style: 'width:auto' });
@@ -869,14 +894,147 @@ export function setup(ctx) {
         el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
         el('h3', { text: '설정' }),
         field('답장 쓰기 연결', sel),
+        field('상대 만들기 연결 (비우면 답장 연결)', csel),
+        field('상대 만들기 온도', ctemp),
         el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
         field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
+      ];
+    }
+
+    // ── 새 상대(매칭) ──
+    const M = { mode: 'prompt', request: '', dice: '', exclude: '', characterId: '', personaId: '', firstBy: 'them', ratioMin: '', ratioMax: '', deliveryMin: '', deliveryMax: '', timeScale: '1', characters: null, draft: null };
+    const MODES = [['prompt', '원하는 상대 적기'], ['random', '무작위로 만나기'], ['existing', '기존 캐릭터'], ['manual', '직접 다 적기']];
+    function matchView() {
+      if (!M.personaId) M.personaId = S.persona !== ALL && S.persona !== NO_PERSONA ? S.persona : S.activePersonaId;
+      if (M.mode === 'existing' && !M.characters) {
+        M.characters = [];
+        ask('characters').then((r) => { M.characters = r.characters; render(); }).catch((e) => { error = e.message; render(); });
+      }
+      const bind = (k, tag = 'input', props = {}) => el(tag, { ...props, value: M[k], oninput: (e) => { M[k] = e.target.value; } });
+      const personaSel = el('select', { onchange: (e) => { M.personaId = e.target.value; } }, [
+        el('option', { value: '', text: '페르소나 없음(보낼 때 활성 페르소나)' }),
+        ...S.personas.map((p) => el('option', { value: p.id, text: p.title ? `${p.name} — ${p.title}` : p.name, selected: p.id === M.personaId })),
+      ]);
+      const body = [];
+      if (M.mode === 'prompt') {
+        body.push(field('어떤 상대와 편지하고 싶나요?', bind('request', 'textarea', { rows: 5, placeholder: '예: 눈 덮인 곶의 늙은 등대지기. 무뚝뚝하지만 편지는 꼬박꼬박 길게 쓴다. 바다가 얼면 새가 편지를 나른다.' })));
+      } else if (M.mode === 'random') {
+        body.push(field('세계의 씨앗 (비우면 주사위)', bind('dice', 'input', { placeholder: '예: 사막의 대상로 / 하늘에 뜬 섬' })));
+        body.push(field('빼고 싶은 소재 (선택)', bind('exclude', 'input', { placeholder: '예: 전쟁, 용' })));
+      } else if (M.mode === 'existing') {
+        body.push(field('편지할 캐릭터', el('select', { onchange: (e) => { M.characterId = e.target.value; } }, [
+          el('option', { value: '', text: M.characters?.length ? '고르기' : '불러오는 중…' }),
+          ...(M.characters || []).map((c) => el('option', { value: c.id, text: c.books ? `${c.name} (로어북 ${c.books})` : c.name, selected: c.id === M.characterId })),
+        ])));
+        body.push(el('div', { class: 'im-muted', text: '원본 카드와 로어북은 바꾸지 않고, 우편 설정과 「〈이름〉 · 우체통」 로어북만 새로 만듭니다.' }));
+      }
+      return [
+        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
+        el('h3', { text: '새 상대' }),
+        el('div', { class: 'im-chips' }, MODES.map(([k, t]) => el('button', { class: `im-chip im-plain${M.mode === k ? ' im-on' : ''}`, type: 'button', text: t, onclick: () => {
+          if (k === 'manual') { go({ name: 'form' }); return; }
+          M.mode = k; render();
+        } }))),
+        field('편지를 쓰는 나 (페르소나)', personaSel),
+        ...body,
+        field('첫 편지', el('select', { onchange: (e) => { M.firstBy = e.target.value; } }, [
+          el('option', { value: 'them', text: '상대가 먼저 (낯선 편지가 도착)', selected: M.firstBy === 'them' }),
+          el('option', { value: 'me', text: '내가 먼저', selected: M.firstBy === 'me' }),
+        ])),
+        el('details', {}, [
+          el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '시간 범위 정하기 (비우면 세계에 맞춰 AI가 정함)' }),
+          el('div', { class: 'im-pair' }, [
+            field('시간 비율 최소', bind('ratioMin', 'input', { type: 'number', step: 'any', min: '0' })),
+            field('시간 비율 최대', bind('ratioMax', 'input', { type: 'number', step: 'any', min: '0' })),
+            field('배송 최소(시간)', bind('deliveryMin', 'input', { type: 'number', step: 'any', min: '0' })),
+            field('배송 최대(시간)', bind('deliveryMax', 'input', { type: 'number', step: 'any', min: '0' })),
+          ]),
+          field('시험용 시간 가속 (1=실제)', bind('timeScale', 'input', { type: 'number', step: '1', min: '1' })),
+        ]),
+        el('div', { class: 'im-muted', text: '「만들기」를 누르면 상대 만들기 연결로 생성을 1회 합니다. 미리보기에서 고치고 확정해야 캐릭터·로어북이 만들어집니다.' }),
+        btn(busy ? '만드는 중… (30초~1분)' : '만들기', () => act(async () => {
+          const r = await ask('matchDraft', {
+            mode: M.mode, request: M.request, dice: M.dice, exclude: M.exclude, characterId: M.characterId, personaId: M.personaId, firstBy: M.firstBy,
+            ranges: { ratioMin: M.ratioMin, ratioMax: M.ratioMax, deliveryMin: M.deliveryMin, deliveryMax: M.deliveryMax },
+          }, 240000);
+          M.draft = r.draft;
+          view = { name: 'preview' };
+        }), { primary: true, disabled: busy }),
+      ];
+    }
+
+    // 미리보기: 모든 칸을 고칠 수 있다
+    function previewView() {
+      const d = M.draft;
+      if (!d) return [link('← 새 상대', () => go({ name: 'match' }))];
+      const txt = (obj, k, rows, ph = '') => el(rows ? 'textarea' : 'input', { value: obj[k] ?? '', rows, placeholder: ph, oninput: (e) => { obj[k] = e.target.value; } });
+      const numIn = (obj, k) => el('input', { type: 'number', step: 'any', min: '0', value: String(obj[k] ?? ''), oninput: (e) => { obj[k] = e.target.value; } });
+      const entryNodes = d.entries.map((e, i) => el('div', { class: 'im-letter' }, [
+        el('div', { class: 'im-row' }, [
+          el('input', { value: e.title, class: 'im-grow', style: 'flex:1', oninput: (ev) => { e.title = ev.target.value; } }),
+          el('label', { class: 'im-row', style: 'flex-direction:row;white-space:nowrap' }, [el('input', { type: 'checkbox', style: 'width:auto', checked: e.constant, onchange: (ev) => { e.constant = ev.target.checked; render(); } }), '항상']),
+          link('빼기', () => { d.entries.splice(i, 1); render(); }),
+        ]),
+        e.constant ? null : el('input', { value: e.keys.join(', '), placeholder: '키워드(쉼표로)', oninput: (ev) => { e.keys = ev.target.value.split(',').map((x) => x.trim()).filter(Boolean); } }),
+        el('textarea', { value: e.content, rows: 4, oninput: (ev) => { e.content = ev.target.value; } }),
+      ]));
+      const fl = d.firstLetter;
+      return [
+        el('div', { class: 'im-row' }, [link('← 다시 적기', () => go({ name: 'match' })), el('span', { class: 'im-grow' }), btn(busy ? '…' : '다시 만들기(1회)', () => act(async () => {
+          const r = await ask('matchDraft', {
+            mode: M.mode, request: M.request, dice: d.dice || M.dice, exclude: M.exclude, characterId: M.characterId, personaId: M.personaId, firstBy: M.firstBy,
+            ranges: { ratioMin: M.ratioMin, ratioMax: M.ratioMax, deliveryMin: M.deliveryMin, deliveryMax: M.deliveryMax },
+          }, 240000);
+          M.draft = r.draft;
+        }), { disabled: busy })]),
+        el('h3', { text: '미리보기' }),
+        d.dice ? el('div', { class: 'im-muted', text: `세계의 씨앗: ${d.dice}` }) : null,
+        d.warnings?.length ? el('div', { class: 'im-err', text: `확인할 점: ${d.warnings.join(' / ')}` }) : null,
+        field('이름', txt(d, 'name')),
+        d.card ? el('div', { style: 'display:flex;flex-direction:column;gap:8px' }, [
+          el('h4', { text: '캐릭터 카드' }),
+          field('description', txt(d.card, 'description', 10)),
+          field('personality', txt(d.card, 'personality', 6)),
+          field('never (post_history_instructions)', txt(d.card, 'never')),
+        ]) : el('div', { class: 'im-muted', text: '기존 캐릭터 카드를 그대로 씁니다.' }),
+        el('h4', { text: '시간과 우편' }),
+        d.mail.ratioReason ? el('div', { class: 'im-muted', text: d.mail.ratioReason }) : null,
+        el('div', { class: 'im-pair' }, [
+          field('시간 비율 (나의 1 = 그쪽 ?)', numIn(d.mail, 'ratio')),
+          field('배송 최소(현실 시간)', numIn(d.mail, 'deliveryMin')),
+          field('배송 최대(현실 시간)', numIn(d.mail, 'deliveryMax')),
+          field('답장 쓰는 데 최소(그쪽 시간)', numIn(d.mail, 'writeMin')),
+          field('답장 쓰는 데 최대(그쪽 시간)', numIn(d.mail, 'writeMax')),
+          field('편지 매체', txt(d.mail, 'medium')),
+          field('봉인', txt(d.mail, 'seal')),
+          field('우표·표식', txt(d.mail, 'stampMotif')),
+          field('냄새', txt(d.mail, 'scent')),
+          field('감촉', txt(d.mail, 'texture')),
+        ]),
+        el('h4', { text: `로어북 「${d.worldTitle}」 · ${d.entries.length}항목` }),
+        ...entryNodes,
+        link('+ 항목 더하기', () => { d.entries.push({ title: '새 항목', keys: [], content: '', constant: false }); render(); }),
+        fl ? el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, [
+          el('h4', { text: '상대의 첫 편지' }),
+          el('div', { class: 'im-paper im-theirs' }, [
+            el('div', { class: 'im-meta', text: [fl.envelope?.medium, fl.envelope?.scent].filter(Boolean).join(' · ') }),
+            el('div', { text: fl.body + (fl.ps ? `\n\n추신. ${fl.ps}` : '') }),
+            fl.enclosures?.length ? el('div', { class: 'im-encl' }, fl.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}` }))) : null,
+          ]),
+          el('div', { class: 'im-muted', text: '확정하면 이 편지가 배송되기 시작합니다(미리 읽은 셈이지만, 도착하면 봉투부터 다시 열어 볼 수 있어요).' }),
+        ]) : el('div', { class: 'im-muted', text: '첫 편지는 내가 씁니다.' }),
+        btn(busy ? '만드는 중…' : '확정 — 캐릭터·로어북 만들기', () => act(async () => {
+          const r = await ask('matchConfirm', { draft: d, personaId: M.personaId, timeScale: M.timeScale }, 60000);
+          M.draft = null;
+          await refresh();
+          go({ name: 'c', id: r.id });
+        }), { primary: true, disabled: busy }),
       ];
     }
 

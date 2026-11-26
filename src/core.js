@@ -8,6 +8,8 @@ export const RECENT_LETTERS = 6; // 1단계: 프롬프트에 넣는 최근 원�
 
 export const DEFAULT_SETTINGS = {
   replyConnectionId: '', // 비면 사용자의 기본 연결(quiet)
+  createConnectionId: '', // 상대 만들기 연결. 비면 답장 연결
+  createTemperature: 1.0,
   temperature: 0.9,
   maxTokens: 6000,
   recentLetters: RECENT_LETTERS,
@@ -28,6 +30,8 @@ export function newId(prefix, now = Date.now(), rand = Math.random) {
 export function cleanSettings(s) {
   return {
     replyConnectionId: str(s?.replyConnectionId, 200),
+    createConnectionId: str(s?.createConnectionId, 200),
+    createTemperature: num(s?.createTemperature, 0, 2, DEFAULT_SETTINGS.createTemperature),
     temperature: num(s?.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     maxTokens: Math.round(num(s?.maxTokens, 500, 32000, DEFAULT_SETTINGS.maxTokens)),
     recentLetters: Math.round(num(s?.recentLetters, 1, 20, RECENT_LETTERS)),
@@ -103,6 +107,20 @@ export function cleanCorrespondentInput(p) {
     timeScale: num(p?.timeScale, 1, 3600, 1),
     personaId: str(p?.personaId, 200),
     personaName: str(p?.personaName, 80),
+    // 매칭으로 만든 상대: 앱의 캐릭터·로어북과 우편 설정
+    characterId: str(p?.characterId, 200),
+    worldBookId: str(p?.worldBookId, 200),
+    origin: ['manual', 'prompt', 'random', 'existing'].includes(p?.origin) ? p.origin : 'manual',
+    mail: cleanMail(p?.mail),
+  };
+}
+
+export function cleanMail(m) {
+  return {
+    ratioReason: str(m?.ratioReason, 300),
+    medium: str(m?.medium, 200), stampMotif: str(m?.stampMotif, 200), seal: str(m?.seal, 200),
+    scent: str(m?.scent, 200), texture: str(m?.texture, 200),
+    imageKeywords: Array.isArray(m?.imageKeywords) ? m.imageKeywords.map((k) => str(k, 40)).filter(Boolean).slice(0, 12) : [],
   };
 }
 
@@ -158,6 +176,7 @@ export function toInput(c) {
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
     maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '',
+    characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {},
   };
 }
 
@@ -359,7 +378,7 @@ const letterText = (l, c) => {
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
 
-export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS } = {}) {
+export function buildReplyMessages(c, { now = Date.now(), personaName = '', recent = RECENT_LETTERS, lore = '' } = {}) {
   c = normalize(c);
   const userName = personaName || c.personaName || '편지의 주인';
   const gifts = c.items.filter((x) => x.state === 'arrived').slice(-12)
@@ -383,7 +402,8 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     '<character>',
     c.brief,
     '</character>',
-    c.world ? `\n<world>\n${c.world}\n</world>` : '',
+    c.world || lore ? `\n<world>\n${[c.world, lore].filter(Boolean).join('\n\n')}\n</world>` : '',
+    c.mail?.medium ? `\n<your_letters>\nmedium=${c.mail.medium}${c.mail.texture ? `\ntexture=${c.mail.texture}` : ''}${c.mail.scent ? `\nscent=${c.mail.scent}` : ''}${c.mail.seal ? `\nseal=${c.mail.seal}` : ''}${c.mail.stampMotif ? `\nstamp=${c.mail.stampMotif}` : ''}\n(keep these unless events change them)\n</your_letters>` : '',
     '',
     '<correspondence>',
     `their_now=${formatTheirTime(tNow)}`,
@@ -407,7 +427,7 @@ export function buildReplyMessages(c, { now = Date.now(), personaName = '', rece
     'Output JSON only, in Korean, with this shape:',
     '{"between":[{"their_date":"","event":"","senses":"","open":false}],"read_at":"","written_at":"","envelope":{"medium":"","texture":"","scent":"","marks":"","seal":"","stamp":""},"enclosures":[{"item":"","note":""}],"body":"","ps":""}',
     '</task>',
-  ].filter((x) => x !== '').join('\n').replaceAll('{{user}}', userName);
+  ].filter((x) => x !== '').join('\n').replaceAll('{{user}}', userName).replaceAll('{{char}}', c.name);
 
   const history = shown.map((l) => letterText(l, c)).join('\n\n---\n\n').replaceAll('{{user}}', userName);
   const user = `<letters>\n${history || '(아직 편지 없음)'}\n</letters>\n\n위 편지에 답장을 쓴다. JSON만 출력.`;

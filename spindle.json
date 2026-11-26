@@ -1,5 +1,5 @@
 {
-  "version": "0.2.1",
+  "version": "0.3.0",
   "name": "이세계 우체통",
   "identifier": "isekai_mailbox",
   "author": "Ttealo",
@@ -8,7 +8,9 @@
   "permissions": [
     "generation",
     "personas",
-    "ui_panels"
+    "ui_panels",
+    "characters",
+    "world_books"
   ],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",

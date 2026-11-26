@@ -42,6 +42,9 @@ const replies = {
   open: (m) => { all = all.map((c) => (c.id === m.id ? { ...c, letters: c.letters.map((l) => (l.id === m.letterId ? { ...l, state: 'opened' } : l)) } : c)); return {}; },
   send: (m) => { sentLog.push(m); return {}; },
   connections: () => ({ connections: [] }),
+  characters: () => ({ characters: [{ id: 'chx', name: '진', imageId: '', books: 2 }] }),
+  matchDraft: (m) => { sentLog.push(m); return { draft: { mode: m.mode, name: '미렌', dice: m.mode === 'random' ? '사막의 대상로' : '', firstBy: 'them', characterId: m.characterId || '', warnings: ['카드가 깁니다'], card: m.mode === 'existing' ? null : { description: '# 미렌 / 34 / 여성', personality: 'p', never: 'Never x.' }, worldTitle: '얼어붙는 곶', entries: [{ title: '세계 개요', keys: [], content: '얼어붙는 바다', constant: true }, { title: '등대', keys: ['등대'], content: '돌 등대', constant: false }], mail: { ratio: 7, ratioReason: '느린 겨울', deliveryMin: 1, deliveryMax: 3, writeMin: 6, writeMax: 12, medium: '양피지', seal: '', stampMotif: '', scent: '', texture: '' }, firstLetter: { body: '누구냐.', ps: '', envelope: { medium: '양피지' }, enclosures: [] } } }; },
+  matchConfirm: (m) => { sentLog.push(m); return { id: 'c1' }; },
 };
 let badge = null;
 const drawerRoot = document.createElement('div');
@@ -114,6 +117,27 @@ tas[0].value = '세 번째 편지'; tas[0].dispatchEvent(new window.Event('input
 tas[1].value = '말린 꽃\n작은 종'; tas[1].dispatchEvent(new window.Event('input'));
 clickIn(panelRoot, 'details button', '보내기'); await tick(8);
 ok('보조창에서 보내기(동봉 2줄)', sentLog.length === 1 && sentLog[0].body === '세 번째 편지' && sentLog[0].enclosure === '말린 꽃\n작은 종');
+// 새 상대(매칭)
+clickIn(drawerRoot, 'button', '← 우편함'); await tick();
+clickIn(drawerRoot, 'button', '새 상대'); await tick(6);
+ok('매칭: 방식 4개', ['원하는 상대 적기', '무작위로 만나기', '기존 캐릭터', '직접 다 적기'].every((t) => drawerRoot.textContent.includes(t)));
+ok('매칭: 페르소나 기본(활성=시드)', drawerRoot.querySelector('select')?.value === 'p1');
+const req = drawerRoot.querySelector('textarea'); req.value = '얼어붙는 곶의 등대지기'; req.dispatchEvent(new window.Event('input'));
+clickIn(drawerRoot, 'button', '만들기'); await tick(8);
+const md = sentLog.find((x) => x.type === 'matchDraft');
+ok('매칭: 초안 요청(원하는 상대·페르소나)', md && md.request === '얼어붙는 곶의 등대지기' && md.personaId === 'p1' && md.mode === 'prompt');
+ok('미리보기: 경고·이름·카드·로어북·첫 편지', ['확인할 점: 카드가 깁니다', '캐릭터 카드', '로어북 「얼어붙는 곶」 · 2항목', '상대의 첫 편지', '누구냐.', '느린 겨울'].every((t) => drawerRoot.textContent.includes(t)));
+const nameIn = drawerRoot.querySelector('label input'); nameIn.value = '미렌 하트'; nameIn.dispatchEvent(new window.Event('input'));
+clickIn(drawerRoot, 'button', '빼기'); await tick();
+ok('미리보기: 항목 빼기', drawerRoot.textContent.includes('· 1항목'));
+clickIn(drawerRoot, 'button', '확정'); await tick(8);
+const mc = sentLog.find((x) => x.type === 'matchConfirm');
+ok('확정: 고친 초안이 그대로 감', mc && mc.draft.name === '미렌 하트' && mc.draft.entries.length === 1 && mc.personaId === 'p1');
+ok('확정 뒤 상대 화면으로', drawerRoot.textContent.includes('보내는 사람'));
+clickIn(drawerRoot, 'button', '← 우편함'); await tick();
+clickIn(drawerRoot, 'button', '새 상대'); await tick(4);
+clickIn(drawerRoot, 'button', '기존 캐릭터'); await tick(6);
+ok('기존 캐릭터: 목록', drawerRoot.textContent.includes('진 (로어북 2)'));
 stop();
 
 let fail = 0;

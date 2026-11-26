@@ -183,3 +183,124 @@ test('페르소나: 상대에 묶으면 편지·프롬프트가 그 이름을 �
   const home = await host.ask('u1', 'load');
   assert.equal(home.list[0].personaId, 'p1');
 });
+
+function addLibrary(host, matchJson) {
+  const books = new Map(); const entries = new Map(); const chars = new Map();
+  let n = 0;
+  host.api.world_books = {
+    create: async (input) => { const b = { id: `wb${n++}`, ...input }; books.set(b.id, b); return b; },
+    delete: async (id) => { books.delete(id); for (const [k, e] of entries) if (e.world_book_id === id) entries.delete(k); return true; },
+    entries: {
+      create: async (bookId, input) => { const e = { id: `e${n++}`, world_book_id: bookId, ...input }; entries.set(e.id, e); return e; },
+      list: async (bookId) => { const data = [...entries.values()].filter((e) => e.world_book_id === bookId); return { data, total: data.length }; },
+    },
+  };
+  host.api.characters = {
+    create: async (input) => { const c = { id: `ch${n++}`, ...input }; chars.set(c.id, c); return c; },
+    get: async (id) => chars.get(id) || null,
+    delete: async (id) => chars.delete(id),
+    list: async () => ({ data: [...chars.values()], total: chars.size }),
+  };
+  host.api.personas.get = async (id) => (id === 'p1' ? { id: 'p1', name: '시드' } : null);
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/Isekai Mailbox/.test(req.messages[0].content)) { host.calls.push(req); return { content: JSON.stringify(matchJson) }; }
+    return quiet(req);
+  };
+  return { books, entries, chars };
+}
+const MATCH = {
+  name: '미렌',
+  card: { description: '# 미렌 / 34 / 여성\ncore=무뚝뚝', personality: 'speech=반말', never: 'Never be cheerful.' },
+  world_title: '얼어붙는 곶',
+  entries: [
+    { title: '세계 개요', content: '얼어붙는 바다.' },
+    { title: '달력과 시간', content: '서리달.' },
+    { title: '우편 수단', content: '철새 다리.' },
+    { title: '등대', keys: ['등대'], content: '돌 등대 이야기.' },
+    { title: '선술집', keys: ['선술집'], content: '항구 선술집 이야기.' },
+  ],
+  mail: { ratio: 7, delivery_min: 1, delivery_max: 1, write_min: 0, write_max: 0, medium: '기름 먹인 양피지', seal: '등대 도장' },
+  first_letter: { body: '누구냐, 이 편지를 받은 사람은.', envelope: { medium: '양피지' }, enclosures: [{ item: '조개' }] },
+};
+
+test('매칭: 초안 → 확정하면 로어북·캐릭터·상대가 생기고, 첫 편지가 오고, 답장 프롬프트에 로어북이 들어간다', async (t) => {
+  const realNow = Date.now;
+  let now = 5_000_000_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const host = fakeHost();
+  const lib = addLibrary(host, MATCH);
+  const stop = start(host.api);
+  t.after(stop);
+  await assert.rejects(host.ask('u1', 'matchDraft', { mode: 'prompt', request: '  ' }), /원하는지/);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: '얼어붙는 곶의 등대지기', personaId: 'p1' });
+  assert.equal(draft.name, '미렌');
+  assert.match(host.calls[0].messages[0].content, /card_format/);
+  assert.equal(lib.books.size, 0); // 초안만으로는 아무것도 안 만든다
+  draft.name = '미렌 하트'; // 미리보기에서 고침
+  const r = await host.ask('u1', 'matchConfirm', { draft, personaId: 'p1', timeScale: 1 });
+  assert.equal(lib.books.size, 1);
+  assert.equal(lib.entries.size, 5);
+  const ch = lib.chars.get(r.characterId);
+  assert.equal(ch.name, '미렌 하트');
+  assert.deepEqual(ch.world_book_ids, [r.worldBookId]);
+  assert.equal(ch.post_history_instructions, 'Never be cheerful.');
+  const overview = [...lib.entries.values()].find((e) => e.comment === '세계 개요');
+  assert.equal(overview.constant, true);
+  let g = await host.ask('u1', 'get', { id: r.id });
+  assert.equal(g.c.personaName, '시드');
+  assert.equal(g.c.letters.length, 1);
+  assert.equal(g.c.letters[0].from, 'them');
+  assert.equal(g.c.mail.medium, '기름 먹인 양피지');
+  // 첫 편지 도착 → 내가 등대 이야기로 답장 → 상대 답장 프롬프트에 등대 항목(키워드)·상시 항목은 들어가고 선술집은 안 들어감
+  now += 1 * H;
+  g = await host.ask('u1', 'get', { id: r.id });
+  assert.equal(g.c.letters[0].state, 'delivered');
+  await host.ask('u1', 'send', { id: r.id, body: '등대 불빛은 어떤 색이에요?' });
+  now += 1 * H;
+  await host.ask('u1', 'load');
+  await settle();
+  const replyReq = host.calls.find((c) => !/Isekai Mailbox/.test(c.messages[0].content));
+  assert.ok(replyReq);
+  const sys = replyReq.messages[0].content;
+  assert.match(sys, /돌 등대 이야기/);
+  assert.match(sys, /얼어붙는 바다/);
+  assert.doesNotMatch(sys, /항구 선술집/);
+  assert.match(sys, /medium=기름 먹인 양피지/);
+  assert.doesNotMatch(sys, /\{\{char\}\}|\{\{user\}\}/);
+});
+
+test('매칭 확정 중 실패하면 이번에 만든 로어북·캐릭터를 지운다', async (t) => {
+  const host = fakeHost();
+  const lib = addLibrary(host, MATCH);
+  host.api.characters.create = async () => { throw new Error('모의 캐릭터 실패'); };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  assert.ok(draft.dice);
+  await assert.rejects(host.ask('u1', 'matchConfirm', { draft }), /모의 캐릭터 실패/);
+  assert.equal(lib.books.size, 0);
+  assert.equal(lib.entries.size, 0);
+  const home = await host.ask('u1', 'load');
+  assert.equal(home.list.length, 0);
+});
+
+test('기존 캐릭터로 매칭: 원본 카드는 그대로, 우체통 로어북만 따로', async (t) => {
+  const host = fakeHost();
+  const lib = addLibrary(host, { ...MATCH, name: '', card: null, entries: MATCH.entries.slice(1, 3), first_letter: null });
+  const stop = start(host.api);
+  t.after(stop);
+  const orig = await host.api.characters.create({ name: '진', description: '진의 카드', world_book_ids: [] });
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'existing', characterId: orig.id, firstBy: 'me' });
+  assert.equal(draft.name, '진');
+  assert.match(host.calls[0].messages[1].content, /진의 카드/);
+  const r = await host.ask('u1', 'matchConfirm', { draft });
+  assert.equal(r.characterId, orig.id);
+  assert.equal(lib.chars.size, 1);
+  assert.deepEqual(lib.chars.get(orig.id).world_book_ids, []); // 원본에 붙이지 않음
+  const g = await host.ask('u1', 'get', { id: r.id });
+  assert.equal(g.c.letters.length, 0);
+  assert.equal(g.c.worldBookId, r.worldBookId);
+  assert.match(g.c.brief, /진의 카드/);
+});

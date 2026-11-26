@@ -3,6 +3,9 @@ import {
   advance, recover, markGenerating, markFailed, retryReply, applyReply,
   parseJsonLoose, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
+import {
+  MATCH_MODES, GENRE_DICE, buildMatchMessages, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
+} from './match.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
 // 저장: userStorage  settings.json / c/<상대 id>.json   공용 storage  users.json(예약 실행이 돌 사용자 목록)
@@ -69,6 +72,124 @@ export function start(api) {
     try { api.sendToFrontend({ type: 'changed', ...extra }, user); } catch {}
   };
 
+  // ── 로어북 ──
+  // 상대의 로어북(우체통이 만든 것 + 캐릭터에 붙은 것) 항목을 읽어, 상시 항목과 최근 편지에 키워드가 나온 항목만 고른다
+  const listEntries = async (user, bookId) => {
+    const out = [];
+    for (let offset = 0; offset < 1000; offset += 200) {
+      const r = await api.world_books.entries.list(bookId, { limit: 200, offset, userId: user });
+      out.push(...(r?.data || []));
+      if (!r?.data?.length || out.length >= (r.total || 0)) break;
+    }
+    return out;
+  };
+  const loreFor = async (user, c) => {
+    const ids = new Set(c.worldBookId ? [c.worldBookId] : []);
+    if (c.characterId) {
+      try { for (const id of (await api.characters.get(c.characterId, user))?.world_book_ids || []) ids.add(id); } catch {}
+    }
+    if (!ids.size) return '';
+    const entries = [];
+    for (const id of ids) { try { entries.push(...await listEntries(user, id)); } catch {} }
+    const recent = c.letters.slice(-4).map((l) => `${l.body || ''}\n${l.ps || ''}\n${l.enclosure || ''}`).join('\n');
+    return pickLore(entries, recent).text;
+  };
+
+  // ── 상대 만들기(매칭) ──
+  const genJson = async (user, messages, settings) => {
+    const req = { messages, parameters: { temperature: settings.createTemperature, max_tokens: Math.max(settings.maxTokens, 8000) }, userId: user };
+    const conn = settings.createConnectionId || settings.replyConnectionId;
+    const res = conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
+    return parseJsonLoose(res?.content);
+  };
+  const existingInfo = async (user, characterId) => {
+    const ch = await api.characters.get(characterId, user);
+    if (!ch) throw new Error('고른 캐릭터를 찾지 못했습니다.');
+    const card = [ch.description, ch.personality, ch.scenario].filter(Boolean).join('\n\n').slice(0, 8000);
+    const lines = [];
+    for (const id of ch.world_book_ids || []) {
+      try {
+        for (const e of await listEntries(user, id)) if (!e.disabled && e.content) lines.push(`[${e.comment || (e.key || []).join(', ')}]\n${e.content}`);
+      } catch {}
+    }
+    return { ch, card, lore: lines.join('\n\n').slice(0, 8000) };
+  };
+  const matchDraft = async (user, p) => {
+    const mode = MATCH_MODES.includes(p.mode) ? p.mode : 'prompt';
+    if (mode === 'prompt' && !String(p.request || '').trim()) throw new Error('어떤 상대를 원하는지 적어 주세요.');
+    const settings = await loadSettings(user);
+    let personaName = '';
+    try { personaName = p.personaId ? (await api.personas.get(p.personaId, user))?.name || '' : (await api.personas.getActive(user))?.name || ''; } catch {}
+    let existing = null;
+    if (mode === 'existing') {
+      if (!p.characterId) throw new Error('캐릭터를 골라 주세요.');
+      existing = await existingInfo(user, p.characterId);
+    }
+    const dice = mode === 'random' ? (String(p.dice || '').trim() || GENRE_DICE[Math.floor(Math.random() * GENRE_DICE.length)]) : '';
+    const firstBy = p.firstBy === 'me' ? 'me' : 'them';
+    const messages = buildMatchMessages({
+      mode, request: String(p.request || '').slice(0, 4000), dice, exclude: String(p.exclude || '').slice(0, 500),
+      existing: existing && { card: existing.card, lore: existing.lore }, personaName, firstBy, ranges: p.ranges || null,
+    });
+    const raw = await genJson(user, messages, settings);
+    const draft = cleanMatchDraft(raw, { mode, ranges: p.ranges || null, existingName: existing?.ch?.name || '' });
+    return { draft: { ...draft, dice, firstBy, characterId: existing?.ch?.id || '' } };
+  };
+  const matchConfirm = async (user, p, now) => {
+    const d = cleanEditedDraft(p.draft);
+    const mode = d.mode;
+    const characterId = mode === 'existing' ? String(p.draft?.characterId || '') : '';
+    if (mode === 'existing' && !characterId) throw new Error('기존 캐릭터 id가 없습니다.');
+    // 1) 로어북
+    const book = await api.world_books.create({
+      name: mode === 'existing' ? `${d.name} · 우체통` : `${d.worldTitle} · 우체통`,
+      description: '이세계 우체통이 만든 로어북. 편지가 오가며 항목이 늘어날 수 있다.',
+      metadata: { isekai_mailbox: true },
+    }, user);
+    const made = { bookId: book.id, characterId: '' };
+    try {
+      let order = 100;
+      for (const e of d.entries) { await api.world_books.entries.create(book.id, entryInput(e, order), user); order += 10; }
+      // 2) 캐릭터(기존 상대면 원본을 건드리지 않음)
+      let charId = characterId;
+      let brief;
+      if (mode === 'existing') {
+        brief = (await existingInfo(user, characterId)).card;
+      } else {
+        const ch = await api.characters.create({
+          name: d.name,
+          description: d.card.description,
+          personality: d.card.personality,
+          post_history_instructions: d.card.never,
+          creator_notes: '이세계 우체통에서 만든 편지 상대입니다.',
+          tags: ['이세계 우체통'],
+          world_book_ids: [book.id],
+          extensions: { isekai_mailbox: { mail: d.mail, worldBookId: book.id } },
+        }, user);
+        charId = ch.id;
+        made.characterId = ch.id;
+        brief = briefFromCard(d.card);
+      }
+      // 3) 우체통 상대
+      const persona = p.personaId ? await api.personas.get(p.personaId, user).catch(() => null) : null;
+      let c = createCorrespondent({
+        name: d.name, brief, world: '', ratio: d.mail.ratio,
+        deliveryMin: d.mail.deliveryMin, deliveryMax: d.mail.deliveryMax, writeMin: d.mail.writeMin, writeMax: d.mail.writeMax,
+        maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
+        personaId: persona?.id || '', personaName: persona?.name || '',
+        characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
+      }, now);
+      if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
+      await serial(user, () => saveC(user, c));
+      return { id: c.id, characterId: charId, worldBookId: book.id };
+    } catch (e) {
+      // 중간에 실패하면 이번에 만든 것만 지운다
+      try { if (made.characterId) await api.characters.delete(made.characterId, user); } catch {}
+      try { await api.world_books.delete(made.bookId, user); } catch {}
+      throw e;
+    }
+  };
+
   // ── 답장 생성 ──
   // 보내는 사람 이름: 상대에 묶인 페르소나(지금 이름) → 저장해 둔 이름 → 마지막 편지의 이름 → 활성 페르소나
   const personaNameFor = async (user, c) => {
@@ -101,7 +222,8 @@ export function start(api) {
       if (c.reply?.state !== 'generating') return;
       const settings = await loadSettings(user);
       const personaName = await personaNameFor(user, c);
-      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters });
+      const lore = await loreFor(user, c).catch((e) => { log('warn', `로어북 읽기 실패(${c.name}): ${e?.message || e}`); return ''; });
+      const messages = buildReplyMessages(c, { now: Date.now(), personaName, recent: settings.recentLetters, lore });
       const req = {
         messages,
         parameters: { temperature: settings.temperature, max_tokens: settings.maxTokens },
@@ -224,6 +346,14 @@ export function start(api) {
         tickUser(user).catch(() => {});
         return {};
       }
+      case 'characters': {
+        const r = await api.characters.list({ limit: 200, userId: user });
+        return { characters: (r?.data || []).map((x) => ({ id: x.id, name: x.name, imageId: x.image_id || '', books: (x.world_book_ids || []).length })) };
+      }
+      case 'matchDraft':
+        return matchDraft(user, p);
+      case 'matchConfirm':
+        return matchConfirm(user, p, now);
       case 'connections': {
         const list = await api.connections.list(user);
         return { connections: (list || []).map((x) => ({ id: x.id, name: x.name, provider: x.provider, model: x.model, is_default: !!x.is_default })) };
