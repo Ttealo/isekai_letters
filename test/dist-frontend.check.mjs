@@ -10,6 +10,8 @@ Object.assign(globalThis, {
   localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
 });
 window.innerWidth = 1280; window.innerHeight = 800;
+// 실제 브라우저처럼 input.list는 읽기 전용(설정 화면 오류를 잡지 못했던 일 — 0.5.1~0.5.3)
+Object.defineProperty(window.HTMLInputElement.prototype, 'list', { get() { return null; }, set() { throw new TypeError('Cannot set property list of HTMLInputElement which has only a getter'); }, configurable: true });
 const { setup } = await import(pathToFileURL(resolve('dist/frontend.js')).href);
 
 const now = Date.now();

@@ -593,8 +593,9 @@ function el(tag, props = {}, children = []) {
     else if (k === 'text') node.textContent = v;
     else if (k === 'html') node.innerHTML = v; // 우리 코드의 고정 SVG에만 쓴다
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-    else if (k === 'style') node.setAttribute('style', v);
-    else if (k in node) node[k] = v;
+    // 읽기 전용 속성(style·list·form 등)은 속성으로. 그 밖에도 지정이 실패하면 속성으로 넘긴다
+    else if (k === 'style' || k === 'list' || k === 'form') node.setAttribute(k, v);
+    else if (k in node) { try { node[k] = v; } catch { node.setAttribute(k, v); } }
     else node.setAttribute(k, v);
   }
   for (const c of [].concat(children)) if (c !== null && c !== undefined && c !== false) node.append(c);
