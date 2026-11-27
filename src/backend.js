@@ -208,7 +208,7 @@ export function start(api) {
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
-    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', locker: '추억 상자', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
     // 대상마다 상태: waiting → drawing → done | failed
     const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
     const setTarget = (i, patch) => mutate(user, id, (c) => {
@@ -243,7 +243,7 @@ export function start(api) {
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
           : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
-            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s cabinet`
+            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s keepsake box`
             : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
@@ -266,7 +266,7 @@ export function start(api) {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
-            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || postcard ? art.envelopeSize : art.size, art)) {
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || j.kind === 'locker' || postcard ? art.envelopeSize : art.size, art)) {
               try {
                 // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
                 let timer;

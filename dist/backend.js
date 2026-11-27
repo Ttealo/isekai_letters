@@ -1593,7 +1593,7 @@ export function describeTime(hours) { return formatSpan(hours); }
 
 export const ART_KINDS = ['envelope', 'emblem', 'locker', 'paper', 'stamp', 'seal'];
 export const ALL_KINDS = ['envelope', 'emblem', 'locker', 'paper', 'stamp', 'seal', 'item'];
-export const ART_LABEL = { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
+export const ART_LABEL = { envelope: '봉투', emblem: '상징물', locker: '추억 상자', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
 // 세트: 편지지를 HTML로 꾸미면(기본) 봉투·우표·봉인, 그림이면 편지지·우표·봉인
 // 꾸미기 모드: 우표는 쓰지 않는다(봉투·봉인만)
 export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'emblem']);
@@ -1605,7 +1605,7 @@ export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render
 export const DEFAULT_TEMPLATES = {
   envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
   postcard: 'picture postcard illustration of {subject}, a wide landscape view of that world, atmospheric depth, rich environmental detail, thin white postcard border, {style}, no people in focus, no lettering, no text',
-  locker: 'charming illustration of a personal storage cabinet seen from the front, {subject}, closed doors and small drawers, ornaments and wear that tell who owns it, standing alone, plain soft background, {style}, no people, no lettering',
+  locker: 'charming still-life illustration of a small keepsake box (like a jewelry box) with its lid open, three-quarter view from slightly above, the whole box centered with some margin, {subject}, a few folded letters and tiny keepsakes inside, warm soft light, plain soft background, {style}, no people, no lettering',
   emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
@@ -1697,7 +1697,7 @@ export function buildArtPromptMessages(c, jobs) {
   const lines = jobs.map((j) => {
     const why = j.reason ? `; this letter's paper/stamp changed because: ${j.reason}` : '';
     if (j.kind === 'envelope') return `- key=${j.key}: ${c.name}'s closed letter as it arrives — material, color, texture, how it is closed and sealed, postal marks and wear (letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'}; seal: ${m.seal || '-'}; stamp: ${m.stampMotif || '-'}${why})`;
-    if (j.kind === 'locker') return `- key=${j.key}: the cabinet, chest or locker where ${c.name} would keep letters and keepsakes — shaped by their world, job and taste (material, shape, locks, ornaments, wear)`;
+    if (j.kind === 'locker') return `- key=${j.key}: the small keepsake box (jewelry-box size) where ${c.name} keeps these letters — material, lid, clasp, lining and ornaments shaped by their world, job and taste`;
     if (j.kind === 'emblem') return `- key=${j.key}: one charming object that symbolizes ${c.name} (from their job, world and personality — e.g. a tool, charm or keepsake they always carry); describe its material, shape and ornaments`;
     if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${j.medium || m.medium || '-'}; texture: ${m.texture || '-'}${why})`;
     if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${j.motif || m.stampMotif || '-'}${why})`;
@@ -2124,7 +2124,7 @@ export function start(api) {
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
-    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', locker: '추억 상자', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
     // 대상마다 상태: waiting → drawing → done | failed
     const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
     const setTarget = (i, patch) => mutate(user, id, (c) => {
@@ -2159,7 +2159,7 @@ export function start(api) {
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
           : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
-            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s cabinet`
+            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s keepsake box`
             : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
@@ -2182,7 +2182,7 @@ export function start(api) {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
-            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || postcard ? art.envelopeSize : art.size, art)) {
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || j.kind === 'locker' || postcard ? art.envelopeSize : art.size, art)) {
               try {
                 // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
                 let timer;

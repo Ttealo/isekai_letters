@@ -948,11 +948,11 @@ const CSS = `
 .im-env-seal2{position:absolute;left:50%;top:52%;width:17%;transform:translate(-50%,-50%);border-radius:50%;filter:drop-shadow(0 2px 3px #0006)}
 .im-themed{position:relative;margin-right:22px}
 .im-face{object-fit:cover;object-position:50% 12%;cursor:zoom-in;background:#ddd}
-.im-lockers{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;margin-bottom:8px}
+.im-lockers{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;margin-bottom:8px}
 .im-locker{cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border-radius:12px;background:var(--lumiverse-bg-elevated,#fff);box-shadow:0 4px 12px -8px #0007;transition:transform .15s}
 .im-locker:hover{transform:translateY(-2px)}
-.im-locker img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px}
-.im-locker-empty{width:100%;aspect-ratio:3/4;border-radius:8px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(90deg,#c8a46a33 0 2px,transparent 2px 46%),linear-gradient(#e9d9b8,#d9c39a);box-shadow:inset 0 0 0 3px #b08a5a55}
+.im-locker img{width:100%;aspect-ratio:3/2;object-fit:cover;border-radius:8px}
+.im-locker-empty{width:100%;aspect-ratio:3/2;border-radius:8px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(90deg,#c8a46a33 0 2px,transparent 2px 46%),linear-gradient(#e9d9b8,#d9c39a);box-shadow:inset 0 0 0 3px #b08a5a55}
 .im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
@@ -1348,7 +1348,7 @@ export function setup(ctx) {
   const avatarEl = (c, cls = 'im-seal', { portraitFirst = false } = {}) => (!portraitFirst && (c.art?.emblem?.imageId || c.art?.seal?.imageId) ? el('img', { class: `${cls} im-emblem`, src: imgUrl(c.art.emblem?.imageId || c.art.seal.imageId, 'sm'), alt: '' })
     : c.art?.portrait?.imageId ? el('img', { class: `${cls} im-face`, src: imgUrl(c.art.portrait.imageId, 'sm'), alt: c.name, title: '눌러서 초상화 크게 보기', onclick: (e) => { e.stopPropagation(); openImage(c.art.portrait.imageId, `${c.name} · 초상화`, ''); } })
     : c.art?.seal?.imageId ? el('img', { class: cls, src: imgUrl(c.art.seal.imageId, 'sm'), alt: '' }) : el('span', { class: cls, text: c.name.replace(/^[[^]]*]s*/, '').slice(0, 1) }));
-  const KIND_LABEL = { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인' };
+  const KIND_LABEL = { envelope: '봉투', emblem: '상징물', locker: '추억 상자', paper: '편지지', stamp: '우표', seal: '봉인' };
   const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
   let editingLetter = '';
   const rerenderAll = () => { try { renderAll(); } catch {} };
@@ -2695,18 +2695,18 @@ ${gallery}
   }
 
   // 모음: 페르소나의 모든 편지 묶음 + 모든 물품
-  // 모음: 캐릭터마다 사물함. 누르면 그 캐릭터와 나눈 것(초상화·그림·봉투·물건)을 나눠 본다
+  // 모음: 캐릭터마다 추억 상자(보석함). 누르면 그 캐릭터와 나눈 것(초상화·그림·봉투·물건)을 나눠 본다
   function albumView(list, act) {
     const go2 = (id) => { P.locker = id; panelView.render(); };
     const open = list.find((c) => c.id === P.locker);
     if (open) return lockerView(open, act, () => go2(''));
     return [
-      el('h4', { text: `사물함 · ${list.length}` }),
+      el('h4', { text: `추억 상자 · ${list.length}` }),
       el('div', { class: 'im-lockers' }, list.map((c) => {
         const img = c.art?.locker?.imageId;
         const n = { pics: (c.items || []).filter((x) => x.imageId && x.state === 'arrived').length, portraits: (c.art?.portrait ? 1 : 0) + (c.art?.portraitHistory || []).length };
         return el('div', { class: 'im-locker', onclick: () => go2(c.id) }, [
-          img ? el('img', { src: imgUrl(img, 'lg'), alt: `${c.name}의 사물함` }) : el('div', { class: 'im-locker-empty' }, [avatarEl(c)]),
+          img ? el('img', { src: imgUrl(img, 'lg'), alt: `${c.name}의 추억 상자` }) : el('div', { class: 'im-locker-empty' }, [avatarEl(c)]),
           el('b', { text: c.name }),
           el('div', { class: 'im-muted', style: 'font-size:11px', text: `초상화 ${n.portraits} · 그림·물건 ${n.pics}` }),
         ]);
@@ -2723,8 +2723,8 @@ ${gallery}
     const grid = (arr, f) => el('div', { class: 'im-grid' }, arr.map(f));
     const pic = (id, cap, sub) => el('div', { class: 'im-item' }, [el('div', { class: 'im-pic' }, [el('img', { src: imgUrl(id, 'lg'), alt: cap, loading: 'lazy', style: 'cursor:zoom-in', onclick: () => openImage(id, cap, sub || '') })]), el('div', { class: 'im-cap' }, [el('b', { text: cap }), sub ? el('div', { class: 'im-muted', text: sub }) : null])]);
     return [
-      el('div', { class: 'im-row' }, [link('← 사물함들', back), el('span', { class: 'im-grow' }), link(c.art?.locker?.imageId ? '사물함 다시 그리기' : '사물함 그리기', () => act(async () => {
-        if (!confirm(`${c.name}에게 어울리는 사물함을 ${c.art?.locker?.imageId ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+      el('div', { class: 'im-row' }, [link('← 추억 상자들', back), el('span', { class: 'im-grow' }), link(c.art?.locker?.imageId ? '상자 다시 그리기' : '상자 그리기', () => act(async () => {
+        if (!confirm(`${c.name}에게 어울리는 추억 상자(보석함 크기)를 ${c.art?.locker?.imageId ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
         await ask('drawSet', { id: c.id, kinds: ['locker'] });
         await refresh();
       }))]),
