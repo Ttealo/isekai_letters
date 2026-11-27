@@ -2585,6 +2585,7 @@ export function start(api) {
     if (!primary || !primary.model) return null;
     return list.find((x) => x.id !== primary.id && x.provider !== primary.provider && baseModel(x.model) === baseModel(primary.model)) || null;
   };
+  const blockedUntil = new Map(); // 대체로 넘긴 뒤 잠시 원래 연결을 건너뜀
   const callLLM = async (user, req, connId, settings, what = '글 생성') => {
     // raw 생성은 연결의 모델을 스스로 채우지 않으므로(공급자에 따라 「model 없음」으로 거절) 연결 목록의 모델을 함께 보낸다
     const send = async (id, r) => {
@@ -2593,6 +2594,14 @@ export function start(api) {
       return api.generate.raw({ ...r, connection_id: id, ...(cn?.model && !r.model ? { model: cn.model } : {}) });
     };
     let lastErr;
+    const bk = `${user}:${connId || 'default'}`;
+    if ((blockedUntil.get(bk) || 0) > Date.now()) {
+      const fb0 = await fallbackFor(user, connId, settings);
+      if (fb0) {
+        const { responseMimeType, responseSchema, responseJsonSchema, ...params0 } = req.parameters || {};
+        return send(fb0.id, { ...req, parameters: params0 });
+      }
+    }
     for (const wait of (globalThis.__IM_FAST_RETRY ? [0, 1, 1] : [0, 8000, 20000])) {
       if (wait) {
         log('info', `${what}: 한도·서버 오류, ${wait / 1000}초 뒤 다시 (${String(lastErr?.message || lastErr).slice(0, 60)})`);
@@ -2605,7 +2614,8 @@ export function start(api) {
     }
     const fb = await fallbackFor(user, connId, settings);
     if (!fb) throw lastErr;
-    log('info', `${what}: 원래 연결이 계속 막혀 「${fb.name}」(${fb.model})로 보냄`);
+    log('info', `${what}: 원래 연결이 계속 막혀 「${fb.name}」(${fb.model})로 보냄 — 3분 동안은 바로 이쪽으로`);
+    blockedUntil.set(bk, Date.now() + 3 * 60000);
     const { responseMimeType, responseSchema, responseJsonSchema, ...params } = req.parameters || {};
     return send(fb.id, { ...req, parameters: params });
   };
@@ -3139,8 +3149,10 @@ export function start(api) {
       }
       case 'mePortraits': {
         const out = {};
-        for (const f of await api.userStorage.list('me', user).catch(() => [])) {
-          const k = String(f).replace(/^me\//, '').replace(/\.json$/, '');
+        // 목록은 전체 경로로 올 수 있어 마지막 이름만 쓴다(상대 목록과 같게)
+        const meFiles = (await api.userStorage.exists('me', user).catch(() => false)) ? await api.userStorage.list('me', user).catch(() => []) : [];
+        for (const f of meFiles) {
+          const k = String(f).split(/[\\/]/).pop().replace(/\.json$/, '');
           try { const m = await readJson(`me/${k}.json`, user, null); if (m) out[k] = m; } catch {}
         }
         return { me: out };
