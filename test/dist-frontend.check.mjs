@@ -162,6 +162,7 @@ clickIn(panelRoot, '.im-chip', '시드'); await tick();
 ok('페르소나 고르면 상자 1', panelRoot.querySelectorAll('.im-locker').length === 1);
 clickIn(panelRoot, '.im-locker', '미렌'); await tick();
 ok('상자 누르면 그 상대의 추억 상자 탭(초상화·그림·봉투·물건)', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '추억 상자' && ['초상화 ·', '그림·사진 ·', '봉투 ·', '물건 ·'].every((t) => panelRoot.textContent.includes(t)));
+ok('추억 상자 탭: 모습 카드(초상화·상징물·봉투·추억 상자) 각자 그리기', panelRoot.querySelectorAll('.im-looks .im-look').length === 4 && ['초상화', '상징물', '봉투', '추억 상자'].every((t) => [...panelRoot.querySelectorAll('.im-looks .im-cap b')].some((b) => b.textContent === t)));
 clickIn(panelRoot, 'button', '편지첩 열기'); await tick();
 ok('사물함에서 편지첩', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩');
 // 편지 달력(내 쪽 날짜) — 「나」 아래
