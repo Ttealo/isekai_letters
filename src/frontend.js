@@ -57,6 +57,11 @@ const CSS = `
 .im-env-seal2{position:absolute;left:50%;top:52%;width:17%;transform:translate(-50%,-50%);border-radius:50%;filter:drop-shadow(0 2px 3px #0006)}
 .im-themed{position:relative;margin-right:22px}
 .im-face{object-fit:cover;object-position:50% 12%;cursor:zoom-in;background:#ddd}
+.im-lockers{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;margin-bottom:8px}
+.im-locker{cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border-radius:12px;background:var(--lumiverse-bg-elevated,#fff);box-shadow:0 4px 12px -8px #0007;transition:transform .15s}
+.im-locker:hover{transform:translateY(-2px)}
+.im-locker img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px}
+.im-locker-empty{width:100%;aspect-ratio:3/4;border-radius:8px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(90deg,#c8a46a33 0 2px,transparent 2px 46%),linear-gradient(#e9d9b8,#d9c39a);box-shadow:inset 0 0 0 3px #b08a5a55}
 .im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
@@ -452,8 +457,10 @@ export function setup(ctx) {
   const avatarEl = (c, cls = 'im-seal', { portraitFirst = false } = {}) => (!portraitFirst && (c.art?.emblem?.imageId || c.art?.seal?.imageId) ? el('img', { class: `${cls} im-emblem`, src: imgUrl(c.art.emblem?.imageId || c.art.seal.imageId, 'sm'), alt: '' })
     : c.art?.portrait?.imageId ? el('img', { class: `${cls} im-face`, src: imgUrl(c.art.portrait.imageId, 'sm'), alt: c.name, title: '눌러서 초상화 크게 보기', onclick: (e) => { e.stopPropagation(); openImage(c.art.portrait.imageId, `${c.name} · 초상화`, ''); } })
     : c.art?.seal?.imageId ? el('img', { class: cls, src: imgUrl(c.art.seal.imageId, 'sm'), alt: '' }) : el('span', { class: cls, text: c.name.replace(/^[[^]]*]s*/, '').slice(0, 1) }));
-  const KIND_LABEL = { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인' };
+  const KIND_LABEL = { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인' };
   const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
+  let editingLetter = '';
+  const rerenderAll = () => { try { renderAll(); } catch {} };
   // 편지에 딸린 그림(받은 물건·사진 그림, 내 사진): 편지지 아래 썸네일, 누르면 크게
   const attachThumbs = (c, l) => {
     const pics = (c.items || []).filter((x) => x.letterId === l.id && x.imageId).map((x) => ({ id: x.imageId, name: x.name, note: x.note || '' }));
@@ -1253,7 +1260,22 @@ export function setup(ctx) {
     if (htmlPaper() && !l.art?.paper) {
       const look = paperLook(themeOf(c, l), { seed: l.id, narrow });
       const envBtn = (l.art?.envelope || c.art?.envelope?.imageId) ? el('button', { class: 'im-link im-env-btn', type: 'button', text: '✉ 봉투 보기', onclick: () => showEnvelope(c, l) }) : null;
-      return el('div', { class: 'im-themed-wrap' }, [envBtn, el('div', { class: 'im-themed im-theirs', style: look.outer }, [
+      // 고치기: 글자가 깨졌을 때(다른 언어 섞임 등)
+      const editing = editingLetter === l.id;
+      const editBtn = el('button', { class: 'im-link im-env-btn', type: 'button', text: editing ? '고치기 닫기' : '✎ 고치기', onclick: () => { editingLetter = editing ? '' : l.id; rerenderAll(); } });
+      if (editing) {
+        const bIn = el('textarea', { value: l.body, rows: 14 });
+        const pIn = el('textarea', { value: l.ps || '', rows: 2, placeholder: '추신(선택)' });
+        return el('div', { class: 'im-themed-wrap' }, [el('div', { class: 'im-row', style: 'gap:12px' }, [envBtn, editBtn]), el('div', { class: 'im-letter', style: 'display:flex;flex-direction:column;gap:6px' }, [
+          el('div', { class: 'im-muted', text: '받은 편지를 고칩니다. 원문은 따로 남고, 앞으로의 답장·기억에는 고친 글이 쓰입니다.' }),
+          bIn, pIn,
+          el('div', { class: 'im-row' }, [
+            btn('저장', () => act(async () => { await ask('editLetter', { id: c.id, letterId: l.id, body: bIn.value, ps: pIn.value }); editingLetter = ''; await refresh(); }), { primary: true }),
+            l.original ? link('원문으로 되돌리기', () => act(async () => { await ask('editLetter', { id: c.id, letterId: l.id, body: l.original.body, ps: l.original.ps }); editingLetter = ''; await refresh(); })) : null,
+          ]),
+        ])]);
+      }
+      return el('div', { class: 'im-themed-wrap' }, [el('div', { class: 'im-row', style: 'gap:12px' }, [envBtn, editBtn, l.editedAt ? el('span', { class: 'im-muted', style: 'font-size:11px', text: '(고친 편지)' }) : null]), el('div', { class: 'im-themed im-theirs', style: look.outer }, [
         el('span', { class: 'im-corners', html: look.corners }),
         el('div', { style: look.inner }, [
           el('div', { class: 'im-tmeta', style: `color:${look.metaColor}`, text: `${c.name}의 편지 · ${meta}` }),
@@ -1389,7 +1411,7 @@ ${gallery}
   // ══════════════ 보조창(도크) + 우체통 위젯 ══════════════
   let panel = null;
   let widget = null;
-  const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '' };
+  const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '', locker: '' };
   const panelRoot = el('div', { class: 'im-panel' });
   // 보조창 방식: page=채팅창처럼 앱 화면을 채움(기본, app_manipulation 필요) / dock=오른쪽에 붙이기 / float=떠 있는 창. 새로 고침 뒤 적용
   let panelMode = ['page', 'dock', 'float'].includes(lsGet(LS_PANEL_MODE, 'page')) ? lsGet(LS_PANEL_MODE, 'page') : 'page';
@@ -1493,7 +1515,7 @@ ${gallery}
       }));
       const tabs = el('div', { class: 'im-tabs' }, [['book', '편지첩'], ['items', '물품'], ['album', '모음'], ['cal', '달력']].map(([k, t]) => el('button', { type: 'button', class: P.tab === k ? 'im-on' : '', text: t, onclick: () => setTab(k) })));
       let body = [];
-      if (P.tab === 'album') body = albumView(mine);
+      if (P.tab === 'album') body = albumView(mine, pact);
       else if (P.tab === 'cal') body = lettersCalendar(mine);
       else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
@@ -1782,7 +1804,51 @@ ${gallery}
   }
 
   // 모음: 페르소나의 모든 편지 묶음 + 모든 물품
-  function albumView(list) {
+  // 모음: 캐릭터마다 사물함. 누르면 그 캐릭터와 나눈 것(초상화·그림·봉투·물건)을 나눠 본다
+  function albumView(list, act) {
+    const go2 = (id) => { P.locker = id; panelView.render(); };
+    const open = list.find((c) => c.id === P.locker);
+    if (open) return lockerView(open, act, () => go2(''));
+    return [
+      el('h4', { text: `사물함 · ${list.length}` }),
+      el('div', { class: 'im-lockers' }, list.map((c) => {
+        const img = c.art?.locker?.imageId;
+        const n = { pics: (c.items || []).filter((x) => x.imageId && x.state === 'arrived').length, portraits: (c.art?.portrait ? 1 : 0) + (c.art?.portraitHistory || []).length };
+        return el('div', { class: 'im-locker', onclick: () => go2(c.id) }, [
+          img ? el('img', { src: imgUrl(img, 'lg'), alt: `${c.name}의 사물함` }) : el('div', { class: 'im-locker-empty' }, [avatarEl(c)]),
+          el('b', { text: c.name }),
+          el('div', { class: 'im-muted', style: 'font-size:11px', text: `초상화 ${n.portraits} · 그림·물건 ${n.pics}` }),
+        ]);
+      })),
+
+    ];
+  }
+  function lockerView(c, act, back) {
+    const pics = (c.items || []).filter((x) => x.imageId && x.state === 'arrived');
+    const drawn = pics.filter((x) => x.nai || x.photo);
+    const things = pics.filter((x) => !x.nai && !x.photo);
+    const portraits = [...(c.art?.portrait ? [{ imageId: c.art.portrait.imageId, at: c.art.portrait.at, now: true }] : []), ...[...(c.art?.portraitHistory || [])].reverse()];
+    const envs = c.letters.filter((l) => l.from === 'them' && l.state !== 'in_transit' && (l.art?.envelope || c.art?.envelope?.imageId));
+    const grid = (arr, f) => el('div', { class: 'im-grid' }, arr.map(f));
+    const pic = (id, cap, sub) => el('div', { class: 'im-item' }, [el('div', { class: 'im-pic' }, [el('img', { src: imgUrl(id, 'lg'), alt: cap, loading: 'lazy', style: 'cursor:zoom-in', onclick: () => openImage(id, cap, sub || '') })]), el('div', { class: 'im-cap' }, [el('b', { text: cap }), sub ? el('div', { class: 'im-muted', text: sub }) : null])]);
+    return [
+      el('div', { class: 'im-row' }, [link('← 사물함들', back), el('span', { class: 'im-grow' }), link(c.art?.locker?.imageId ? '사물함 다시 그리기' : '사물함 그리기', () => act(async () => {
+        if (!confirm(`${c.name}에게 어울리는 사물함을 ${c.art?.locker?.imageId ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+        await ask('drawSet', { id: c.id, kinds: ['locker'] });
+        await refresh();
+      }))]),
+      el('div', { class: 'im-row', style: 'gap:12px;align-items:center;margin:6px 0' }, [avatarEl(c, 'im-seal', { portraitFirst: true }), el('div', { class: 'im-grow' }, [el('b', { text: c.name }), el('div', { class: 'im-muted', text: `편지 ${c.letters.length}통 · 물건 ${(c.items || []).length}개` })]), link('편지첩 열기', () => { P.id = c.id; P.tab = 'book'; lsSet(`${LS_PANEL}.id`, c.id); lsSet(`${LS_PANEL}.tab`, 'book'); panelView.render(); })]),
+      el('h4', { text: `초상화 · ${portraits.length}` }),
+      portraits.length ? grid(portraits, (x) => pic(x.imageId, x.now ? '지금 모습' : '예전 모습', x.at ? new Date(x.at).toLocaleDateString('ko-KR') : '')) : el('div', { class: 'im-muted', text: '서류함의 「초상화 그리기」로 그릴 수 있어요.' }),
+      el('h4', { text: `그림·사진 · ${drawn.length}` }),
+      drawn.length ? grid(drawn, (x) => pic(x.imageId, x.name, x.from === 'me' ? '내가 보냄' : `${c.name}이(가) 보냄`)) : el('div', { class: 'im-muted', text: '서로 보낸 그림·사진이 여기에 모여요.' }),
+      el('h4', { text: `봉투 · ${envs.length}` }),
+      envs.length ? el('div', { class: 'im-env-grid' }, envs.map((l) => { const f = envelopeFace(c, l, 'im-env-card'); f.addEventListener('click', () => showEnvelope(c, l)); return el('div', {}, [f, el('div', { class: 'im-muted', style: 'font-size:11px;margin-top:4px', text: l.writtenLabel || l.theirWrittenLabel || when(l.arriveAt) })]); })) : el('div', { class: 'im-muted', text: '봉투 그림이 생기면 편지마다 모여요.' }),
+      el('h4', { text: `물건 · ${things.length + (c.items || []).filter((x) => !x.imageId).length}` }),
+      (c.items || []).filter((x) => !x.nai && !x.photo).length ? el('div', { class: 'im-grid' }, (c.items || []).filter((x) => !x.nai && !x.photo && (x.state === 'arrived' || x.from === 'me')).map((x) => itemCard(x, x.from === 'me' ? `→ ${c.name}` : `${c.name} →`, c.id))) : el('div', { class: 'im-muted', text: '아직 오간 물건이 없습니다.' }),
+    ];
+  }
+  function albumOld(list) {
     const items = list.flatMap((c) => c.items.filter((x) => x.state === 'arrived' || x.from === 'me').map((x) => ({ x, c })));
     items.sort((a, b) => (b.x.arriveAt || 0) - (a.x.arriveAt || 0));
     return [

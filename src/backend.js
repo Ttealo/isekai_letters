@@ -1,7 +1,7 @@
 import {
   cleanSettings, createCorrespondent, updateCorrespondent, toInput, sendLetter, recallLetter, markOpened,
   advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart, calendarDate,
-  parseJsonLoose, imageIdsOf, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
+  parseJsonLoose, imageIdsOf, editLetter, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
 import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
@@ -208,7 +208,7 @@ export function start(api) {
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
-    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
     // 대상마다 상태: waiting → drawing → done | failed
     const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
     const setTarget = (i, patch) => mutate(user, id, (c) => {
@@ -243,6 +243,7 @@ export function start(api) {
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
           : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s cabinet`
             : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
@@ -438,7 +439,9 @@ export function start(api) {
         await mutate(user, id, (x) => {
           x = ensureArt(x);
           old = x.art?.portrait?.imageId || '';
-          return { ...x, portraitJob: null, art: { ...x.art, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now(), atLetters: x.letters.filter((q) => q.from === 'them').length } } };
+          const history = [...(x.art?.portraitHistory || []), ...(old ? [{ imageId: old, at: x.art.portrait.at || 0 }] : [])].slice(-30);
+          old = '';
+          return { ...x, portraitJob: null, art: { ...x.art, portraitHistory: history, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now(), atLetters: x.letters.filter((q) => q.from === 'them').length } } };
         });
         if (old) { try { await api.images.delete(old, user); } catch {} }
         await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0, kind: 'portrait' }]);
@@ -468,7 +471,7 @@ export function start(api) {
     if (c0) {
       await mutate(user, row.cid, (c) => {
         c = ensureArt(c);
-        const art = Object.fromEntries(Object.entries(c.art).map(([k, v]) => [k, v?.imageId === p.imageId ? { ...v, imageId: up.id, webp: true } : v]));
+        const art = Object.fromEntries(Object.entries(c.art).map(([k, v]) => [k, Array.isArray(v) ? v.map((h) => (h?.imageId === p.imageId ? { ...h, imageId: up.id } : h)) : v?.imageId === p.imageId ? { ...v, imageId: up.id, webp: true } : v]));
         const items = (c.items || []).map((x) => (x.imageId === p.imageId ? { ...x, imageId: up.id } : x));
         const letters = (c.letters || []).map((l) => (l.art && Object.values(l.art).includes(p.imageId)
           ? { ...l, art: Object.fromEntries(Object.entries(l.art).map(([k, v]) => [k, v === p.imageId ? up.id : v])) } : l));
@@ -1016,6 +1019,10 @@ export function start(api) {
       }
       case 'recall': {
         const c = await mutate(user, p.id, (c) => recallLetter(c, p.letterId, now));
+        return { c: publicView(c, now) };
+      }
+      case 'editLetter': {
+        const c = await mutate(user, p.id, (c) => editLetter(c, p.letterId, { body: p.body, ps: p.ps }, now));
         return { c: publicView(c, now) };
       }
       case 'open': {

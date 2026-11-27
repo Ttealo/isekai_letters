@@ -2,9 +2,9 @@
 // 편지지·우표·봉인은 "그래픽 도안"(정면 평면, 배경·탁자·그림자 없음), 물건은 세밀한 일러스트.
 // 사람·얼굴·손·글자는 그리지 않는다. 종류마다 양식(템플릿)과 모델을 설정에서 바꿀 수 있다.
 
-export const ART_KINDS = ['envelope', 'emblem', 'paper', 'stamp', 'seal'];
-export const ALL_KINDS = ['envelope', 'emblem', 'paper', 'stamp', 'seal', 'item'];
-export const ART_LABEL = { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
+export const ART_KINDS = ['envelope', 'emblem', 'locker', 'paper', 'stamp', 'seal'];
+export const ALL_KINDS = ['envelope', 'emblem', 'locker', 'paper', 'stamp', 'seal', 'item'];
+export const ART_LABEL = { envelope: '봉투', emblem: '상징물', locker: '사물함', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
 // 세트: 편지지를 HTML로 꾸미면(기본) 봉투·우표·봉인, 그림이면 편지지·우표·봉인
 // 꾸미기 모드: 우표는 쓰지 않는다(봉투·봉인만)
 export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'emblem']);
@@ -16,6 +16,7 @@ export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render
 export const DEFAULT_TEMPLATES = {
   envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
   postcard: 'picture postcard illustration of {subject}, a wide landscape view of that world, atmospheric depth, rich environmental detail, thin white postcard border, {style}, no people in focus, no lettering, no text',
+  locker: 'charming illustration of a personal storage cabinet seen from the front, {subject}, closed doors and small drawers, ornaments and wear that tell who owns it, standing alone, plain soft background, {style}, no people, no lettering',
   emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
@@ -107,6 +108,7 @@ export function buildArtPromptMessages(c, jobs) {
   const lines = jobs.map((j) => {
     const why = j.reason ? `; this letter's paper/stamp changed because: ${j.reason}` : '';
     if (j.kind === 'envelope') return `- key=${j.key}: ${c.name}'s closed letter as it arrives — material, color, texture, how it is closed and sealed, postal marks and wear (letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'}; seal: ${m.seal || '-'}; stamp: ${m.stampMotif || '-'}${why})`;
+    if (j.kind === 'locker') return `- key=${j.key}: the cabinet, chest or locker where ${c.name} would keep letters and keepsakes — shaped by their world, job and taste (material, shape, locks, ornaments, wear)`;
     if (j.kind === 'emblem') return `- key=${j.key}: one charming object that symbolizes ${c.name} (from their job, world and personality — e.g. a tool, charm or keepsake they always carry); describe its material, shape and ornaments`;
     if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${j.medium || m.medium || '-'}; texture: ${m.texture || '-'}${why})`;
     if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${j.motif || m.stampMotif || '-'}${why})`;

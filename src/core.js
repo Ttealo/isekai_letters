@@ -255,7 +255,9 @@ export function createCorrespondent(input, now = Date.now(), rand = Math.random)
 // 이 상대가 쓰는 그림 id 전부(편지지·우표·봉인, 편지마다 고정된 그림, 물건)
 export function imageIdsOf(c) {
   const ids = new Set();
-  for (const v of Object.values(c?.art || {})) if (v?.imageId) ids.add(v.imageId);
+  for (const v of Object.values(c?.art || {})) {
+    if (Array.isArray(v)) { for (const h of v) if (h?.imageId) ids.add(h.imageId); } else if (v?.imageId) ids.add(v.imageId);
+  }
   for (const l of c?.letters || []) for (const v of Object.values(l.art || {})) if (typeof v === 'string' && v) ids.add(v);
   for (const x of c?.items || []) if (x.imageId) ids.add(x.imageId);
   return [...ids];
@@ -341,6 +343,16 @@ export function recallLetter(c, letterId, now = Date.now()) {
   if (!l || l.from !== 'me') throw new Error('회수할 편지를 찾지 못했습니다.');
   if (l.state !== 'in_transit' || now >= l.arriveAt) throw new Error('이미 도착한 편지는 회수할 수 없습니다.');
   return { ...c, letters: c.letters.filter((x) => x.id !== letterId), items: (c.items || []).filter((x) => x.letterId !== letterId) };
+}
+
+// 받은 편지 고치기(모델이 글자를 깨뜨렸을 때 등). 본문·추신만, 원문은 한 번만 남긴다
+export function editLetter(c, letterId, { body, ps } = {}, now = Date.now()) {
+  const l = c.letters.find((x) => x.id === letterId);
+  if (!l) throw new Error('편지를 찾지 못했습니다.');
+  if (l.state === 'in_transit') throw new Error('배송 중인 편지는 고칠 수 없습니다.');
+  const nb = cleanLetterBody(body);
+  const np = str(ps ?? l.ps ?? '', 2000).trim();
+  return { ...c, letters: c.letters.map((x) => (x.id === letterId ? { ...x, body: nb, ps: np, editedAt: now, original: x.original || { body: x.body, ps: x.ps || '' } } : x)) };
 }
 
 export function markOpened(c, letterId, now = Date.now()) {

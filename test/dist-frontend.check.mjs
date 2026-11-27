@@ -150,12 +150,13 @@ ok('물품: 그림 누르면 크게 보기(모달)', modals.length === 1 && moda
 
 // 모음
 clickIn(panelRoot, '.im-tabs button', '모음'); await tick();
-ok('모음: 편지 묶음 2', panelRoot.querySelectorAll('.im-bundle').length === 2);
-ok('모음: 모든 물건 4', panelRoot.textContent.includes('모든 물건 · 4'));
+ok('모음: 사물함 2', panelRoot.querySelectorAll('.im-locker').length === 2);
 clickIn(panelRoot, '.im-chip', '시드'); await tick();
-ok('모음: 페르소나 고르면 묶음 1', panelRoot.querySelectorAll('.im-bundle').length === 1);
-clickIn(panelRoot, '.im-bundle', '미렌'); await tick();
-ok('묶음 누르면 편지첩', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩');
+ok('모음: 페르소나 고르면 사물함 1', panelRoot.querySelectorAll('.im-locker').length === 1);
+clickIn(panelRoot, '.im-locker', '미렌'); await tick();
+ok('사물함 열면 초상화·그림·봉투·물건 칸', ['초상화 ·', '그림·사진 ·', '봉투 ·', '물건 ·'].every((t) => panelRoot.textContent.includes(t)));
+clickIn(panelRoot, 'button', '편지첩 열기'); await tick();
+ok('사물함에서 편지첩', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩');
 // 편지 달력(내 쪽 날짜)
 clickIn(panelRoot, '.im-tabs button', '달력'); await tick();
 const nowD = new Date();

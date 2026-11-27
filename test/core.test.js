@@ -326,3 +326,19 @@ test('우체부가 늦었다: 확률에 걸리면 배송이 늘고 사유가 남
   assert.match(M.buildReplyMessages(c, { now: 40 * H })[1].content, /배달이 늦었다/);
   assert.equal(M.cleanSettings({}).lateChance, 8);
 });
+
+test('받은 편지 고치기: 본문·추신, 원문은 한 번만 남김', () => {
+  let c = M.createCorrespondent(base, 0, () => 0);
+  c = M.applyReply(c, { body: '안녕 こんにちは', ps: '', envelope: {}, enclosures: [], between: [] }, 0, () => 0);
+  const id = c.letters[0].id;
+  assert.throws(() => M.editLetter(c, id, { body: 'x' }), /배송 중/);
+  c = M.advance(c, 30 * H).c;
+  c = M.editLetter(c, id, { body: '안녕 반가워', ps: '잘 지내' }, 5);
+  c = M.editLetter(c, id, { body: '안녕, 반가워' }, 6);
+  const l = c.letters[0];
+  assert.equal(l.body, '안녕, 반가워');
+  assert.equal(l.ps, '잘 지내');
+  assert.equal(l.original.body, '안녕 こんにちは');
+  assert.equal(l.editedAt, 6);
+  assert.throws(() => M.editLetter(c, id, { body: '  ' }), /비어/);
+});
