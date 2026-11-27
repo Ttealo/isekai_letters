@@ -2507,13 +2507,13 @@ ${gallery}
         link('닫기', () => act(async () => { await ask('artDismiss', { id: c.id }); await refresh(); })),
       ]) : null,
       el('div', { class: 'im-row' }, [
-        el('span', { class: 'im-muted im-grow', text: `그림 세트 ${have.length}/${SK.length}${left !== undefined ? ` · 오늘 남은 그림 ${left}장` : ''}` }),
-        link(missing.length ? `그림 세트 만들기(${missing.length}장)` : `세트 다시 그리기(${SK.length}장)`, () => act(async () => {
-          const kinds = missing.length ? missing : SK;
-          if (!confirm(`${c.name}의 ${kinds.map((k) => KIND_LABEL[k]).join('·')}을 그립니다.\n이미지 ${kinds.length}장 + 글 생성 1회. 계속할까요?`)) return;
-          await ask('drawSet', { id: c.id, kinds });
+        el('span', { class: 'im-muted im-grow', text: left !== undefined ? `오늘 남은 그림 ${left}장` : '' }),
+        // 종류마다 따로(봉투는 사건마다 바뀌고 상징물은 한 번이면 되므로 묶지 않음)
+        ...SK.map((k) => link(`${KIND_LABEL[k]} ${have.includes(k) ? '다시 그리기' : '그리기'}`, () => act(async () => {
+          if (!confirm(`${c.name}의 ${KIND_LABEL[k]}을(를) ${have.includes(k) ? '다시 ' : ''}그립니다.\n이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+          await ask('drawSet', { id: c.id, kinds: [k] });
           await refresh();
-        })),
+        }))),
       ]),
     ]);
   }
