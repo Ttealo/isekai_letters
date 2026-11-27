@@ -822,7 +822,8 @@ export function start(api) {
       }, now);
       // 달력의 「첫 편지 날짜」가 첫 편지를 쓴 그쪽 시각이 되도록: 만난 뒤 흐른 시간(anchor)만큼 시작을 앞당긴다
       if (c.calendar) c = { ...c, calendar: shiftCalendarStart(c.calendar, -c.anchor.theirAt) };
-      if (d.firstLetter) c = applyReply(c, firstLetterReply(d.firstLetter), now);
+      // 상대가 먼저 쓴 첫 편지는 배송을 기다리지 않고 바로 우체통에(만나자마자 도착)
+      if (d.firstLetter) c = advance(applyReply(c, firstLetterReply(d.firstLetter), now, Math.random, { immediate: true }), now).c;
       await serial(user, () => saveC(user, c));
       // 첫 편지의 동봉물도 자동 그리기(설정이 켜져 있으면)
       const settingsA = await loadSettings(user);

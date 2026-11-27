@@ -530,12 +530,13 @@ test('먼저 오는 편지·푸시 알림·달력 만들기', async (t) => {
   let g = await host.ask('u1', 'get', { id: r.id });
   assert.match(g.c.theirNowLabel, /^312년 백무기 8일 .* \(만난 지 1일째\)$/);
   assert.equal(g.c.waitHours, 10);
-  // 첫 편지 도착 → 푸시
+  // 상대의 첫 편지는 매칭하자마자 이미 도착(배송 기다림 없음, 화면에 있으니 푸시 없음)
+  assert.equal(g.c.letters[0].from, 'them');
+  assert.equal(g.c.letters[0].state, 'delivered');
+  assert.ok(g.c.letters[0].body);
   now += 1 * H;
   await host.ask('u1', 'load'); await settle();
-  assert.equal(pushes.length, 1);
-  assert.equal(pushes[0][0].body, '미렌의 편지가 도착했어요');
-  assert.equal(pushes[0][1], 'u1');
+  assert.equal(pushes.length, 0);
   // 답장 안 하고 그쪽 10시간 넘게 기다리면 → 예약 → 먼저 씀
   const callsBefore = host.calls.length;
   for (let i = 0; i < 4; i++) { now += 6 * H; await host.ask('u1', 'load'); await settle(); }

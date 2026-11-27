@@ -467,10 +467,11 @@ export function retryReply(c, now = Date.now()) {
 }
 
 // 생성 결과를 상대 편지로 넣고 배송을 시작한다
-export function applyReply(c, reply, now = Date.now(), rand = Math.random, { lateChance = 0 } = {}) {
+// immediate: 바로 도착(매칭 때 상대의 첫 편지 — 만나자마자 우체통에 들어 있음)
+export function applyReply(c, reply, now = Date.now(), rand = Math.random, { lateChance = 0, immediate = false } = {}) {
   c = normalize(c);
-  const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
-  const late = postLate(base0, lateChance, rand);
+  const base0 = immediate ? 0 : realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+  const late = immediate ? null : postLate(base0, lateChance, rand);
   const travel = base0 + (late ? late.extra : 0);
   const letter = {
     id: newId('l', now, rand),
