@@ -238,6 +238,19 @@ const CSS2 = `
 .im-cal-ev .im-t{font-variant-numeric:tabular-nums;font-size:12px;color:var(--lumiverse-text-muted);min-width:40px}
 .im-cal-ev .im-x{font-family:var(--im-serif);font-size:12.5px;color:var(--lumiverse-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .im-flash{animation:im-flash 1.6s ease}
+.im-fold-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--lumiverse-text-muted);margin:4px 2px -2px}
+.im-fold{border-bottom:1px dashed var(--im-line)}
+.im-fold>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:7px 6px;cursor:pointer;font-family:var(--im-serif);font-size:13px;color:var(--lumiverse-text);border-radius:6px;-webkit-tap-highlight-color:transparent}
+.im-fold>summary::-webkit-details-marker{display:none}
+.im-fold>summary:hover{background:color-mix(in srgb,var(--im-line) 35%,transparent)}
+.im-fold-who{flex:none;font-size:11px;font-family:system-ui,sans-serif;padding:1px 8px;border-radius:999px;border:1px solid var(--im-line);color:var(--lumiverse-text-muted)}
+.im-fold-theirs .im-fold-who{color:var(--im-wax);border-color:color-mix(in srgb,var(--im-wax) 45%,transparent)}
+.im-fold-x{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.im-fold-when{flex:none;font-size:11px;font-family:system-ui,sans-serif;color:var(--lumiverse-text-muted);font-variant-numeric:tabular-nums}
+.im-fold[open]>summary{color:var(--lumiverse-text-muted)}
+.im-fold[open]>summary .im-fold-x{opacity:.6}
+.im-fold-body{display:flex;flex-direction:column;gap:6px;padding:0 0 12px}
+.im-fold+.im-divider{margin-top:14px}
 [data-lid]{scroll-margin-top:72px}
 @keyframes im-flash{0%,40%{box-shadow:0 0 0 3px var(--im-wax)}100%{box-shadow:none}}
 @media (max-width:520px){.im-cal-day{min-height:48px;padding:3px}.im-cal-mark{min-width:12px;height:12px;font-size:9px;line-height:12px}}
@@ -336,6 +349,8 @@ export function setup(ctx) {
   };
   const composeOpen = new Set(); // 편지 쓰기 칸을 연 상대
   const sceneOpen = new Set(); // 그림 그려서 동봉 칸을 연 상대
+  const foldOpen = new Set(); // 편지첩에서 펼쳐 둔 지난 편지(편지 id)
+  const KEEP_OPEN = 2; // 맨 끝 몇 통은 늘 펼쳐 둠
   const byId = (id) => S.all.find((c) => c.id === id) || null;
   const personaOf = (id) => S.personas.find((p) => p.id === id) || null;
   const inPersona = (x) => S.persona === ALL || (S.persona === NO_PERSONA ? !x.personaId : x.personaId === S.persona);
@@ -1740,10 +1755,34 @@ export function setup(ctx) {
   function bookView(c, act) {
     const now = Date.now();
     const exact = !!S.settings?.showExactEta;
-    const nodes = c.letters.flatMap((l) => [
-      el('div', { class: 'im-divider', text: l.from === 'me' ? (l.theirSentLabel ? `그쪽 ${l.theirSentLabel.replace('만난 지 ', '')} 무렵 · 내가 보냄` : '내가 보냄') : (l.theirWrittenLabel ? `그쪽 ${l.theirWrittenLabel.replace('만난 지 ', '')} · ${c.name}` : `${c.name}`) }),
-      (() => { const n = letterNode(l); n?.setAttribute?.('data-lid', l.id); return n; })(),
-    ]);
+    const label = (l) => (l.from === 'me' ? (l.theirSentLabel ? `그쪽 ${l.theirSentLabel.replace('만난 지 ', '')} 무렵 · 내가 보냄` : '내가 보냄') : (l.theirWrittenLabel ? `그쪽 ${l.theirWrittenLabel.replace('만난 지 ', '')} · ${c.name}` : `${c.name}`));
+    // 지난 편지는 책의 차례처럼 한 줄로 접어 두고, 누르면 펼친다.
+    // 늘 펼침: 맨 끝 KEEP_OPEN통, 가는 중·안 읽은 편지, 고치는 중인 편지, 바로 가려는 편지
+    if (P.focusLetter) foldOpen.add(P.focusLetter);
+    const n = c.letters.length;
+    const alwaysOpen = (l, i) => i >= n - KEEP_OPEN || l.state === 'in_transit' || (l.from === 'them' && l.state === 'delivered') || editingLetter === l.id;
+    const foldable = c.letters.filter((l, i) => !alwaysOpen(l, i));
+    const nodes = c.letters.flatMap((l, i) => {
+      if (alwaysOpen(l, i)) return [el('div', { class: 'im-divider', text: label(l) }), (() => { const x = letterNode(l); x?.setAttribute?.('data-lid', l.id); return x; })()];
+      const mine = l.from === 'me';
+      const t = mine ? l.sentAt : l.arriveAt; const date = t ? when(t) : '';
+      return [el('details', { class: `im-fold ${mine ? 'im-fold-mine' : 'im-fold-theirs'}`, 'data-lid': l.id, open: foldOpen.has(l.id) || undefined, ontoggle: (e) => { if (e.target.hasAttribute('open')) foldOpen.add(l.id); else foldOpen.delete(l.id); } }, [
+        el('summary', {}, [
+          el('span', { class: 'im-fold-who', text: mine ? '✒ 보냄' : '✉ 받음' }),
+          el('span', { class: 'im-fold-x', text: String(l.body || '').replace(/s+/g, ' ').trim().slice(0, 80) || label(l) }),
+          el('span', { class: 'im-fold-when', text: date }),
+        ]),
+        el('div', { class: 'im-fold-body' }, [el('div', { class: 'im-divider', text: label(l) }), letterNode(l)]),
+      ])];
+    });
+    const foldBar = foldable.length > 1 ? el('div', { class: 'im-fold-bar' }, [
+      el('span', { text: `지난 편지 ${foldable.length}통` }),
+      link(foldable.every((l) => foldOpen.has(l.id)) ? '모두 접기' : '모두 펼치기', () => {
+        const all = foldable.every((l) => foldOpen.has(l.id));
+        for (const l of foldable) { if (all) foldOpen.delete(l.id); else foldOpen.add(l.id); }
+        rerenderAll();
+      }),
+    ]) : null;
     function letterNode(l) {
       if (l.from === 'me') {
         if (l.state === 'in_transit') {
@@ -1782,6 +1821,7 @@ export function setup(ctx) {
       ]),
       artBar(c, act),
       c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [el('span', { class: 'im-err im-grow', text: `우편 사고: ${c.reply.error || ''}` }), btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); }))]) : null,
+      foldBar,
       ...(nodes.length ? nodes : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다. 첫 편지를 써 보세요.' })]),
       c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs' }, [el('span', { class: 'im-spin' }), `${c.name}이(가) 답장을 쓰고 있는 듯합니다`]) : null,
       // 바로 받기: 배송·답장 쓰는 시간을 건너뜀

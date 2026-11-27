@@ -145,6 +145,19 @@ ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 �
 }
 clickIn(panelRoot, 'button', '봉투 열기'); await tick(8);
 ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-themed.im-theirs').length === 2);
+{
+  const folds = [...panelRoot.querySelectorAll('details.im-fold')];
+  const isOpen = (d) => !!d && d.hasAttribute('open');
+  ok('지난 편지는 한 줄로 접힘(맨 끝 2통·가는 중은 펼침)', folds.length === 2 && folds.every((d) => !isOpen(d)) && folds[0].getAttribute('data-lid') === 'l1' && folds[0].querySelector('summary').textContent.includes('처음 편지') && folds[1].querySelector('.im-fold-who').textContent.includes('받음'));
+  ok('접힌 줄 위에 「지난 편지 2통 · 모두 펼치기」', panelRoot.querySelector('.im-fold-bar')?.textContent.includes('지난 편지 2통'));
+  folds[0].setAttribute('open', ''); folds[0].dispatchEvent(new window.Event('toggle'));
+  backend({ type: 'changed' }); await tick(15);
+  const f2 = panelRoot.querySelector('details.im-fold[data-lid="l1"]');
+  ok('펼친 지난 편지는 새로 고침 뒤에도 펼쳐진 채', f2 !== folds[0] && isOpen(f2) && !isOpen(panelRoot.querySelector('details.im-fold[data-lid="l2"]')));
+  clickIn(panelRoot, '.im-fold-bar button', '모두 펼치기'); await tick();
+  ok('모두 펼치기', [...panelRoot.querySelectorAll('details.im-fold')].every(isOpen) && panelRoot.querySelector('.im-fold-bar').textContent.includes('모두 접기'));
+  clickIn(panelRoot, '.im-fold-bar button', '모두 접기'); await tick();
+}
 // 물품
 clickIn(panelRoot, '.im-tabs button', '물건'); await tick();
 ok('물품: 받은 것 3 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 3') && panelRoot.textContent.includes('보낸 것 · 1'));
