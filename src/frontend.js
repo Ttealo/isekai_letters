@@ -318,7 +318,24 @@ export function setup(ctx) {
     error: '',
   };
   const views = new Set(); // 다시 그릴 화면들
-  const renderAll = () => { for (const v of views) v.render(); };
+  // bg = 1분 새로 고침 같은 뒤쪽 갱신. 입력 중인 화면(설정·정보 수정·새 상대)은 건너뛴다
+  let bgRender = false;
+  const renderAll = (bg = false) => { bgRender = bg; try { for (const v of views) v.render(); } finally { bgRender = false; } };
+  // 다시 그리기 전후로 입력칸의 포커스·커서·스크롤을 지킨다(data-keep으로 같은 칸을 찾음)
+  const keepFocus = (root, fn) => {
+    const a = typeof document !== 'undefined' ? document.activeElement : null;
+    const key = a && root.contains(a) ? a.getAttribute?.('data-keep') : '';
+    const st = key ? { s: a.selectionStart, e: a.selectionEnd, top: a.scrollTop } : null;
+    const scrollers = [...root.querySelectorAll?.('[data-keep-scroll]') || []].map((x) => [x.getAttribute('data-keep-scroll'), x.scrollTop]);
+    fn();
+    if (key) {
+      const b = root.querySelector(`[data-keep="${key}"]`);
+      if (b) { try { b.focus({ preventScroll: true }); if (st.s != null) b.setSelectionRange(st.s, st.e); b.scrollTop = st.top; } catch {} }
+    }
+    for (const [k, top] of scrollers) { const x = root.querySelector(`[data-keep-scroll="${k}"]`); if (x) x.scrollTop = top; }
+  };
+  const composeOpen = new Set(); // 편지 쓰기 칸을 연 상대
+  const sceneOpen = new Set(); // 그림 그려서 동봉 칸을 연 상대
   const byId = (id) => S.all.find((c) => c.id === id) || null;
   const personaOf = (id) => S.personas.find((p) => p.id === id) || null;
   const inPersona = (x) => S.persona === ALL || (S.persona === NO_PERSONA ? !x.personaId : x.personaId === S.persona);
@@ -341,14 +358,14 @@ export function setup(ctx) {
       if (p) { S.personas = p.personas; S.activePersonaId = p.activeId; }
       const l = await ask('load');
       S.list = l.list;
-      ask('mePortraits').then((m) => { S.me = m.me || {}; renderAll(); }).catch(() => {});
+      ask('mePortraits').then((m) => { S.me = m.me || {}; renderAll(true); }).catch(() => {});
       S.error = '';
       ask('artStatus').then((a) => { S.art = a; }).catch(() => {});
       convertWebp();
     } catch (e) { S.error = e.message || String(e); }
     const unread = S.list.reduce((n, x) => n + x.unread, 0);
     tab.setBadge(unread ? String(unread) : null);
-    renderAll();
+    renderAll(true);
   }
   // 백엔드가 만든 png를 이 브라우저에서 WebP로 바꿔 돌려준다(백엔드에는 변환 도구가 없음)
   let converting = false;
@@ -442,13 +459,13 @@ export function setup(ctx) {
     const sender = c.noPersona ? '나 (페르소나 없음)' : c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
     return el('div', { class: 'im-letter' }, [
       el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-row', style: 'gap:6px;align-items:center' }, [myFace(meKeyOf(c)), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })])]),
-      el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
-      el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
+      el('textarea', { 'data-keep': `body:${c.id}`, value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
+      el('textarea', { 'data-keep': `enc:${c.id}`, value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
       el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
-      !artOn() ? null : el('details', { class: 'im-scene', open: working.has(`scene:${c.id}`) || undefined }, [
+      !artOn() ? null : el('details', { class: 'im-scene', open: sceneOpen.has(c.id) || working.has(`scene:${c.id}`) || undefined, ontoggle: (e) => { if (e.target.hasAttribute('open')) sceneOpen.add(c.id); else sceneOpen.delete(c.id); } }, [
         el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '그림 그려서 동봉 (NovelAI)' }),
         (() => {
-          const req = el('textarea', { rows: 2, placeholder: '어떤 그림인지 자연어로 — 예: 비 오는 창가에서 편지를 읽는 나, 창밖엔 네온 간판' });
+          const req = el('textarea', { 'data-keep': `scene:${c.id}`, value: d.sceneText || '', oninput: (e) => { d.sceneText = e.target.value; }, rows: 2, placeholder: '어떤 그림인지 자연어로 — 예: 비 오는 창가에서 편지를 읽는 나, 창밖엔 네온 간판' });
           const me = el('input', { type: 'checkbox', style: 'width:auto', checked: true });
           const them = el('input', { type: 'checkbox', style: 'width:auto' });
           return el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, [
@@ -601,9 +618,10 @@ export function setup(ctx) {
     };
 
     function render() {
+      if (bgRender && ['settings', 'form', 'match', 'preview', 'remove'].includes(view.name)) return;
       const body = { home: homeView, c: cView, letter: letterView, form: formView, remove: removeView, report: () => { const c = byId(view.id); return c ? [el('div', { class: 'im-row' }, [link(`← ${c.name}`, () => go({ name: 'c', id: c.id }))]), ...reportView(c, act)] : [el('div', { class: 'im-muted', text: '불러오는 중…' })]; }, settings: settingsView, match: matchView, preview: previewView, dossier: dossierView }[view.name]?.() || [];
       const err = error || S.error;
-      root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean));
+      keepFocus(root, () => root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean)));
     }
 
     function homeView() {
@@ -1701,14 +1719,14 @@ export function setup(ctx) {
           return el('button', { class: `im-chip im-plain${P.view === 'c' && x.id === P.id ? ' im-on' : ''}`, type: 'button', onclick: () => openC(x.id) }, [x.name, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]);
         }),
       ]);
-      panelRoot.replaceChildren(...[
+      keepFocus(panelRoot, () => panelRoot.replaceChildren(...[
         pageMode ? el('div', { class: 'im-page-chips' }, [personaChips(), people]) : personaChips(),
         !pageMode ? people : null,
         head,
         tabs,
         ...body,
         P.error || S.error ? el('div', { class: 'im-err', text: P.error || S.error }) : null,
-      ].filter(Boolean));
+      ].filter(Boolean)));
       if (P.focusLetter && P.view === 'c' && P.tab === 'book') {
         const target = panelRoot.querySelector(`[data-lid="${P.focusLetter}"]`);
         P.focusLetter = '';
@@ -1774,7 +1792,7 @@ export function setup(ctx) {
           await refresh();
         }) }),
       ]) : null,
-      el('details', { class: 'im-compose', open: !c.letters.length || working.has(`scene:${c.id}`) || (drafts.get(c.id)?.photos?.length > 0) || undefined }, [
+      el('details', { class: 'im-compose', open: composeOpen.has(c.id) || !c.letters.length || working.has(`scene:${c.id}`) || (drafts.get(c.id)?.photos?.length > 0) || undefined, ontoggle: (e) => { if (e.target.hasAttribute('open')) composeOpen.add(c.id); else composeOpen.delete(c.id); } }, [
         el('summary', { text: '✒ 편지 쓰기' }),
         composeBox(c, { busyRef: () => P.busy, act }),
       ]),

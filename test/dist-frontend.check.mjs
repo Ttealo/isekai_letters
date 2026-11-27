@@ -132,6 +132,17 @@ ok('그림: 위젯에 그리는 중', widgetRoot.textContent.includes('그림'))
 ok('편지첩: 동봉 줄', panelRoot.textContent.includes('동봉 · 조개 — 얼음 틈에서'));
 ok('편지첩: 안 연 봉투', !!panelRoot.querySelector('.im-envelope') && panelRoot.textContent.includes('거칠다'));
 ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 편지가 가는 중'));
+// 편지를 쓰는 중에 뒤쪽 새로 고침이 와도 쓰기 칸이 닫히지 않고 커서가 남음
+{
+  const det = panelRoot.querySelector('details.im-compose');
+  det.setAttribute('open', ''); det.dispatchEvent(new window.Event('toggle'));
+  const ta = det.querySelector('textarea[data-keep]');
+  ta.value = '쓰는 중'; ta.dispatchEvent(new window.Event('input')); ta.focus();
+  backend({ type: 'changed' }); await tick(15);
+  const det2 = panelRoot.querySelector('details.im-compose');
+  const isOpen = (d) => !!d && (d.open === true || d.hasAttribute('open'));
+  ok('쓰는 중 새로 고침: 쓰기 칸 열린 채·글 그대로', det2 !== det && isOpen(det2) && det2.querySelector('textarea[data-keep]').value === '쓰는 중');
+}
 clickIn(panelRoot, 'button', '봉투 열기'); await tick(8);
 ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-themed.im-theirs').length === 2);
 // 물품
