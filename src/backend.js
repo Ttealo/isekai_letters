@@ -1,7 +1,7 @@
 import {
   cleanSettings, createCorrespondent, updateCorrespondent, toInput, sendLetter, recallLetter, markOpened,
   advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart, calendarDate,
-  parseJsonLoose, proseRule, rushLetters, imageIdsOf, editLetter, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
+  parseJsonLoose, proseRule, rushLetters, imageIdsOf, editLetter, cleanReply, buildReplyMessages, summarize, publicView, MINUTE, theirLabel, theirNow,
 } from './core.js';
 import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
@@ -9,6 +9,7 @@ import {
 import { cleanPortrait, buildPortraitMessages, cleanPortraitPrompt, composePortrait, buildSceneMessages, cleanScenePrompt, composeScene, isPictureItem } from './portrait.js';
 import { cleanTheme, defaultTheme, buildThemeMessages } from './paper.js';
 import { buildReportMessages, cleanReport, buildLooksMessages, cleanLooks } from './report.js';
+import { storyOf, buildEventMessages, cleanEvent, addEvent, buildEpilogueMessages, cleanEpilogue, endCorrespondence, addAfter, resumeCorrespondence } from './story.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
@@ -390,7 +391,7 @@ export function start(api) {
   const setMyPortrait = async (user, k, rec) => serial(user, async () => {
     const cur = await loadMe(user, k);
     const history = [...(cur.history || []), ...(cur.portrait?.imageId ? [cur.portrait] : [])].slice(-30);
-    await api.userStorage.setJson(mePath(k), { portrait: rec, history }, { userId: user });
+    await api.userStorage.setJson(mePath(k), { ...cur, portrait: rec, history }, { userId: user });
   });
   const drawMyPortrait = async (user, { personaId = '', noPersona = false, request = '' } = {}) => {
     const settings = await loadSettings(user);
@@ -977,6 +978,7 @@ export function start(api) {
       if (busy.has(`${user}:${id}`)) continue;
       try {
         await mutate(user, id, (c) => {
+          if (c.ended) return c;
           let base = firstRun ? recover(c) : c;
           if (firstRun && base.organize?.state === 'generating') base = { ...base, organize: { ...base.organize, state: 'waiting', nextTryAt: 0 } };
           if (firstRun && base.portraitJob?.state === 'drawing' && !drawing.has(`${user}:${id}:portrait`)) base = { ...base, portraitJob: { ...base.portraitJob, state: 'failed', error: '확장이 다시 시작돼 그리기가 끊겼어요. 다시 그려 주세요.' } };
@@ -1111,12 +1113,14 @@ export function start(api) {
         return {};
       }
       case 'send': {
+        { const c = await loadC(user, p.id); if (c.ended) throw new Error('마무리한 편지예요. 이야기 탭에서 「다시 편지 잇기」를 누르면 다시 주고받을 수 있어요.'); }
         const personaName = await personaNameFor(user, await loadC(user, p.id));
         const lateChance = (await loadSettings(user)).lateChance;
         const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos, lateChance }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
         return { c: publicView(c, now) };
       }
       case 'rush': {
+        { const c = await loadC(user, p.id); if (c.ended) throw new Error('마무리한 편지예요. 이야기 탭에서 「다시 편지 잇기」를 누르면 다시 주고받을 수 있어요.'); }
         const c = await mutate(user, p.id, (c) => rushLetters(c, now));
         notify(user, { id: p.id });
         tickUser(user).catch((e) => log('warn', `바로 받기 뒤 처리 실패: ${e?.message || e}`));
@@ -1250,6 +1254,71 @@ export function start(api) {
         const c2 = await mutate(user, p.id, (x) => ({ ...x, reports: [...(x.reports || []), rep].slice(-20) }));
         notify(user, { id: p.id });
         return { report: rep, count: c2.reports.length };
+      }
+      case 'makeEvent': {
+        // 사건 생성기(글 1회): side them = 그쪽 연대기에 「진행 중」으로 / me = 내 기록에만(페르소나가 있을 때)
+        const c = ensureMemory(await loadC(user, p.id));
+        if (c.ended) throw new Error('마무리한 편지에는 사건을 더 일으킬 수 없어요.');
+        const side = p.side === 'me' ? 'me' : 'them';
+        const keywords = String(p.keywords || '').trim().slice(0, 200);
+        const settings = await loadSettings(user);
+        const persona = await personaCard(user, c);
+        if (side === 'me' && (c.noPersona || !persona.card && !persona.name)) throw new Error('페르소나 없음으로 쓰는 편지라 이쪽 사건은 만들지 않아요.');
+        const card = side === 'them' ? await cardOf(user, c) : null;
+        const lore = side === 'them' ? (await allLore(user, c).catch(() => [])).map((e) => `[${e.comment || ''}] ${e.content}`).join('\n').slice(0, 3000) : '';
+        const m = memoryLayers(c, { budgets: { ...cleanBudgets(settings.budgets), ledgerChars: 1200, timelineItems: 14 }, recentLetters: 0 });
+        const recent = c.letters.filter((l) => l.body && l.state !== 'in_transit').slice(-3).map((l) => `(${l.from === 'me' ? persona.name || '나' : c.name}) ${l.body.slice(0, 800)}`).join('\n---\n');
+        const myEvents = storyOf(c).events.filter((e) => e.side === 'me').slice(-6).map((e) => `- ${e.title}: ${e.event}`).join('\n');
+        const tNow = theirLabel(c, theirNow(c, now));
+        const raw = await genJson(user, buildEventMessages(c, { side, keywords, cardText: card ? cardTextOf(card) : '', lore, ledger: m.ledger, timeline: m.timeline, recent, persona, myEvents, theirNow: tNow }), { ...settings, createTemperature: 0.95 });
+        const ev = cleanEvent(raw, { side, keywords, when: side === 'them' ? tNow : new Date(now).toLocaleDateString('ko-KR'), now });
+        await mutate(user, p.id, (x) => addEvent(ensureMemory(x), ev));
+        log('info', `사건(${c.name} · ${side === 'me' ? '이쪽' : '그쪽'}): ${ev.title}`);
+        notify(user, { id: p.id });
+        return { event: ev };
+      }
+      case 'dropEvent': {
+        // 만든 사건 지우기(그쪽 사건이면 연대기의 그 줄도)
+        await mutate(user, p.id, (x) => {
+          const st = storyOf(x);
+          const mem = x.memory ? { ...x.memory, timeline: (x.memory.timeline || []).filter((e) => e.gen !== p.eventId) } : x.memory;
+          return { ...x, memory: mem, story: { ...st, events: st.events.filter((e) => e.id !== p.eventId) } };
+        });
+        notify(user, { id: p.id });
+        return { ok: true };
+      }
+      case 'epilogue': {
+        // 마무리하기(처음) 또는 그 후 더 듣기(이어서). 글 1회. 처음이면 편지를 멈춘다
+        const c = ensureMemory(await loadC(user, p.id));
+        const st = storyOf(c);
+        const askText = String(p.ask || '').trim().slice(0, 400);
+        const first = !c.ended;
+        const settings = await loadSettings(user);
+        const card = await cardOf(user, c);
+        const persona = c.noPersona ? null : await personaCard(user, c);
+        const lore = (await allLore(user, c).catch(() => [])).map((e) => `[${e.comment || ''}] ${e.content}`).join('\n').slice(0, 2000);
+        const m = memoryLayers(c, { budgets: { ...cleanBudgets(settings.budgets), ledgerChars: 1200, summaries: 12, summaryChars: 2000, chapterChars: 1500, timelineItems: 20 }, recentLetters: 0 });
+        const recent = c.letters.filter((l) => l.from === 'them' && l.body && l.state !== 'in_transit').slice(-2).map((l) => l.body.slice(0, 1000)).join('\n---\n');
+        const myLetters = c.noPersona ? '' : c.letters.filter((l) => l.from === 'me' && l.body).slice(-2).map((l) => l.body.slice(0, 700)).join('\n---\n');
+        const rep = (c.reports || []).at(-1);
+        const myEvents = st.events.filter((e) => e.side === 'me').map((e) => `- [${e.when}] ${e.title}: ${e.event}`).join('\n');
+        const raw = await genJson(user, buildEpilogueMessages(c, {
+          cardText: cardTextOf(card), lore, ledger: m.ledger, chapters: m.chapters, summaries: m.summaries, timeline: m.timeline, recent, myLetters,
+          report: rep ? `${rep.title}\n${rep.note}` : '', persona: persona && (persona.name || persona.card) ? persona : null, myEvents,
+          prev: first ? [] : st.epilogue, ask: first ? '' : askText,
+          style: settings.proseStyle && settings.proseStyle !== 'lyrical' ? proseRule(settings.proseStyle) : '',
+        }), { ...settings, createTemperature: 0.85 });
+        const entry = { ...cleanEpilogue(raw, { ask: first ? '' : askText, now }), first };
+        const c2 = await mutate(user, p.id, (x) => (first ? endCorrespondence(x, entry, now) : addAfter(x, entry)));
+        log('info', `${first ? '마무리' : '그 후'}(${c.name}): ${entry.title}`);
+        notify(user, { id: p.id });
+        return { entry, count: storyOf(c2).epilogue.length };
+      }
+      case 'resume': {
+        // 다시 편지 잇기: 멈춰 있던 시간만큼 도착·답장 시각과 그쪽 시계를 미룬다. 에필로그는 남는다
+        const c = await mutate(user, p.id, (x) => resumeCorrespondence(x, now));
+        notify(user, { id: p.id });
+        return { c: publicView(c, now) };
       }
       case 'syncOurLetters': {
         // 상대의 로어북에 「우리의 편지」 항목: 관계·약속·시기 요약·최근 편지 요약. 일반 채팅에서도 편지 일을 알게

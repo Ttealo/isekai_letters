@@ -81,9 +81,16 @@ ${me?.description ? `<div class="medesc">${exEsc(me.description)}</div>` : ''}
 <div class="mestats">${exEsc(c.name)}에게 보낸 편지 ${letters.filter((l) => l.from === 'me').length}통 · 보낸 물건·사진 ${(c.items || []).filter((x) => x.from === 'me').length}개</div></div></div>
 ${hist.length ? `<h3>지난 모습 · ${hist.length}</h3><div class="grid tall">${hist.map((h) => fig(h.imageId, '예전 모습', exDt(h.at))).join('')}</div>` : ''}`;
   })();
+  // ── 그 후(마무리 글·그 후 이야기·일어난 사건) ──
+  const epi = c.story?.epilogue || [];
+  const evs = c.story?.events || [];
+  const afterHtml = epi.length || evs.length ? [
+    epi.map((e) => `<div class="record">${e.ask ? `<div class="changed">「${exEsc(e.ask)}」</div>` : ''}<div class="rdate">${e.first === false ? '그 후' : '마무리'} · ${exEsc(e.title)}${e.when ? ` — ${exEsc(e.when)}` : ''}</div><div class="rnote">${exEsc(e.text)}</div></div>`).join('\n'),
+    evs.length ? `<h3>일어난 사건</h3><ol class="tl">${evs.map((e) => `<li class="${e.side === 'me' ? 'me' : 'event'}"><span class="when">${e.side === 'me' ? '내 쪽' : '그쪽'}${e.when ? ` · ${exEsc(e.when)}` : ''}</span><b>${exEsc(e.title)}</b> — ${exEsc(e.event)}</li>`).join('')}</ol>` : '',
+  ].join('\n') : '';
   const first = letters[0]?.sentAt; const last = letters.at(-1)?.sentAt;
   const emb = c.art?.emblem?.imageId || c.art?.seal?.imageId;
-  const sections = [['letters', '편지', letterHtml || '<p class="empty">아직 주고받은 편지가 없어요.</p>'], ['record', '기록부', reportHtml], ...(meHtml ? [['me', '나', meHtml]] : []), ['album', '모음', albumHtml || '<p class="empty">아직 모인 그림이 없어요.</p>'], ['timeline', '이어진 일들', tlHtml]];
+  const sections = [['letters', '편지', letterHtml || '<p class="empty">아직 주고받은 편지가 없어요.</p>'], ['record', '기록부', reportHtml], ...(meHtml ? [['me', '나', meHtml]] : []), ['album', '모음', albumHtml || '<p class="empty">아직 모인 그림이 없어요.</p>'], ['timeline', '이어진 일들', tlHtml], ...(afterHtml ? [['after', epi.length ? '그 후' : '사건', afterHtml]] : [])];
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${exEsc(c.name)} — 이세계 편지첩</title>

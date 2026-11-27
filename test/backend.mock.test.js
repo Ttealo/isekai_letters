@@ -944,3 +944,57 @@ test('바로 받기: 보낸 편지가 바로 닿고, 답장을 지금 써서 배
   assert.equal(theirs.state, 'delivered');
   assert.equal(g.c.reply, null);
 });
+
+test('이야기: 사건(그쪽·이쪽) → 마무리(편지 멈춤) → 그 후 더 듣기 → 다시 잇기', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  host.api.personas.get = async (id) => (id === 'p1' ? { id: 'p1', name: '시드', description: '등대 아래 서점 주인' } : null);
+  host.api.personas.getActive = async () => ({ id: 'p1', name: '시드', description: '등대 아래 서점 주인' });
+  const prompts = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    const sys = req.messages[0].content;
+    if (/You invent one event/.test(sys)) { prompts.push(req.messages.map((m) => m.content).join('\n')); return { content: JSON.stringify({ title: /writes letters to/.test(sys) ? '서점에 든 손님' : '곶의 폭풍', event: '바람이 문을 두드렸다. 소금 냄새.' }) }; }
+    if (/You write the ending/.test(sys)) { prompts.push(req.messages.map((m) => m.content).join('\n')); return { content: JSON.stringify({ title: '등대의 불', when: '반년 뒤', text: '그 뒤로도 불은 꺼지지 않았다.' }) }; }
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'prompt', request: 'x' });
+  const r = await host.ask('u1', 'matchConfirm', { draft: { ...draft, personaId: 'p1' } });
+  const ev = await host.ask('u1', 'makeEvent', { id: r.id, side: 'them', keywords: '폭풍' });
+  assert.equal(ev.event.title, '곶의 폭풍');
+  assert.match(prompts[0], /폭풍/);
+  let g = (await host.ask('u1', 'get', { id: r.id })).c;
+  const tl = g.memory.timeline.find((e) => e.gen === ev.event.id);
+  assert.ok(tl && tl.open, '그쪽 사건은 연대기에 진행 중으로');
+  const mine = await host.ask('u1', 'makeEvent', { id: r.id, side: 'me' });
+  assert.equal(mine.event.side, 'me');
+  assert.match(prompts[1], /등대 아래 서점 주인/);
+  g = (await host.ask('u1', 'get', { id: r.id })).c;
+  assert.equal(g.memory.timeline.filter((e) => e.gen).length, 1, '내 쪽 사건은 연대기에 넣지 않음');
+  assert.equal(g.story.events.length, 2);
+  // 마무리
+  const e1 = await host.ask('u1', 'epilogue', { id: r.id });
+  assert.equal(e1.entry.first, true);
+  assert.match(prompts[2], /서점에 든 손님/, '내 쪽 사건이 마무리에 합쳐짐');
+  assert.match(prompts[2], /곶의 폭풍/);
+  g = (await host.ask('u1', 'get', { id: r.id })).c;
+  assert.ok(g.ended);
+  await assert.rejects(host.ask('u1', 'send', { id: r.id, body: '안녕' }), /마무리/);
+  await assert.rejects(host.ask('u1', 'makeEvent', { id: r.id, side: 'them' }), /마무리/);
+  const e2 = await host.ask('u1', 'epilogue', { id: r.id, ask: '약속은 지켰어?' });
+  assert.equal(e2.count, 2);
+  assert.equal(e2.entry.first, false);
+  assert.match(prompts[3], /약속은 지켰어\?/);
+  assert.match(prompts[3], /epilogue_so_far/);
+  // 지우기는 마무리 전 사건에 대해, 다시 잇기
+  await host.ask('u1', 'resume', { id: r.id });
+  g = (await host.ask('u1', 'get', { id: r.id })).c;
+  assert.equal(g.ended, null);
+  assert.equal(g.story.epilogue.length, 2, '마무리 글은 남음');
+  await host.ask('u1', 'dropEvent', { id: r.id, eventId: ev.event.id });
+  g = (await host.ask('u1', 'get', { id: r.id })).c;
+  assert.equal(g.memory.timeline.filter((e) => e.gen).length, 0);
+  assert.equal(g.story.events.length, 1);
+});

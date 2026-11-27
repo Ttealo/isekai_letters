@@ -702,14 +702,15 @@ export function summarize(c, now = Date.now()) {
   const lastMine = [...c.letters].reverse().find((l) => l.from === 'me');
   const tNow = theirNow(c, now);
   let status = '아직 편지가 없습니다';
-  if (c.reply?.state === 'failed') status = '우편 사고 — 답장을 만들지 못했습니다';
+  if (c.ended) status = '편지를 마무리했어요 · 그 후를 들을 수 있어요';
+  else if (c.reply?.state === 'failed') status = '우편 사고 — 답장을 만들지 못했습니다';
   else if (c.reply) status = '답장을 쓰는 중인 듯합니다';
   else if (lastMine && lastMine.state === 'in_transit') status = '편지가 가는 중';
   else if (lastLetter?.from === 'them' && lastLetter.state === 'in_transit') status = '답장이 오는 중';
   else if (lastThem && (!lastMine || lastMine.sentAt < lastThem.sentAt)) status = `그쪽은 ${formatSpan(tNow - lastThem.theirWrittenAt)}째 내 답장을 기다리는 중`;
   return {
     id: c.id, name: c.name, ratio: c.ratio, theirNow: theirLabel(c, tNow),
-    personaId: c.personaId || '', personaName: c.personaName || '', noPersona: !!c.noPersona,
+    personaId: c.personaId || '', personaName: c.personaName || '', noPersona: !!c.noPersona, ended: !!c.ended,
     items: (c.items || []).filter((x) => x.state === 'arrived').length,
     unread, inTransit, status, failed: c.reply?.state === 'failed', error: c.reply?.error || '',
     lastAt: lastLetter ? lastLetter.sentAt : c.createdAt,
@@ -726,7 +727,7 @@ export function publicView(c, now = Date.now()) {
       const l = letterOf.get(x.letterId);
       return { ...x, theirLabel: l ? theirLabel(c, l.from === 'me' ? l.theirSentAt : l.theirWrittenAt) : '' };
     }),
-    theirNowLabel: theirLabel(c, theirNow(c, now)),
+    theirNowLabel: theirLabel(c, theirNow(c, c.ended?.at || now)),
     letters: c.letters.map((l) => {
       if (l.from === 'them' && l.state === 'in_transit') return { id: l.id, from: 'them', state: 'in_transit', sentAt: l.sentAt, arriveAt: l.arriveAt };
       if (l.from === 'them') {

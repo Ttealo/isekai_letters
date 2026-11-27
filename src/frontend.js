@@ -238,6 +238,21 @@ const CSS2 = `
 .im-cal-ev .im-t{font-variant-numeric:tabular-nums;font-size:12px;color:var(--lumiverse-text-muted);min-width:40px}
 .im-cal-ev .im-x{font-family:var(--im-serif);font-size:12.5px;color:var(--lumiverse-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .im-flash{animation:im-flash 1.6s ease}
+@media (max-width:520px){.im-panel .im-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}.im-panel .im-tabs button{padding:5px 11px;white-space:nowrap}}
+.im-ended{text-align:center;padding:14px 10px;border:1px dashed var(--im-line);border-radius:10px;display:flex;flex-direction:column;gap:4px}
+.im-ended-t{font-family:var(--im-serif);color:var(--im-ink);letter-spacing:.04em}
+.im-myev{border-left:3px solid var(--im-line);padding:4px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:3px}
+.im-evs{display:flex;flex-direction:column;gap:8px}
+.im-ev{border:1px solid var(--im-line);border-radius:10px;padding:9px 12px;background:var(--lumiverse-bg-elevated,#fff);display:flex;flex-direction:column;gap:4px}
+.im-ev-top{display:flex;align-items:center;gap:8px}
+.im-ev-them .im-fold-who{color:var(--im-wax);border-color:color-mix(in srgb,var(--im-wax) 45%,transparent)}
+.im-ev-text{font-family:var(--im-serif);font-size:13.5px;line-height:1.75;white-space:pre-wrap}
+.im-epi{background:#f7f1e4;color:#3b2f22;border-radius:6px;padding:20px 22px;box-shadow:0 8px 20px -14px #0008;display:flex;flex-direction:column;gap:18px}
+.im-epi-head{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:17px;font-weight:700;text-align:center;letter-spacing:.04em}
+.im-epi-ch{display:flex;flex-direction:column;gap:6px;border-top:1px solid #d9c7a4;padding-top:14px}
+.im-epi-ch:first-of-type{border-top:none;padding-top:0}
+.im-epi-title{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-weight:700;color:#6b4a2b}
+.im-epi-ask{font-size:12.5px;color:#7a6a52;font-style:italic}
 .im-fold-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--lumiverse-text-muted);margin:4px 2px -2px}
 .im-fold{border-bottom:1px dashed var(--im-line)}
 .im-fold>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:7px 6px;cursor:pointer;font-family:var(--im-serif);font-size:13px;color:var(--lumiverse-text);border-radius:6px;-webkit-tap-highlight-color:transparent}
@@ -474,6 +489,14 @@ export function setup(ctx) {
     const sender = c.noPersona ? '나 (페르소나 없음)' : c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
     return el('div', { class: 'im-letter' }, [
       el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-row', style: 'gap:6px;align-items:center' }, [myFace(meKeyOf(c)), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })])]),
+      (() => {
+        const lastSent = Math.max(0, ...c.letters.filter((l) => l.from === 'me').map((l) => l.sentAt || 0));
+        const mine = (c.story?.events || []).filter((e) => e.side === 'me' && e.at > lastSent);
+        return mine.length ? el('div', { class: 'im-myev' }, [
+          el('div', { class: 'im-muted', style: 'font-size:11px', text: `요즘 내 쪽에 있었던 일 · ${c.name}은(는) 내가 쓴 만큼만 알아요` }),
+          ...mine.slice(-3).map((e) => el('div', {}, [el('b', { text: e.title }), ` — ${e.event}`])),
+        ]) : null;
+      })(),
       el('textarea', { 'data-keep': `body:${c.id}`, value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
       el('textarea', { 'data-keep': `enc:${c.id}`, value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
       el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
@@ -1564,7 +1587,7 @@ export function setup(ctx) {
   let panel = null;
   let widget = null;
   const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '', locker: '', view: lsGet(`${LS_PANEL}.view`, 'c'), meTab: lsGet(`${LS_PANEL}.meTab`, 'me') };
-  if (!['book', 'items', 'box', 'report'].includes(P.tab)) { P.view = 'me'; P.meTab = P.tab === 'cal' ? 'cal' : 'boxes'; P.tab = 'book'; }
+  if (!['book', 'items', 'box', 'report', 'story'].includes(P.tab)) { P.view = 'me'; P.meTab = P.tab === 'cal' ? 'cal' : 'boxes'; P.tab = 'book'; }
   const panelRoot = el('div', { class: 'im-panel' });
   // 보조창 방식: page=채팅창처럼 앱 화면을 채움(기본, app_manipulation 필요) / dock=오른쪽에 붙이기 / float=떠 있는 창. 새로 고침 뒤 적용
   let panelMode = ['page', 'dock', 'float'].includes(lsGet(LS_PANEL_MODE, 'page')) ? lsGet(LS_PANEL_MODE, 'page') : 'page';
@@ -1673,7 +1696,7 @@ export function setup(ctx) {
       const mePersonaOpts = (k) => (k === 'none' ? { noPersona: true } : { personaId: S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k)?.id || '' });
       const meRowLabel = meKeys.length === 1 ? `${meLabel(meKeys[0])}` : '나';
       // 탭: 보고 있는 것에 따라
-      const TABS = P.view === 'me' ? [['me', '내 모습'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자'], ['report', '기록부']];
+      const TABS = P.view === 'me' ? [['me', '내 모습'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자'], ['report', '기록부'], ['story', '이야기']];
       const cur = P.view === 'me' ? P.meTab : P.tab;
       const tabs = el('div', { class: 'im-tabs' }, TABS.map(([k, t]) => el('button', { type: 'button', class: cur === k ? 'im-on' : '', text: t, onclick: () => { if (P.view === 'me') P.meTab = k; else P.tab = k; save(); panelView.render(); } })));
       const head = P.view === 'me'
@@ -1688,6 +1711,7 @@ export function setup(ctx) {
       else if (P.tab === 'items') body = itemsView(c);
       else if (P.tab === 'box') body = lockerView(c, pact, null);
       else if (P.tab === 'report') body = reportView(c, pact);
+      else if (P.tab === 'story') body = storyView(c, pact, (tab) => openC(c.id, tab));
       else body = bookView(c, pact);
       // 편지첩이 아닌 탭에서도 그리는 중·실패 막대
       if (P.view === 'c' && c && P.tab !== 'book' && (c.artJob?.state === 'running' || c.artJob?.state === 'failed')) body = [artBar(c, pact), ...body];
@@ -1824,15 +1848,19 @@ export function setup(ctx) {
       foldBar,
       ...(nodes.length ? nodes : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다. 첫 편지를 써 보세요.' })]),
       c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs' }, [el('span', { class: 'im-spin' }), `${c.name}이(가) 답장을 쓰고 있는 듯합니다`]) : null,
+      c.ended ? el('div', { class: 'im-ended' }, [
+        el('div', { class: 'im-ended-t', text: '— 여기까지, 편지를 마무리했어요 —' }),
+        el('div', { class: 'im-muted', text: '그 후의 이야기는 「이야기」 탭에서 들을 수 있어요. 다시 주고받고 싶으면 거기서 「다시 편지 잇기」를 눌러요.' }),
+      ]) : null,
       // 바로 받기: 배송·답장 쓰는 시간을 건너뜀
-      (c.reply && c.reply.state !== 'failed' && c.reply.state !== 'generating') || c.letters.some((l) => l.state === 'in_transit') ? el('div', { class: 'im-row', style: 'justify-content:flex-end' }, [
+      !c.ended && (c.reply && c.reply.state !== 'failed' && c.reply.state !== 'generating') || c.letters.some((l) => l.state === 'in_transit') ? el('div', { class: 'im-row', style: 'justify-content:flex-end' }, [
         el('button', { class: 'im-btn im-rush', type: 'button', text: '⏩ 바로 받기', title: '배송과 답장 쓰는 시간을 건너뛰고 지금 받아요', onclick: () => act(async () => {
           if (!(await confirmBox(`${c.name}과의 편지를 기다리지 않고 지금 받을까요?\n\n· 가는 중인 편지는 바로 도착해요.\n· 답장을 기다리는 중이면 지금 써서 바로 도착해요(글 생성 1회).`))) return;
           await ask('rush', { id: c.id });
           await refresh();
         }) }),
       ]) : null,
-      el('details', { class: 'im-compose', open: composeOpen.has(c.id) || !c.letters.length || working.has(`scene:${c.id}`) || (drafts.get(c.id)?.photos?.length > 0) || undefined, ontoggle: (e) => { if (e.target.hasAttribute('open')) composeOpen.add(c.id); else composeOpen.delete(c.id); } }, [
+      c.ended ? null : el('details', { class: 'im-compose', open: composeOpen.has(c.id) || !c.letters.length || working.has(`scene:${c.id}`) || (drafts.get(c.id)?.photos?.length > 0) || undefined, ontoggle: (e) => { if (e.target.hasAttribute('open')) composeOpen.add(c.id); else composeOpen.delete(c.id); } }, [
         el('summary', { text: '✒ 편지 쓰기' }),
         composeBox(c, { busyRef: () => P.busy, act }),
       ]),
@@ -2036,6 +2064,93 @@ export function setup(ctx) {
   const SLOW_NOTE = '원래 연결이 막혀 있으면 다시 시도하고 대체 연결로 넘어가느라 1~2분 걸릴 수 있어요. 창을 닫아도 서버에서 계속돼요.';
   const workingBox = (key) => (working.has(key) ? el('div', { class: 'im-transit' }, [el('div', {}, [el('span', { class: 'im-spin' }), working.get(key)]), el('div', { class: 'im-muted', style: 'font-size:11px', text: SLOW_NOTE })]) : null);
   const runSlow = (key, label, act, fn) => { if (working.has(key)) return; working.set(key, label); rerenderAll(); act(async () => { try { await fn(); } finally { working.delete(key); rerenderAll(); } }); };
+  // 이야기: 사건 생성기 + 마무리하기 + 그 후 더 듣기
+  const storyDraft = new Map(); // c.id → { kw, ask }
+  function storyView(c, act, goTab) {
+    const st = { events: c.story?.events || [], epilogue: c.story?.epilogue || [] };
+    const sd = storyDraft.get(c.id) || { kw: '', ask: '' };
+    storyDraft.set(c.id, sd);
+    const persona = !c.noPersona;
+    const day = (t) => new Date(t).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+    const body = [];
+    // ── 마무리 글과 그 후 ──
+    if (st.epilogue.length) {
+      body.push(el('div', { class: 'im-epi' }, [
+        el('div', { class: 'im-epi-head', text: c.ended ? `${c.name}과(와)의 편지 · 그 후` : `${c.name}과(와)의 편지 · 지난 마무리` }),
+        ...st.epilogue.map((e, i) => el('div', { class: 'im-epi-ch' }, [
+          e.ask ? el('div', { class: 'im-epi-ask', text: `「${e.ask}」` }) : null,
+          el('div', { class: 'im-epi-title', text: `${e.first || (i === 0 && e.first === undefined) ? '마무리' : '그 후'} · ${e.title}${e.when ? ` — ${e.when}` : ''}` }),
+          el('div', { class: 'im-rep-note', text: e.text }),
+          el('div', { class: 'im-muted', style: 'font-size:11px;text-align:right', text: day(e.at) }),
+        ])),
+      ]));
+    }
+    if (c.ended) {
+      const askIn = el('textarea', { 'data-keep': `ask:${c.id}`, rows: 2, value: sd.ask, placeholder: `더 궁금한 것(비워도 돼요) — 예: ${c.name}은(는) 그 약속을 지켰을까? 몇 년 뒤엔 어떻게 지냈어?`, oninput: (e) => { sd.ask = e.target.value; } });
+      body.push(el('div', { class: 'im-letter' }, [
+        el('h4', { text: '그 후 더 듣기' }),
+        el('div', { class: 'im-muted', style: 'font-size:12px', text: '궁금한 것을 적으면 그 뒤에 어떻게 되었는지 이어서 들려줘요. 원하는 만큼 몇 번이든 들을 수 있어요.' }),
+        askIn,
+        working.has(`epi:${c.id}`) ? workingBox(`epi:${c.id}`) : el('div', { class: 'im-row' }, [
+          btn('그 후 더 듣기 (글 1회)', () => runSlow(`epi:${c.id}`, '그 후의 이야기를 듣는 중이에요…', act, async () => { await ask('epilogue', { id: c.id, ask: sd.ask }, 300000); sd.ask = ''; await refresh(); }), { primary: true }),
+          el('span', { class: 'im-grow' }),
+          link('다시 편지 잇기', () => act(async () => {
+            if (!(await confirmBox(`${c.name}과(와) 다시 편지를 주고받을까요?\n\n· 마무리 글은 그대로 남아요.\n· 멈춰 있던 동안 그쪽 시간도 멈춰 있던 걸로 쳐요.`))) return;
+            await ask('resume', { id: c.id }); await refresh(); goTab('book');
+          })),
+        ]),
+      ]));
+    }
+    // ── 사건 생성기 ──
+    if (!c.ended) {
+      const kwIn = el('input', { type: 'text', 'data-keep': `kw:${c.id}`, value: sd.kw, placeholder: '키워드(비우면 맥락에 어울리는 사건) — 예: 폭풍, 오래된 친구, 축제', oninput: (e) => { sd.kw = e.target.value; } });
+      const mk = (side) => () => runSlow(`ev:${c.id}`, side === 'me' ? '내 쪽에 일어날 일을 떠올리는 중이에요…' : `${c.name}에게 일어날 일을 떠올리는 중이에요…`, act, async () => { await ask('makeEvent', { id: c.id, side, keywords: sd.kw }, 300000); sd.kw = ''; await refresh(); });
+      body.push(el('div', { class: 'im-letter' }, [
+        el('h4', { text: '사건 일으키기' }),
+        el('div', { class: 'im-muted', style: 'font-size:12px', text: persona
+          ? `그쪽 사건은 ${c.name}의 삶에 일어나 다음 답장에 스며들어요. 내 쪽 사건은 내 기록에만 남고, ${c.name}은(는) 내가 편지에 쓴 만큼만 알아요.`
+          : `${c.name}의 삶에 사건이 일어나 다음 답장에 스며들어요. 페르소나 없음으로 쓰는 편지라 내 쪽 사건은 만들지 않아요.` }),
+        kwIn,
+        working.has(`ev:${c.id}`) ? workingBox(`ev:${c.id}`) : el('div', { class: 'im-row', style: 'flex-wrap:wrap;gap:8px' }, [
+          btn('그쪽에 사건 (글 1회)', mk('them'), { primary: true }),
+          persona ? btn('내 쪽에 사건 (글 1회)', mk('me')) : null,
+        ]),
+      ]));
+    }
+    if (st.events.length) {
+      body.push(el('h4', { text: `일어난 사건 · ${st.events.length}` }), el('div', { class: 'im-evs' }, [...st.events].reverse().map((e) => el('div', { class: `im-ev im-ev-${e.side}` }, [
+        el('div', { class: 'im-ev-top' }, [
+          el('span', { class: 'im-fold-who', text: e.side === 'me' ? '내 쪽' : '그쪽' }),
+          el('b', { class: 'im-grow', text: e.title }),
+          el('span', { class: 'im-muted', style: 'font-size:11px', text: e.when || '' }),
+        ]),
+        el('div', { class: 'im-ev-text', text: e.event }),
+        el('div', { class: 'im-row', style: 'font-size:11px' }, [
+          el('span', { class: 'im-muted im-grow', text: e.keywords ? `키워드: ${e.keywords}` : '' }),
+          c.ended ? null : link('지우기', () => act(async () => {
+            if (!(await confirmBox(`「${e.title}」 사건을 지울까요?${e.side === 'them' ? '\n그쪽 연대기의 그 줄도 함께 지워져요. 이미 답장에 드러났다면 편지는 그대로예요.' : ''}`))) return;
+            await ask('dropEvent', { id: c.id, eventId: e.id }); await refresh();
+          })),
+        ]),
+      ]))));
+    }
+    // ── 마무리하기 ──
+    if (!c.ended) {
+      body.push(el('div', { class: 'im-letter im-end-box' }, [
+        el('h4', { text: st.epilogue.length ? '다시 마무리하기' : '마무리하기' }),
+        el('div', { class: 'im-muted', style: 'font-size:12px', text: persona
+          ? `지금까지의 편지, ${c.name}의 기록과 연대기, 내 페르소나와 내 쪽 사건을 모두 합쳐 그 뒤 두 사람이 어떻게 되었는지 마무리 글을 받아요. 그 뒤로는 궁금한 것을 적어 「그 후」를 얼마든지 더 들을 수 있어요.`
+          : `지금까지의 편지와 ${c.name}의 기록·연대기를 합쳐, ${c.name}이(가) 그 뒤 어떻게 되었는지 마무리 글을 받아요(이쪽의 나는 그리지 않아요). 그 뒤로는 궁금한 것을 적어 「그 후」를 얼마든지 더 들을 수 있어요.` }),
+        working.has(`epi:${c.id}`) ? workingBox(`epi:${c.id}`) : btn('마무리하기 (글 1회)', async () => {
+          // 확인은 act 밖에서(act 안에서 runSlow를 부르면 바쁨 표시에 막힌다)
+          if (!(await confirmBox(`${c.name}과(와)의 편지를 마무리할까요?\n\n· 마무리 글을 받고(글 1회), 편지는 더 오가지 않아요.\n· 가는 중인 편지와 쓰는 중인 답장은 그대로 멈춰요.\n· 나중에 「다시 편지 잇기」로 되돌릴 수 있어요.`, { title: '마무리하기', ok: '마무리하기' }))) return;
+          runSlow(`epi:${c.id}`, '마무리 글을 쓰는 중이에요…', act, async () => { await ask('epilogue', { id: c.id }, 300000); await refresh(); });
+        }),
+      ]));
+    }
+    return body;
+  }
+
   function reportView(c, act) {
     const reps = c.reports || [];
     const cur = reps.at(-1);

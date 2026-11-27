@@ -71,6 +71,9 @@ const replies = {
   imageConnections: () => ({ connections: [{ id: 'ic1', name: '이미지 · Chroma', model: 'chroma' }] }),
   imageModels: (m) => { sentLog.push(m); return { connectionId: 'ic1', current: 'chroma', models: [{ id: 'chroma', label: 'Chroma' }, { id: 'flux-pro', label: 'Flux Pro' }] }; },
   setRules: (m) => { sentLog.push(m); return { locks: m.locks, applyMode: m.applyMode }; },
+  makeEvent: (m) => { sentLog.push(m); all = all.map((c) => (c.id === m.id ? { ...c, story: { events: [...(c.story?.events || []), { id: 'e' + Math.random(), at: Date.now(), side: m.side, title: m.side === 'me' ? '내 쪽 일' : '곶의 폭풍', event: '바람', keywords: m.keywords, when: '5일째' }], epilogue: c.story?.epilogue || [] } } : c)); return {}; },
+  epilogue: (m) => { sentLog.push(m); all = all.map((c) => (c.id === m.id ? { ...c, ended: c.ended || { at: Date.now() }, story: { events: c.story?.events || [], epilogue: [...(c.story?.epilogue || []), { at: Date.now(), first: !c.ended, ask: m.ask || '', title: c.ended ? '그 뒤' : '등대의 불', when: '반년 뒤', text: '불은 꺼지지 않았다.' }] } } : c)); return {}; },
+  resume: (m) => { sentLog.push(m); all = all.map((c) => (c.id === m.id ? { ...c, ended: null } : c)); return {}; },
 };
 let badge = null;
 const modals = [];
@@ -174,9 +177,33 @@ ok('물품: 그림 누르면 크게 보기(모달)', modals.length === 1 && moda
 
 // 모음
 const meChip = () => panelRoot.querySelector('.im-chip[data-me]');
-ok('상대를 보면 탭은 편지첩·물건·추억 상자·기록부', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '편지첩,물건,추억 상자,기록부');
+ok('상대를 보면 탭은 편지첩·물건·추억 상자·기록부·이야기', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '편지첩,물건,추억 상자,기록부,이야기');
 clickIn(panelRoot, '.im-tabs button', '기록부'); await tick();
 ok('기록부: 아직 없으면 받기 버튼 + 편지로 이어진 일들 타임라인', panelRoot.textContent.includes('기록부 받기') && panelRoot.querySelectorAll('.im-timeline .im-tl').length >= 2);
+// 이야기: 사건 일으키기 → 마무리 → 그 후 → 다시 잇기
+clickIn(panelRoot, '.im-tabs button', '이야기'); await tick();
+ok('이야기: 사건(그쪽·내 쪽) 버튼과 마무리하기', ['그쪽에 사건 (글 1회)', '내 쪽에 사건 (글 1회)', '마무리하기 (글 1회)'].every((t) => [...panelRoot.querySelectorAll('button')].some((b) => b.textContent === t)));
+{
+  const kw = panelRoot.querySelector('input[data-keep^="kw:"]');
+  kw.value = '폭풍'; kw.dispatchEvent(new window.Event('input'));
+  clickIn(panelRoot, 'button', '그쪽에 사건 (글 1회)'); await tick(10);
+  ok('이야기: 그쪽 사건 요청(키워드) + 목록', sentLog.some((x) => x.type === 'makeEvent' && x.side === 'them' && x.keywords === '폭풍') && panelRoot.textContent.includes('곶의 폭풍'));
+  clickIn(panelRoot, 'button', '내 쪽에 사건 (글 1회)'); await tick(10);
+  clickIn(panelRoot, '.im-tabs button', '편지첩'); await tick();
+  ok('쓰기 칸 위에 요즘 내 쪽 일', panelRoot.querySelector('.im-myev')?.textContent.includes('내 쪽 일'));
+  clickIn(panelRoot, '.im-tabs button', '이야기'); await tick();
+  clickIn(panelRoot, 'button', '마무리하기 (글 1회)'); await tick(12);
+  ok('마무리: 마무리 글 + 그 후 더 듣기 + 사건 버튼 사라짐', panelRoot.querySelector('.im-epi')?.textContent.includes('등대의 불') && [...panelRoot.querySelectorAll('button')].some((b) => b.textContent === '그 후 더 듣기 (글 1회)') && ![...panelRoot.querySelectorAll('button')].some((b) => b.textContent === '그쪽에 사건 (글 1회)'));
+  const askIn = panelRoot.querySelector('textarea[data-keep^="ask:"]');
+  askIn.value = '약속은?'; askIn.dispatchEvent(new window.Event('input'));
+  clickIn(panelRoot, 'button', '그 후 더 듣기 (글 1회)'); await tick(12);
+  ok('그 후 더 듣기: 물은 것과 함께 이어짐', sentLog.some((x) => x.type === 'epilogue' && x.ask === '약속은?') && panelRoot.querySelectorAll('.im-epi-ch').length === 2 && panelRoot.textContent.includes('「약속은?」'));
+  clickIn(panelRoot, '.im-tabs button', '편지첩'); await tick();
+  ok('마무리한 편지첩: 쓰기 칸 대신 안내', !panelRoot.querySelector('details.im-compose') && panelRoot.querySelector('.im-ended'));
+  clickIn(panelRoot, '.im-tabs button', '이야기'); await tick();
+  clickIn(panelRoot, 'button', '다시 편지 잇기'); await tick(12);
+  ok('다시 잇기: 편지첩으로, 쓰기 칸 돌아옴', sentLog.some((x) => x.type === 'resume') && panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩' && !!panelRoot.querySelector('details.im-compose'));
+}
 clickIn(panelRoot, '.im-tabs button', '편지첩'); await tick();
 meChip().dispatchEvent(new window.Event('click')); await tick();
 ok('나: 탭은 내 모습·추억 상자·달력, 내 모습 칸', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '내 모습,추억 상자,달력' && panelRoot.querySelectorAll('.im-me').length >= 1);
