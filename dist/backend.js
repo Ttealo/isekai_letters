@@ -752,6 +752,24 @@ export function etaLabel(ms, exact) {
   return `도착까지 약 ${Math.round(h)}시간`;
 }
 
+// ── 내 쪽 시계(페르소나 세계) ──
+// world = { startAt(현실 ms), skipHours, calendar } — 현실 시간과 같이 흐르고, 시간 감기만큼 앞서 간다
+export function myHours(world, now = Date.now()) {
+  if (!world?.startAt) return 0;
+  return Math.max(0, (now - world.startAt) / HOUR + (Number(world.skipHours) || 0));
+}
+export function myClockLabel(world, now = Date.now()) {
+  if (!world?.startAt) return '';
+  const h = myHours(world, now);
+  const cal = world.calendar;
+  if (cal?.months?.length) {
+    const d = calendarDate(cal, h);
+    return `${cal.yearLabel ? `${d.year}${cal.yearLabel} ` : ''}${d.monthName} ${d.day}일 ${partOfDay(d.hour24)}`;
+  }
+  const t = new Date(now + (Number(world.skipHours) || 0) * HOUR);
+  return `${t.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })} ${partOfDay(t.getHours())}`;
+}
+
 // 편지지 꾸미기(그림 대신 HTML·SVG): 상대마다 테마(종이색·잉크·결·가장자리·글꼴·장식 무늬)를 정하고 화면·HTML 저장에 같이 쓴다. 부수 효과 없음.
 
 export const PAPER_FONTS = {
@@ -1416,7 +1434,7 @@ export function memoryLayers(c, { budgets = DEFAULT_BUDGETS, recentLetters = 6 }
 
 const ORG_SHAPE = '{"summaries":[{"letter_id":"","text":""}],"ledger":{"called_me":"","called_them":"","stage":"","mood":"","promises_add":[{"who":"me|them","what":"","when":""}],"promises_done":[""],"questions_add":[{"who":"me|them","q":""}],"questions_answered":[""],"dates_add":[""],"knows_about_me_add":[""],"i_know_add":[""]},"timeline_add":[{"when":"","event":"","open":true}],"timeline_close":[""],"lore_add":[{"title":"","keys":[""],"content":""}],"lore_edit":[{"title":"","after":"","reason":""}],"card":[{"field":"","value":"","reason":""}],"conflicts":[{"target":"","why":""}],"art_change":{"paper":false,"stamp":false,"reason":"","medium":"","motif":""},"chapter":""}';
 
-export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitles = [], cardText = '', chapterDue = false }) {
+export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitles = [], cardText = '', chapterDue = false, mySide = null }) {
   c = ensureMemory(c);
   const userName = personaName || c.personaName || '편지의 주인';
   const set = new Set(letterIds);
@@ -1457,8 +1475,13 @@ export function buildOrganizeMessages(c, { letterIds, personaName = '', loreTitl
     '- card: field-level changes (field ∈ look, outfit, job, impression, desire, goal, skill, surface_inner, leak, voice, speech) only when events changed them (an injury, a move, a new goal). value = the full new line value.',
     '- art_change: set paper and/or stamp true ONLY when the new letter itself shows that the physical letter changed for a reason in the story — moving to a new place, a season turning, scarcity or war, a festival or special occasion, a new job or status. Give the reason in one Korean sentence, and the new medium (paper) or stamp motif if known. Usually both are false.',
     chapterDue ? '- chapter: 4~6 Korean sentences summarizing this whole stretch of the correspondence (how the relationship changed). Required now.' : '- chapter: "" (not needed now).',
+    mySide ? [
+      `- my_side_add: {{user}} lives in their own world (below). Since the last record (${mySide.fromLabel || '?'} → ${mySide.toLabel || '?'}, about ${Math.round(mySide.hours || 0)} hours on {{user}}'s side), record what happened AROUND {{user}} there: what {{user}}'s own letters said happened, plus small plausible happenings among the people and places of their world (scale to the span; 0~3 items). Never decide {{user}}'s words, feelings or choices. when = date in {{user}}'s calendar. my_side_close: exact text of open items that ended.`,
+      `<user_world>\n${String(mySide.worldText || '').slice(0, 2000)}\n</user_world>`,
+      mySide.open ? `<user_side_open>\n${mySide.open}\n</user_side_open>` : '',
+    ].filter(Boolean).join('\n') : '',
     'Empty arrays when nothing applies. Output JSON only:',
-    ORG_SHAPE,
+    mySide ? ORG_SHAPE.replace(/\}$/, ',"my_side_add":[{"when":"","event":"","open":false}],"my_side_close":[""]}') : ORG_SHAPE,
     '</task>',
   ].join('\n');
   const rep = (t) => t.replaceAll('{{user}}', userName).replaceAll('{{char}}', c.name);
@@ -1488,6 +1511,8 @@ export function cleanOrganize(raw) {
     card: marr(raw?.card, 6, (x) => (CARD_FIELDS.includes(mstr(x?.field, 40)) && mstr(x?.value, 1000) ? { field: mstr(x.field, 40), value: mstr(x.value, 1000), reason: mstr(x?.reason, 300) } : null)),
     conflicts: marr(raw?.conflicts, 6, (x) => (mstr(x?.why, 400) ? { target: mstr(x?.target, 120), why: mstr(x.why, 400) } : null)),
     chapter: mstr(raw?.chapter, 1500),
+    mySideAdd: marr(raw?.my_side_add, 4, (e) => (mstr(e?.event, 600) ? { when: mstr(e?.when, 80), event: mstr(e.event, 600), open: !!e?.open } : null)),
+    mySideClose: marr(raw?.my_side_close, 8, (x) => mstr(x, 600) || null),
     artChange: raw?.art_change && (raw.art_change.paper || raw.art_change.stamp)
       ? { paper: !!raw.art_change.paper, stamp: !!raw.art_change.stamp, reason: mstr(raw.art_change.reason, 200), medium: mstr(raw.art_change.medium, 200), motif: mstr(raw.art_change.motif, 200) }
       : null,
@@ -2046,7 +2071,7 @@ export function storyOf(c) {
 const tagBlock = (tag, text, max) => (text ? `<${tag}>\n${String(text).slice(0, max)}\n</${tag}>` : '');
 
 // side: 'them' = 그쪽 세계의 그 사람에게 / 'me' = 편지를 쓰는 나(페르소나)에게
-export function buildEventMessages(c, { side = 'them', keywords = '', cardText = '', lore = '', ledger = '', timeline = '', recent = '', persona = null, myEvents = '', theirNow = '' } = {}) {
+export function buildEventMessages(c, { side = 'them', keywords = '', cardText = '', lore = '', ledger = '', timeline = '', recent = '', persona = null, myEvents = '', theirNow = '', myWorld = '' } = {}) {
   const me = side === 'me';
   const pName = persona?.name || '{{user}}';
   const system = [
@@ -2062,6 +2087,7 @@ export function buildEventMessages(c, { side = 'them', keywords = '', cardText =
   ].join('\n');
   const user = [
     me ? tagBlock('persona', persona?.card || '(설명 없음)', 2500) : tagBlock('character', cardText || c.brief, 3000),
+    me && myWorld ? tagBlock('persona_world', myWorld, 3000) : '',
     me ? tagBlock('correspondent', `${c.name}: ${String(c.brief || '').slice(0, 600)}`, 800) : tagBlock('world', lore, 3000),
     ledger ? tagBlock('relationship', ledger, 1200) : '',
     me ? (myEvents ? tagBlock('earlier_events_of_persona', myEvents, 1500) : '') : (timeline ? tagBlock('their_life_so_far', timeline, 1800) : ''),
@@ -2090,7 +2116,7 @@ export function addEvent(c, ev) {
 }
 
 // 마무리(첫 번째) 또는 그 후(이어서). noPersona면 이쪽 삶은 쓰지 않는다.
-export function buildEpilogueMessages(c, { cardText = '', lore = '', ledger = '', chapters = '', summaries = '', timeline = '', recent = '', report = '', persona = null, myEvents = '', myLetters = '', prev = [], ask = '', style = '' } = {}) {
+export function buildEpilogueMessages(c, { myWorld = '', cardText = '', lore = '', ledger = '', chapters = '', summaries = '', timeline = '', recent = '', report = '', persona = null, myEvents = '', myLetters = '', prev = [], ask = '', style = '' } = {}) {
   const noP = !!c.noPersona || !persona;
   const pName = noP ? '{{user}}' : persona.name || '{{user}}';
   const first = !prev.length;
@@ -2110,6 +2136,7 @@ export function buildEpilogueMessages(c, { cardText = '', lore = '', ledger = ''
     tagBlock('world', lore, 2000),
     noP ? '' : tagBlock('persona', `${pName}\n${persona.card || ''}`, 1800),
     noP || !myEvents ? '' : tagBlock('persona_events', myEvents, 1500),
+    noP || !myWorld ? '' : tagBlock('persona_world', myWorld, 3000),
     tagBlock('relationship', ledger, 1200),
     tagBlock('story_so_far', [chapters, summaries].filter(Boolean).join('\n'), 3000),
     tagBlock('their_life', timeline, 2000),
@@ -2153,6 +2180,117 @@ export function resumeCorrespondence(c, now = Date.now()) {
     anchor: c.anchor ? { ...c.anchor, realAt: shift(c.anchor.realAt) } : c.anchor,
     initiativeAt: 0,
   };
+}
+
+// 내 세계: 페르소나가 사는 세계(로어북·달력)와 내 쪽 연대기, 시간 감기. 페르소나 없음(진짜 나)에는 없다.
+
+// 상대는 내 세계를 모른다 — 내가 편지에 쓴 만큼만. 이 기록은 내 쪽 사건·마무리·내 쪽 연대기에만 쓰인다.
+
+const ws = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const warr = (v, max, fn) => (Array.isArray(v) ? v : []).map(fn).filter(Boolean).slice(0, max);
+
+export function cleanWorld(w) {
+  if (!w || typeof w !== 'object' || !w.startAt) return null;
+  return {
+    bookId: ws(w.bookId, 80),
+    bookName: ws(w.bookName, 120),
+    linked: w.linked === 'persona' ? 'persona' : 'created',
+    calendar: cleanCalendar(w.calendar),
+    startAt: Number(w.startAt) || 0,
+    skipHours: Math.max(0, Number(w.skipHours) || 0),
+    lifeMode: w.lifeMode === 'manual' ? 'manual' : 'auto',
+    lifeAt: Math.max(0, Number(w.lifeAt) || 0), // 내 쪽 시각(시간) — 여기까지 연대기를 썼다
+    life: warr(w.life, 120, (e) => (ws(e?.event, 600) ? { when: ws(e.when, 80), event: ws(e.event, 600), open: !!e.open, myAt: Number(e.myAt) || 0, by: ws(e.by, 20), at: Number(e.at) || 0 } : null)),
+  };
+}
+
+// 초안: 페르소나 설명(+붙어 있는 로어북)으로 빠진 로어북 항목과 달력
+export function buildWorldDraftMessages(persona, { existing = '', existingTitles = [] } = {}) {
+  const system = [
+    'You build the home world of a letter writer (a roleplay persona) as lorebook entries, so their own side of life can go on while they exchange letters with someone from another world.',
+    'Base everything on the persona sheet (and the existing lorebook if given). Do not change who the persona is. Do not decide their feelings or choices.',
+    'Write in Korean.',
+  ].join('\n');
+  const user = [
+    `<persona name="${persona.name || ''}">\n${String(persona.card || '').slice(0, 3000)}\n</persona>`,
+    existing ? `<existing_lorebook>\n${existing.slice(0, 4000)}\n</existing_lorebook>\nAdd only what is missing; never repeat these titles: ${existingTitles.join(' / ')}` : '',
+    'Make 4~8 entries: "세계 개요" (the world and era, if not existing), "사는 곳" (home and neighborhood), 2~4 people around them (family, neighbors, coworkers, friends — name, relation, one habit), and 0~2 places or customs that daily life touches.',
+    'calendar: if the persona lives in present-day Earth or a world using the real calendar, "real": true. Otherwise design that world\'s calendar (day_hours, 4~16 months or seasons with days, year_label, start_year, start_month name, start_day = today there).',
+    'Output JSON only: {"entries":[{"title":"","keys":[""],"content":""}],"calendar":{"real":true,"day_hours":24,"months":[{"name":"","days":30}],"year_label":"","start_year":1,"start_month":"","start_day":1}}',
+  ].filter(Boolean).join('\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+
+export function cleanWorldDraft(raw) {
+  const entries = warr(raw?.entries, 12, (e) => (ws(e?.title, 80) && ws(e?.content, 3000) ? { title: ws(e.title, 80), keys: warr(e?.keys, 6, (k) => ws(k, 40) || null), content: ws(e.content, 3000), constant: /세계 개요/.test(e.title) } : null));
+  const cr = raw?.calendar || {};
+  const calendar = cr.real ? null : calendarFromRaw(cr);
+  if (!entries.length && !calendar) throw new Error('내 세계 초안이 비어 있습니다.');
+  return { entries, calendar };
+}
+
+// 내 쪽 연대기: 흐른 시간 동안 내 주변에 일어난 일(페르소나의 말·감정·선택은 정하지 않음)
+export function buildLifeMessages(persona, { worldText = '', life = [], spanHours = 24, fromLabel = '', toLabel = '', letters = '', events = '' } = {}) {
+  const pName = persona.name || 'the letter writer';
+  const system = [
+    `You keep the chronicle of ${pName}'s own world — the side of life that goes on around them while they exchange letters with someone from another world.`,
+    `Write what happened AROUND ${pName} during the given span: people around them, places, weather, work, small and occasionally larger happenings. Scale to the span (a few hours = 0~1 small thing; days = 1~3; weeks or more = 2~5, coarser).`,
+    `Never decide ${pName}'s own words, feelings or choices; stay consistent with their world and with what they wrote in their letters. Some events may stay open (ongoing).`,
+    'Write in Korean.',
+  ].join('\n');
+  const user = [
+    `<persona name="${pName}">\n${String(persona.card || '').slice(0, 2000)}\n</persona>`,
+    worldText ? `<world>\n${worldText.slice(0, 3000)}\n</world>` : '',
+    life.length ? `<chronicle_so_far>\n${life.slice(-14).map((e) => `- ${e.open ? '(진행 중) ' : ''}${e.when ? `[${e.when}] ` : ''}${e.event}`).join('\n')}\n</chronicle_so_far>` : '',
+    events ? `<recent_events>\n${events.slice(0, 1200)}\n</recent_events>` : '',
+    letters ? `<what_${pName}_wrote_lately>\n${letters.slice(0, 2000)}\n</what_${pName}_wrote_lately>` : '',
+    `span=${fromLabel || '?'} → ${toLabel || '?'} (${Math.round(spanHours)} hours on ${pName}'s side)`,
+    'Output JSON only: {"events":[{"when":"date in the same form as the span","event":"1~3 sentences","open":false}],"close":["exact text of chronicle events that ended"]}',
+  ].filter(Boolean).join('\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+
+export function cleanLife(raw) {
+  return {
+    add: warr(raw?.events, 6, (e) => (ws(e?.event, 600) ? { when: ws(e?.when, 80), event: ws(e.event, 600), open: !!e?.open } : null)),
+    close: warr(raw?.close, 8, (x) => ws(x, 600) || null),
+  };
+}
+
+// 연대기에 더하고 닫기. myAt = 내 쪽 시각(시간)
+export function applyLife(world, { add = [], close = [] }, myAt, by = '') {
+  const closed = new Set(close);
+  const seen = new Set();
+  const life = [...(world.life || []).map((e) => (e.open && closed.has(e.event) ? { ...e, open: false } : e)), ...add.map((e) => ({ ...e, myAt, by, at: Date.now() }))]
+    .filter((e) => { if (seen.has(e.event)) return false; seen.add(e.event); return true; })
+    .slice(-120);
+  return { ...world, life, lifeAt: Math.max(world.lifeAt || 0, myAt) };
+}
+
+export function worldLifeText(world, n = 12) {
+  return (world?.life || []).slice(-n).map((e) => `- ${e.open ? '(진행 중) ' : ''}${e.when ? `[${e.when}] ` : ''}${e.event}`).join('\n');
+}
+
+// 시간 감기: 내 쪽 시간이 ms만큼 앞서 가면, 그 페르소나의 상대마다 그만큼 시간이 흐른 것으로 친다.
+// 가는 편지는 그만큼 도착에 가까워지고, 답장·먼저 쓰기 시각도 당겨지고, 그쪽 시계도 비율만큼 흐른다.
+// skipAt: 이 시각 전에 쓰였어야 할 답장은 「그때 쓴 편지」로 쳐서 배송을 그만큼 덜 걸리게(생성 때 처리)
+export function skipCorrespondent(c, ms, now = Date.now()) {
+  if (!ms || c.ended) return c;
+  return {
+    ...c,
+    anchor: c.anchor ? { ...c.anchor, realAt: c.anchor.realAt - ms } : c.anchor,
+    letters: (c.letters || []).map((l) => (l.state === 'in_transit' ? { ...l, arriveAt: l.arriveAt - ms } : l)),
+    reply: c.reply && c.reply.state !== 'failed' ? { ...c.reply, dueAt: (c.reply.dueAt || now) - ms, nextTryAt: c.reply.nextTryAt ? c.reply.nextTryAt - ms : 0 } : c.reply,
+    initiativeAt: c.initiativeAt ? c.initiativeAt - ms : 0,
+    skipAt: now,
+  };
+}
+
+// 감은 시간 안에 쓰였어야 할 답장: 쓰인 시각을 dueAt으로 보고 배송 시간을 그만큼 줄인다
+export function settleSkippedLetter(c, letter, dueAt, now = Date.now()) {
+  if (!c.skipAt || !dueAt || dueAt >= c.skipAt || dueAt >= now) return letter;
+  const early = now - dueAt;
+  return { ...letter, arriveAt: Math.max(now, letter.arriveAt - early) };
 }
 
 
@@ -2531,6 +2669,58 @@ export function start(api) {
     const history = [...(cur.history || []), ...(cur.portrait?.imageId ? [cur.portrait] : [])].slice(-30);
     await api.userStorage.setJson(mePath(k), { ...cur, portrait: rec, history }, { userId: user });
   });
+  const updateMe = (user, k, fn) => serial(user, async () => {
+    const cur = await loadMe(user, k);
+    const next = await fn(cur);
+    await api.userStorage.setJson(mePath(k), next, { userId: user });
+    return next;
+  });
+  const personaFull = async (user, personaId) => {
+    let x = null;
+    try { x = personaId ? await api.personas.get(personaId, user) : await api.personas.getActive(user); } catch {}
+    if (!x) return null;
+    return { id: x.id, name: x.name || '', card: [x.description, x.personality, x.appearance].filter((v) => typeof v === 'string' && v).join('\n'), bookId: x.attached_world_book_id || '' };
+  };
+  const worldTextOf = async (user, w, max = 3000) => {
+    if (!w?.bookId) return '';
+    try { return (await listEntries(user, w.bookId)).filter((e) => !e.disabled).map((e) => `[${e.comment || (e.key || []).join(', ')}] ${e.content}`).join('\n').slice(0, max); } catch { return ''; }
+  };
+  // 그 페르소나의 내 세계(없으면 null). 페르소나 없음이면 늘 null
+  const myWorldFor = async (user, c) => {
+    if (c.noPersona) return null;
+    const k = await keyOfC(user, c);
+    if (!k || k === 'none') return null;
+    const w = cleanWorld((await loadMe(user, k)).world);
+    return w ? { k, w } : null;
+  };
+  // 내 쪽 시각 h(시간)의 날짜 글
+  const myLabelAt = (w, h) => myClockLabel(w, w.startAt + (h - (w.skipHours || 0)) * 3600000);
+  // 그 페르소나의 상대들
+  const csOfPersona = async (user, k) => {
+    const out = [];
+    for (const id of await listIds(user)) {
+      try { const c = await loadC(user, id); if (!c.noPersona && (await keyOfC(user, c)) === k) out.push(c); } catch {}
+    }
+    return out;
+  };
+  // 내 쪽 연대기 받기(글 1회): 지난 기록부터 내 쪽 지금까지
+  const growLife = async (user, k, { by = 'manual' } = {}) => {
+    const me = await loadMe(user, k);
+    const w = cleanWorld(me.world);
+    if (!w) throw new Error('먼저 내 세계를 만들어 주세요.');
+    const persona = await personaFull(user, k);
+    const toH = myHours(w, Date.now());
+    const span = toH - (w.lifeAt || 0);
+    if (span < 1) throw new Error('지난 기록 뒤로 내 쪽 시간이 거의 흐르지 않았어요.');
+    const cs = await csOfPersona(user, k);
+    const letters = cs.flatMap((c) => c.letters.filter((l) => l.from === 'me' && l.body).map((l) => ({ t: l.sentAt, text: `(${c.name}에게) ${l.body.slice(0, 500)}` }))).sort((a, b) => a.t - b.t).slice(-3).map((x) => x.text).join('\n---\n');
+    const events = cs.flatMap((c) => storyOf(c).events.filter((e) => e.side === 'me')).slice(-5).map((e) => `- ${e.title}: ${e.event}`).join('\n');
+    const settings = await loadSettings(user);
+    const raw = await genJson(user, buildLifeMessages(persona || { name: '' }, { worldText: await worldTextOf(user, w), life: w.life, spanHours: span, fromLabel: myLabelAt(w, w.lifeAt || 0), toLabel: myLabelAt(w, toH), letters, events }), { ...settings, createTemperature: 0.9 });
+    const life = cleanLife(raw);
+    const next = await updateMe(user, k, (cur) => ({ ...cur, world: applyLife(cleanWorld(cur.world) || w, life, toH, by) }));
+    return { added: life.add.length, world: next.world };
+  };
   const drawMyPortrait = async (user, { personaId = '', noPersona = false, request = '' } = {}) => {
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
@@ -2742,12 +2932,18 @@ export function start(api) {
       let org;
       let idx;
       let card;
+      let mySide = null;
       try {
         const personaName = await personaNameFor(user, c);
         idx = loreIndex(await allLore(user, c));
         card = await cardOf(user, c);
         const due = chapterDue(c, settings.budgets);
-        const messages = buildOrganizeMessages(c, { letterIds, personaName, loreTitles: idx.map((e) => e.title), cardText: cardTextOf(card), chapterDue: due });
+        const mw = await myWorldFor(user, c).catch(() => null);
+        if (mw && mw.w.lifeMode === 'auto') {
+          const toH = myHours(mw.w, Date.now());
+          mySide = { k: mw.k, toH, worldText: await worldTextOf(user, mw.w, 2000), open: worldLifeText({ life: mw.w.life.filter((e) => e.open) }, 8), fromLabel: myLabelAt(mw.w, mw.w.lifeAt || 0), toLabel: myLabelAt(mw.w, toH), hours: toH - (mw.w.lifeAt || 0) };
+        }
+        const messages = buildOrganizeMessages(c, { letterIds, personaName, loreTitles: idx.map((e) => e.title), cardText: cardTextOf(card), chapterDue: due, mySide });
         const req = { messages, parameters: { temperature: settings.organizeTemperature, max_tokens: 6000 }, userId: user };
         const conn = settings.organizeConnectionId || settings.replyConnectionId;
         const res = await callLLM(user, req, conn, settings, `정리(${c.name})`);
@@ -2778,6 +2974,9 @@ export function start(api) {
         return { ...next, organize: rest.length ? { ...cur.organize, state: 'waiting', forLetterIds: rest, attempts: 0 } : null };
       });
       await runChanges(user, id, applyIds);
+      if (mySide) {
+        await updateMe(user, mySide.k, (cur) => { const w = cleanWorld(cur.world); return w ? { ...cur, world: applyLife(w, { add: org.mySideAdd || [], close: org.mySideClose || [] }, mySide.toH, 'auto') } : cur; }).catch((e) => log('info', `내 쪽 연대기 건너뜀: ${e?.message || e}`));
+      }
       await maybeChangeArt(user, id, lastLetter, org.artChange).catch((e) => log('info', `편지지·우표 바뀜 건너뜀: ${e?.message || e}`));
       log('info', `정리 완료(${c.name}): 변경 ${applyIds.length}건 자동 적용`);
       notify(user, { id });
@@ -2927,7 +3126,7 @@ export function start(api) {
     // 1) 로어북
     const book = await api.world_books.create({
       name: mode === 'existing' ? `${d.name} · 이세계 편지` : `${d.worldTitle} · 이세계 편지`,
-      description: '이세계 편지이 만든 로어북. 편지가 오가며 항목이 늘어날 수 있다.',
+      description: '이세계 편지가 만든 로어북. 편지가 오가며 항목이 늘어날 수 있다.',
       metadata: { isekai_mailbox: true },
     }, user);
     const made = { bookId: book.id, characterId: '' };
@@ -3047,8 +3246,13 @@ export function start(api) {
         }
         // 바로 받기로 쓴 답장은 배송 없이 바로 도착
         const rushed = !!cur.reply?.rush;
+        const dueAt0 = cur.reply.dueAt;
         let next = applyReply(cur, reply, Date.now(), Math.random, { lateChance: settings.lateChance, immediate: rushed });
         if (rushed) next = advance(next, Date.now()).c;
+        else if (cur.skipAt) {
+          const L = next.letters;
+          next = advance({ ...next, letters: [...L.slice(0, -1), settleSkippedLetter(cur, L[L.length - 1], dueAt0, Date.now())] }, Date.now()).c;
+        }
         const newId = next.letters[next.letters.length - 1].id;
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
       });
@@ -3408,9 +3612,12 @@ export function start(api) {
         const recent = c.letters.filter((l) => l.body && l.state !== 'in_transit').slice(-3).map((l) => `(${l.from === 'me' ? persona.name || '나' : c.name}) ${l.body.slice(0, 800)}`).join('\n---\n');
         const myEvents = storyOf(c).events.filter((e) => e.side === 'me').slice(-6).map((e) => `- ${e.title}: ${e.event}`).join('\n');
         const tNow = theirLabel(c, theirNow(c, now));
-        const raw = await genJson(user, buildEventMessages(c, { side, keywords, cardText: card ? cardTextOf(card) : '', lore, ledger: m.ledger, timeline: m.timeline, recent, persona, myEvents, theirNow: tNow }), { ...settings, createTemperature: 0.95 });
-        const ev = cleanEvent(raw, { side, keywords, when: side === 'them' ? tNow : new Date(now).toLocaleDateString('ko-KR'), now });
+        const mw = side === 'me' ? await myWorldFor(user, c).catch(() => null) : null;
+        const myWorld = mw ? [await worldTextOf(user, mw.w, 2000), worldLifeText(mw.w, 10) && `내 쪽 연대기:\n${worldLifeText(mw.w, 10)}`].filter(Boolean).join('\n') : '';
+        const raw = await genJson(user, buildEventMessages(c, { side, keywords, cardText: card ? cardTextOf(card) : '', lore, ledger: m.ledger, timeline: m.timeline, recent, persona, myEvents, theirNow: tNow, myWorld }), { ...settings, createTemperature: 0.95 });
+        const ev = cleanEvent(raw, { side, keywords, when: side === 'them' ? tNow : mw ? myClockLabel(mw.w, now) : new Date(now).toLocaleDateString('ko-KR'), now });
         await mutate(user, p.id, (x) => addEvent(ensureMemory(x), ev));
+        if (mw) await updateMe(user, mw.k, (cur) => { const w = cleanWorld(cur.world); return w ? { ...cur, world: applyLife(w, { add: [{ when: ev.when, event: `${ev.title} — ${ev.event}`, open: true }] }, w.lifeAt || 0, 'event') } : cur; }).catch(() => {});
         log('info', `사건(${c.name} · ${side === 'me' ? '이쪽' : '그쪽'}): ${ev.title}`);
         notify(user, { id: p.id });
         return { event: ev };
@@ -3440,7 +3647,9 @@ export function start(api) {
         const myLetters = c.noPersona ? '' : c.letters.filter((l) => l.from === 'me' && l.body).slice(-2).map((l) => l.body.slice(0, 700)).join('\n---\n');
         const rep = (c.reports || []).at(-1);
         const myEvents = st.events.filter((e) => e.side === 'me').map((e) => `- [${e.when}] ${e.title}: ${e.event}`).join('\n');
-        const raw = await genJson(user, buildEpilogueMessages(c, {
+        const mw = await myWorldFor(user, c).catch(() => null);
+        const myWorld = mw ? [await worldTextOf(user, mw.w, 2000), worldLifeText(mw.w, 16) && `내 쪽 연대기:\n${worldLifeText(mw.w, 16)}`].filter(Boolean).join('\n') : '';
+        const raw = await genJson(user, buildEpilogueMessages(c, { myWorld,
           cardText: cardTextOf(card), lore, ledger: m.ledger, chapters: m.chapters, summaries: m.summaries, timeline: m.timeline, recent, myLetters,
           report: rep ? `${rep.title}\n${rep.note}` : '', persona: persona && (persona.name || persona.card) ? persona : null, myEvents,
           prev: first ? [] : st.epilogue, ask: first ? '' : askText,
@@ -3474,6 +3683,86 @@ export function start(api) {
         if (old) await api.world_books.entries.update(old.id, input, user);
         else await api.world_books.entries.create(c.worldBookId, input, user);
         return { updated: !!old, chars: content.length };
+      }
+      case 'myWorldDraft': {
+        // 내 세계 초안(글 1회): 페르소나 설명 + 붙어 있는 로어북을 읽고 빠진 항목과 달력
+        const persona = await personaFull(user, String(p.personaId || ''));
+        if (!persona) throw new Error('페르소나를 찾지 못했어요.');
+        let book = null; let existing = ''; let titles = [];
+        if (persona.bookId) {
+          try {
+            const b = await api.world_books.get(persona.bookId, user);
+            const es = await listEntries(user, persona.bookId);
+            book = { id: persona.bookId, name: b?.name || '', count: es.length };
+            existing = es.map((e) => `[${e.comment || (e.key || []).join(', ')}] ${e.content}`).join('\n');
+            titles = es.map((e) => e.comment).filter(Boolean);
+          } catch {}
+        }
+        const settings = await loadSettings(user);
+        const raw = await genJson(user, buildWorldDraftMessages(persona, { existing, existingTitles: titles }), { ...settings, createTemperature: 0.85 });
+        return { draft: cleanWorldDraft(raw), book };
+      }
+      case 'myWorldSave': {
+        // 확정: 붙어 있는 로어북이 있으면 거기에 항목을 더하고, 없으면 새 로어북(원하면 페르소나에 붙임)
+        const persona = await personaFull(user, String(p.personaId || ''));
+        if (!persona) throw new Error('페르소나를 찾지 못했어요.');
+        const entries = (Array.isArray(p.entries) ? p.entries : []).map((e) => ({ title: String(e?.title || '').trim().slice(0, 80), keys: (Array.isArray(e?.keys) ? e.keys : String(e?.keys || '').split(',')).map((k) => String(k).trim()).filter(Boolean).slice(0, 8), content: String(e?.content || '').trim().slice(0, 3000), constant: !!e?.constant })).filter((e) => e.title && e.content).slice(0, 16);
+        let bookId = persona.bookId; let bookName = ''; let linked = 'persona';
+        if (bookId) {
+          try { bookName = (await api.world_books.get(bookId, user))?.name || ''; } catch {}
+        } else {
+          if (!entries.length) throw new Error('로어북에 넣을 항목이 없어요.');
+          const b = await api.world_books.create({ name: `내 세계 · ${persona.name || '페르소나'}`, description: '이세계 편지가 만든 페르소나의 세계. 편지 상대는 이 내용을 모르고, 내가 편지에 쓴 만큼만 알아요.', metadata: { isekai_mailbox: true, myWorld: true } }, user);
+          bookId = b.id; bookName = b.name || ''; linked = 'created';
+          if (p.attach) { try { await api.personas.update(persona.id, { attached_world_book_id: bookId }, user); linked = 'persona'; } catch (e) { log('warn', `페르소나에 로어북 붙이기 실패: ${e?.message || e}`); } }
+        }
+        let order = 100;
+        for (const e of entries) { await api.world_books.entries.create(bookId, entryInput(e, order), user); order += 10; }
+        const prev = cleanWorld((await loadMe(user, persona.id)).world);
+        const world = cleanWorld({ ...(prev || {}), bookId, bookName, linked, calendar: p.calendar ? cleanCalendar(p.calendar) : null, startAt: prev?.startAt || now, skipHours: prev?.skipHours || 0, lifeMode: prev?.lifeMode || 'auto', lifeAt: prev?.lifeAt || 0, life: prev?.life || [] });
+        await updateMe(user, persona.id, (cur) => ({ ...cur, world }));
+        log('info', `내 세계 확정(${persona.name}): 항목 ${entries.length}개`);
+        return { world, added: entries.length };
+      }
+      case 'myWorldSet': {
+        // 흐름 방식·달력 고치기
+        const k = String(p.personaId || '');
+        const next = await updateMe(user, k, (cur) => {
+          const w = cleanWorld(cur.world);
+          if (!w) throw new Error('먼저 내 세계를 만들어 주세요.');
+          return { ...cur, world: cleanWorld({ ...w, ...(p.lifeMode ? { lifeMode: p.lifeMode } : {}), ...('calendar' in p ? { calendar: p.calendar ? cleanCalendar(p.calendar) : null } : {}) }) };
+        });
+        return { world: next.world };
+      }
+      case 'myWorldDrop': {
+        // 내 세계 기록만 지움(로어북은 그대로)
+        await updateMe(user, String(p.personaId || ''), (cur) => { const { world, ...rest } = cur; return rest; });
+        return { ok: true };
+      }
+      case 'myLife': return growLife(user, String(p.personaId || ''), { by: 'manual' });
+      case 'mySkip': {
+        // 시간 감기(페르소나 전체): 내 쪽 시계를 앞당기고, 그 페르소나의 상대마다 그만큼 흐른 것으로
+        const k = String(p.personaId || '');
+        const hours = Math.round(Number(p.hours) || 0);
+        if (hours < 1 || hours > 24 * 366) throw new Error('감을 시간은 1시간에서 1년 사이로 적어 주세요.');
+        const w0 = cleanWorld((await loadMe(user, k)).world);
+        if (!w0) throw new Error('먼저 내 세계를 만들어 주세요.');
+        const ms = hours * 3600000;
+        const cs = await csOfPersona(user, k);
+        let moved = 0;
+        for (const c of cs) {
+          if (c.ended) continue;
+          await mutate(user, c.id, (x) => skipCorrespondent(x, ms, Date.now()));
+          moved++;
+        }
+        await updateMe(user, k, (cur) => ({ ...cur, world: { ...cleanWorld(cur.world), skipHours: (cleanWorld(cur.world)?.skipHours || 0) + hours } }));
+        log('info', `시간 감기(${k}): ${hours}시간 · 상대 ${moved}명`);
+        let life = null;
+        if (p.life) { try { life = await growLife(user, k, { by: 'skip' }); } catch (e) { life = { error: String(e?.message || e) }; } }
+        tickUser(user).catch((e) => log('warn', `감기 뒤 처리 실패: ${e?.message || e}`));
+        notify(user, {});
+        const w1 = cleanWorld((await loadMe(user, k)).world);
+        return { moved, now: myClockLabel(w1, Date.now()), life };
       }
       case 'mePortraits': {
         const out = {};
@@ -3608,6 +3897,11 @@ export function start(api) {
             out.correspondents.push(row);
           } catch {}
         }
+        try {
+          out.me = {};
+          const meFiles = (await api.userStorage.exists('me', user).catch(() => false)) ? await api.userStorage.list('me', user).catch(() => []) : [];
+          for (const f of meFiles) { const k = String(f).split(/[\\/]/).pop().replace(/\.json$/, ''); const m = await readJson(`me/${k}.json`, user, null); if (m) out.me[k] = m; }
+        } catch {}
         return out;
       }
       case 'importAll': {
@@ -3643,6 +3937,14 @@ export function start(api) {
           if (have.has(c.id)) res.replaced++; else res.added++;
         }
         if (p.withSettings && b.settings) await serial(user, () => api.userStorage.setJson(SETTINGS, cleanSettings(b.settings), { userId: user }));
+        if (b.me && typeof b.me === 'object') {
+          for (const [k, m] of Object.entries(b.me)) {
+            if (!m || typeof m !== 'object') continue;
+            const has = await api.userStorage.exists(mePath(k), user).catch(() => false);
+            if (has && !p.replace) continue;
+            await serial(user, () => api.userStorage.setJson(mePath(k), m, { userId: user }));
+          }
+        }
         log('info', `백업 되살리기: 추가 ${res.added} · 덮어씀 ${res.replaced} · 건너뜀 ${res.skipped} · 캐릭터 ${res.characters} · 로어북 ${res.books}`);
         return res;
       }

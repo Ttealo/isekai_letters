@@ -998,3 +998,68 @@ test('이야기: 사건(그쪽·이쪽) → 마무리(편지 멈춤) → 그 후
   assert.equal(g.memory.timeline.filter((e) => e.gen).length, 0);
   assert.equal(g.story.events.length, 1);
 });
+
+test('내 세계: 초안 → 확정(새 로어북·페르소나에 붙임) → 자동 내 쪽 연대기 → 시간 감기로 편지·답장이 당겨짐', async (t) => {
+  const realNow = Date.now;
+  let now = 3_000_000_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const host = fakeHost();
+  addLibrary(host, MATCH);
+  const persona = { id: 'p1', name: '시드', description: '등대 아래 서점 주인', attached_world_book_id: null };
+  const updates = [];
+  host.api.personas.get = async (id) => (id === 'p1' ? { ...persona } : null);
+  host.api.personas.getActive = async () => ({ ...persona });
+  host.api.personas.update = async (id, input) => { updates.push([id, input]); Object.assign(persona, input); return persona; };
+  const prompts = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    const sys = req.messages[0].content;
+    if (/You build the home world/.test(sys)) return { content: JSON.stringify({ entries: [{ title: '사는 곳', keys: ['서점'], content: '바닷가 서점 2층' }, { title: '레아', keys: ['레아'], content: '옆집 빵집 딸' }], calendar: { real: true } }) };
+    if (/You keep the chronicle/.test(sys)) { prompts.push(req.messages[1].content); return { content: JSON.stringify({ events: [{ when: 'x', event: '레아가 빵을 두고 갔다', open: false }] }) }; }
+    if (/You keep the records/.test(sys)) { prompts.push(req.messages[1].content); return { content: JSON.stringify({ my_side_add: [{ when: 'y', event: '서점에 비가 샜다', open: true }] }) }; }
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { id } = await host.ask('u1', 'create', { input: { name: '미렌', brief: '등대지기', personaId: 'p1', ratio: 7, deliveryMin: 1, deliveryMax: 1, writeMin: 7, writeMax: 7 } });
+  const d = await host.ask('u1', 'myWorldDraft', { personaId: 'p1' });
+  assert.equal(d.draft.entries.length, 2);
+  assert.equal(d.draft.calendar, null);
+  assert.equal(d.book, null);
+  const sv = await host.ask('u1', 'myWorldSave', { personaId: 'p1', entries: d.draft.entries, calendar: null, attach: true });
+  assert.equal(sv.added, 2);
+  assert.equal(updates.length, 1, '페르소나에 새 로어북을 붙임');
+  assert.equal(sv.world.linked, 'persona');
+  const d2 = await host.ask('u1', 'myWorldDraft', { personaId: 'p1' });
+  assert.equal(d2.book.count, 2, '다시 초안을 받으면 붙은 로어북을 읽음');
+
+  // 편지 → 도착 → 답장 생성 → 정리(자동: 내 쪽 연대기도)
+  await host.ask('u1', 'send', { id, body: '비가 와요' });
+  now += 1 * H; await host.ask('u1', 'load');
+  now += 1 * H; await host.ask('u1', 'load'); await settle(); await settle();
+  await host.ask('u1', 'load'); await settle(); await settle();
+  let me = (await host.ask('u1', 'mePortraits')).me.p1;
+  assert.ok(prompts.some((x) => /<user_world>[\s\S]*바닷가 서점/.test(x)), '정리에 내 세계가 들어감');
+  assert.ok(me.world.life.some((e) => e.event === '서점에 비가 샜다' && e.by === 'auto'));
+
+  // 시간 감기: 새 편지를 보내고 3일 감으면 편지가 닿고, 답장도 그만큼 일찍 써져 바로 닿는다
+  await host.ask('u1', 'send', { id, body: '두 번째' });
+  const before = (await host.ask('u1', 'get', { id })).c;
+  const skip = await host.ask('u1', 'mySkip', { personaId: 'p1', hours: 72, life: true });
+  assert.equal(skip.moved, 1);
+  assert.equal(skip.life.added, 1);
+  assert.match(prompts.at(-1), /72 hours/);
+  await settle(); await host.ask('u1', 'load'); await settle(); await settle(); await host.ask('u1', 'load'); await settle();
+  const after = (await host.ask('u1', 'get', { id })).c;
+  const theirs = after.letters.filter((l) => l.from === 'them');
+  assert.equal(after.letters.find((l) => l.body === '두 번째').state, 'arrived');
+  assert.equal(theirs.at(-1).state, 'delivered', '감은 사이에 쓰인 답장은 바로 닿음');
+  assert.notEqual(after.theirNowLabel, before.theirNowLabel, '그쪽 시계도 흐름');
+  me = (await host.ask('u1', 'mePortraits')).me.p1;
+  assert.equal(me.world.skipHours, 72);
+  assert.ok(me.world.life.some((e) => e.by === 'skip'));
+  const bk = await host.ask('u1', 'exportAll');
+  assert.equal(bk.me.p1.world.skipHours, 72, '백업에 내 세계도');
+  await assert.rejects(host.ask('u1', 'mySkip', { personaId: 'p1', hours: 0 }), /1시간/);
+});

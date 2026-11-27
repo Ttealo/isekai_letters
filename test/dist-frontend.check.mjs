@@ -39,6 +39,7 @@ const other = mk('c2', '하르', 'p2', '하루');
 let all = [miren, other];
 const summary = (c) => ({ id: c.id, name: c.name, ratio: 7, theirNow: '4일째', personaId: c.personaId, personaName: c.personaName, unread: c.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length, status: '편지가 가는 중', failed: false, lastAt: now });
 const sentLog = [];
+const meFiles = {};
 let backend;
 const replies = {
   all: () => ({ all, settings: { showExactEta: false } }),
@@ -73,6 +74,11 @@ const replies = {
   setRules: (m) => { sentLog.push(m); return { locks: m.locks, applyMode: m.applyMode }; },
   makeEvent: (m) => { sentLog.push(m); all = all.map((c) => (c.id === m.id ? { ...c, story: { events: [...(c.story?.events || []), { id: 'e' + Math.random(), at: Date.now(), side: m.side, title: m.side === 'me' ? '내 쪽 일' : '곶의 폭풍', event: '바람', keywords: m.keywords, when: '5일째' }], epilogue: c.story?.epilogue || [] } } : c)); return {}; },
   epilogue: (m) => { sentLog.push(m); all = all.map((c) => (c.id === m.id ? { ...c, ended: c.ended || { at: Date.now() }, story: { events: c.story?.events || [], epilogue: [...(c.story?.epilogue || []), { at: Date.now(), first: !c.ended, ask: m.ask || '', title: c.ended ? '그 뒤' : '등대의 불', when: '반년 뒤', text: '불은 꺼지지 않았다.' }] } } : c)); return {}; },
+  mePortraits: () => ({ me: meFiles }),
+  myWorldDraft: (m) => { sentLog.push(m); return { draft: { entries: [{ title: '사는 곳', keys: ['서점'], content: '바닷가 서점' }], calendar: null }, book: null }; },
+  myWorldSave: (m) => { sentLog.push(m); meFiles.p1 = { ...(meFiles.p1 || {}), world: { bookId: 'wb', bookName: '내 세계 · 시드', linked: m.attach ? 'persona' : 'created', calendar: m.calendar, startAt: Date.now(), skipHours: 0, lifeMode: 'auto', lifeAt: 0, life: [{ when: '오늘', event: '레아가 빵을 두고 갔다', open: false, at: Date.now() + 5 }] } }; return { world: meFiles.p1.world }; },
+  mySkip: (m) => { sentLog.push(m); meFiles.p1.world.skipHours += m.hours; return { moved: 1, now: '내일', life: { added: 1 } }; },
+  myWorldSet: (m) => { sentLog.push(m); Object.assign(meFiles.p1.world, m.lifeMode ? { lifeMode: m.lifeMode } : {}, 'calendar' in m ? { calendar: m.calendar } : {}); return {}; },
   resume: (m) => { sentLog.push(m); all = all.map((c) => (c.id === m.id ? { ...c, ended: null } : c)); return {}; },
 };
 let badge = null;
@@ -154,7 +160,7 @@ ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-themed.im-their
   ok('지난 편지는 한 줄로 접힘(맨 끝 2통·가는 중은 펼침)', folds.length === 2 && folds.every((d) => !isOpen(d)) && folds[0].getAttribute('data-lid') === 'l1' && folds[0].querySelector('summary').textContent.includes('처음 편지') && folds[1].querySelector('.im-fold-who').textContent.includes('받음'));
   ok('접힌 줄 위에 「지난 편지 2통 · 모두 펼치기」', panelRoot.querySelector('.im-fold-bar')?.textContent.includes('지난 편지 2통'));
   folds[0].setAttribute('open', ''); folds[0].dispatchEvent(new window.Event('toggle'));
-  backend({ type: 'changed' }); await tick(15);
+  backend({ type: 'changed' }); await tick(40);
   const f2 = panelRoot.querySelector('details.im-fold[data-lid="l1"]');
   ok('펼친 지난 편지는 새로 고침 뒤에도 펼쳐진 채', f2 !== folds[0] && isOpen(f2) && !isOpen(panelRoot.querySelector('details.im-fold[data-lid="l2"]')));
   clickIn(panelRoot, '.im-fold-bar button', '모두 펼치기'); await tick();
@@ -206,7 +212,23 @@ ok('이야기: 사건(그쪽·내 쪽) 버튼과 마무리하기', ['그쪽에 �
 }
 clickIn(panelRoot, '.im-tabs button', '편지첩'); await tick();
 meChip().dispatchEvent(new window.Event('click')); await tick();
-ok('나: 탭은 내 모습·추억 상자·달력, 내 모습 칸', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '내 모습,추억 상자,달력' && panelRoot.querySelectorAll('.im-me').length >= 1);
+// 내 세계: 초안 → 고쳐서 확정 → 시계·감기
+clickIn(panelRoot, '.im-tabs button', '내 세계'); await tick();
+ok('내 세계: 페르소나마다 초안 받기 버튼', [...panelRoot.querySelectorAll('button')].some((b) => b.textContent === '내 세계 초안 받기 (글 1회)'));
+clickIn(panelRoot, 'button', '내 세계 초안 받기 (글 1회)'); await tick(10);
+{
+  const ent = panelRoot.querySelector('.im-world-entry textarea');
+  ok('내 세계 초안: 항목을 고칠 수 있고 페르소나에 붙이기 칸', !!ent && ent.value === '바닷가 서점' && panelRoot.textContent.includes('페르소나에도 붙이기'));
+  ent.value = '바닷가 서점 2층'; ent.dispatchEvent(new window.Event('input'));
+  clickIn(panelRoot, 'button', '확정'); await tick(12);
+  const save = sentLog.find((x) => x.type === 'myWorldSave');
+  ok('내 세계 확정: 고친 항목·현실 달력으로', save && save.entries[0].content === '바닷가 서점 2층' && save.calendar === null);
+  ok('내 세계: 내 쪽 지금·연대기·감기', !!panelRoot.querySelector('.im-world-now') && panelRoot.textContent.includes('레아가 빵을 두고 갔다') && [...panelRoot.querySelectorAll('button')].some((b) => b.textContent === '⏭ 감기'));
+  clickIn(panelRoot, 'button', '⏭ 감기'); await tick(12);
+  ok('시간 감기: 1일 = 24시간, 내 쪽 일 함께', sentLog.some((x) => x.type === 'mySkip' && x.hours === 24 && x.life === true));
+  clickIn(panelRoot, '.im-tabs button', '내 모습'); await tick();
+}
+ok('나: 탭은 내 모습·내 세계·추억 상자·달력, 내 모습 칸', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '내 모습,내 세계,추억 상자,달력' && panelRoot.querySelectorAll('.im-me').length >= 1);
 clickIn(panelRoot, '.im-tabs button', '추억 상자'); await tick();
 ok('나 → 추억 상자 2', panelRoot.querySelectorAll('.im-locker').length === 2);
 clickIn(panelRoot, '.im-chip', '시드'); await tick();

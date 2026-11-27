@@ -12,7 +12,7 @@ export function storyOf(c) {
 const tagBlock = (tag, text, max) => (text ? `<${tag}>\n${String(text).slice(0, max)}\n</${tag}>` : '');
 
 // side: 'them' = 그쪽 세계의 그 사람에게 / 'me' = 편지를 쓰는 나(페르소나)에게
-export function buildEventMessages(c, { side = 'them', keywords = '', cardText = '', lore = '', ledger = '', timeline = '', recent = '', persona = null, myEvents = '', theirNow = '' } = {}) {
+export function buildEventMessages(c, { side = 'them', keywords = '', cardText = '', lore = '', ledger = '', timeline = '', recent = '', persona = null, myEvents = '', theirNow = '', myWorld = '' } = {}) {
   const me = side === 'me';
   const pName = persona?.name || '{{user}}';
   const system = [
@@ -28,6 +28,7 @@ export function buildEventMessages(c, { side = 'them', keywords = '', cardText =
   ].join('\n');
   const user = [
     me ? tagBlock('persona', persona?.card || '(설명 없음)', 2500) : tagBlock('character', cardText || c.brief, 3000),
+    me && myWorld ? tagBlock('persona_world', myWorld, 3000) : '',
     me ? tagBlock('correspondent', `${c.name}: ${String(c.brief || '').slice(0, 600)}`, 800) : tagBlock('world', lore, 3000),
     ledger ? tagBlock('relationship', ledger, 1200) : '',
     me ? (myEvents ? tagBlock('earlier_events_of_persona', myEvents, 1500) : '') : (timeline ? tagBlock('their_life_so_far', timeline, 1800) : ''),
@@ -56,7 +57,7 @@ export function addEvent(c, ev) {
 }
 
 // 마무리(첫 번째) 또는 그 후(이어서). noPersona면 이쪽 삶은 쓰지 않는다.
-export function buildEpilogueMessages(c, { cardText = '', lore = '', ledger = '', chapters = '', summaries = '', timeline = '', recent = '', report = '', persona = null, myEvents = '', myLetters = '', prev = [], ask = '', style = '' } = {}) {
+export function buildEpilogueMessages(c, { myWorld = '', cardText = '', lore = '', ledger = '', chapters = '', summaries = '', timeline = '', recent = '', report = '', persona = null, myEvents = '', myLetters = '', prev = [], ask = '', style = '' } = {}) {
   const noP = !!c.noPersona || !persona;
   const pName = noP ? '{{user}}' : persona.name || '{{user}}';
   const first = !prev.length;
@@ -76,6 +77,7 @@ export function buildEpilogueMessages(c, { cardText = '', lore = '', ledger = ''
     tagBlock('world', lore, 2000),
     noP ? '' : tagBlock('persona', `${pName}\n${persona.card || ''}`, 1800),
     noP || !myEvents ? '' : tagBlock('persona_events', myEvents, 1500),
+    noP || !myWorld ? '' : tagBlock('persona_world', myWorld, 3000),
     tagBlock('relationship', ledger, 1200),
     tagBlock('story_so_far', [chapters, summaries].filter(Boolean).join('\n'), 3000),
     tagBlock('their_life', timeline, 2000),

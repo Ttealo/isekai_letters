@@ -1,4 +1,5 @@
 import { paperLook, defaultTheme, PAPER_FONT_URL, PAPER_FONTS } from './paper.js';
+import { myClockLabel } from './core.js';
 
 // 편지첩 HTML(한 장짜리 책): 표지 → 차례 → 편지 → 기록부 → 모음 → 이어진 일들. 그림은 img(id, size)가 준 주소를 쓰고, 누르면 크게.
 // 부수 효과 없음 — 그림 주소는 호출하는 쪽이 data URL로 바꿔 넣는다.
@@ -79,6 +80,7 @@ ${faceBig ? pic(faceBig, 'lg', `${myName || '나'} 초상화`, 'meface') : ''}
 <div class="meinfo"><div class="mename">${exEsc(myName || '나')}</div>${me?.title ? `<div class="metitle">${exEsc(me.title)}</div>` : ''}${me?.noPersona ? '<div class="metitle">페르소나 없이, 이 세계의 나 자신으로</div>' : ''}
 ${me?.description ? `<div class="medesc">${exEsc(me.description)}</div>` : ''}
 <div class="mestats">${exEsc(c.name)}에게 보낸 편지 ${letters.filter((l) => l.from === 'me').length}통 · 보낸 물건·사진 ${(c.items || []).filter((x) => x.from === 'me').length}개</div></div></div>
+${me?.world?.startAt ? `<h3>내 세계</h3><p class="metitle">내 쪽 지금 · ${exEsc(myClockLabel(me.world, now))}${me.world.bookName ? ` · 로어북 「${exEsc(me.world.bookName)}」` : ""}</p>${(me.world.life || []).length ? `<ol class="tl">${me.world.life.map((x) => `<li class="${x.open ? "event" : "me"}"><span class="when">${exEsc(x.when || "")}</span>${exEsc(x.event)}</li>`).join("")}</ol>` : ""}` : ""}
 ${hist.length ? `<h3>지난 모습 · ${hist.length}</h3><div class="grid tall">${hist.map((h) => fig(h.imageId, '예전 모습', exDt(h.at))).join('')}</div>` : ''}`;
   })();
   // ── 그 후(마무리 글·그 후 이야기·일어난 사건) ──

@@ -752,6 +752,24 @@ export function etaLabel(ms, exact) {
   return `도착까지 약 ${Math.round(h)}시간`;
 }
 
+// ── 내 쪽 시계(페르소나 세계) ──
+// world = { startAt(현실 ms), skipHours, calendar } — 현실 시간과 같이 흐르고, 시간 감기만큼 앞서 간다
+export function myHours(world, now = Date.now()) {
+  if (!world?.startAt) return 0;
+  return Math.max(0, (now - world.startAt) / HOUR + (Number(world.skipHours) || 0));
+}
+export function myClockLabel(world, now = Date.now()) {
+  if (!world?.startAt) return '';
+  const h = myHours(world, now);
+  const cal = world.calendar;
+  if (cal?.months?.length) {
+    const d = calendarDate(cal, h);
+    return `${cal.yearLabel ? `${d.year}${cal.yearLabel} ` : ''}${d.monthName} ${d.day}일 ${partOfDay(d.hour24)}`;
+  }
+  const t = new Date(now + (Number(world.skipHours) || 0) * HOUR);
+  return `${t.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })} ${partOfDay(t.getHours())}`;
+}
+
 // 편지지 꾸미기(그림 대신 HTML·SVG): 상대마다 테마(종이색·잉크·결·가장자리·글꼴·장식 무늬)를 정하고 화면·HTML 저장에 같이 쓴다. 부수 효과 없음.
 
 export const PAPER_FONTS = {
@@ -999,6 +1017,7 @@ ${faceBig ? pic(faceBig, 'lg', `${myName || '나'} 초상화`, 'meface') : ''}
 <div class="meinfo"><div class="mename">${exEsc(myName || '나')}</div>${me?.title ? `<div class="metitle">${exEsc(me.title)}</div>` : ''}${me?.noPersona ? '<div class="metitle">페르소나 없이, 이 세계의 나 자신으로</div>' : ''}
 ${me?.description ? `<div class="medesc">${exEsc(me.description)}</div>` : ''}
 <div class="mestats">${exEsc(c.name)}에게 보낸 편지 ${letters.filter((l) => l.from === 'me').length}통 · 보낸 물건·사진 ${(c.items || []).filter((x) => x.from === 'me').length}개</div></div></div>
+${me?.world?.startAt ? `<h3>내 세계</h3><p class="metitle">내 쪽 지금 · ${exEsc(myClockLabel(me.world, now))}${me.world.bookName ? ` · 로어북 「${exEsc(me.world.bookName)}」` : ""}</p>${(me.world.life || []).length ? `<ol class="tl">${me.world.life.map((x) => `<li class="${x.open ? "event" : "me"}"><span class="when">${exEsc(x.when || "")}</span>${exEsc(x.event)}</li>`).join("")}</ol>` : ""}` : ""}
 ${hist.length ? `<h3>지난 모습 · ${hist.length}</h3><div class="grid tall">${hist.map((h) => fig(h.imageId, '예전 모습', exDt(h.at))).join('')}</div>` : ''}`;
   })();
   // ── 그 후(마무리 글·그 후 이야기·일어난 사건) ──
@@ -1353,6 +1372,10 @@ const CSS2 = `
 .im-cal-ev .im-x{font-family:var(--im-serif);font-size:12.5px;color:var(--lumiverse-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .im-flash{animation:im-flash 1.6s ease}
 @media (max-width:520px){.im-panel .im-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}.im-panel .im-tabs button{padding:5px 11px;white-space:nowrap}}
+.im-col{display:flex;flex-direction:column}
+.im-world-entry{display:flex;flex-direction:column;gap:4px;border:1px solid var(--im-line);border-radius:8px;padding:8px}
+.im-world-entry .im-row input{flex:1;min-width:0}
+.im-world-now{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-family:var(--im-serif);font-size:15px}
 .im-ended{text-align:center;padding:14px 10px;border:1px dashed var(--im-line);border-radius:10px;display:flex;flex-direction:column;gap:4px}
 .im-ended-t{font-family:var(--im-serif);color:var(--im-ink);letter-spacing:.04em}
 .im-myev{border-left:3px solid var(--im-line);padding:4px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:3px}
@@ -1606,9 +1629,14 @@ export function setup(ctx) {
       (() => {
         const lastSent = Math.max(0, ...c.letters.filter((l) => l.from === 'me').map((l) => l.sentAt || 0));
         const mine = (c.story?.events || []).filter((e) => e.side === 'me' && e.at > lastSent);
-        return mine.length ? el('div', { class: 'im-myev' }, [
-          el('div', { class: 'im-muted', style: 'font-size:11px', text: `요즘 내 쪽에 있었던 일 · ${c.name}은(는) 내가 쓴 만큼만 알아요` }),
+        const w = c.noPersona ? null : S.me?.[meKeyOf(c)]?.world;
+        const lifeNew = (w?.life || []).filter((e) => e.by !== 'event' && (e.at || 0) > lastSent);
+        const clock = w?.startAt ? myClockLabel(w, Date.now()) : '';
+        return mine.length || lifeNew.length || clock ? el('div', { class: 'im-myev' }, [
+          clock ? el('div', { class: 'im-muted', style: 'font-size:11px', text: `내 쪽 지금 · ${clock}` }) : null,
+          mine.length || lifeNew.length ? el('div', { class: 'im-muted', style: 'font-size:11px', text: `요즘 내 쪽에 있었던 일 · ${c.name}은(는) 내가 쓴 만큼만 알아요` }) : null,
           ...mine.slice(-3).map((e) => el('div', {}, [el('b', { text: e.title }), ` — ${e.event}`])),
+          ...lifeNew.slice(-3).map((e) => el('div', { text: `· ${e.when ? `[${e.when}] ` : ''}${e.event}` })),
         ]) : null;
       })(),
       el('textarea', { 'data-keep': `body:${c.id}`, value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
@@ -2683,7 +2711,7 @@ export function setup(ctx) {
     const myName = c.noPersona ? '' : (personaOf(c.personaId)?.name || c.personaName || '');
     const pz = c.noPersona ? null : personaOf(c.personaId || S.activePersonaId);
     const mine = S.me?.[k] || {};
-    const me = { noPersona: !!c.noPersona, title: pz?.title || '', description: pz?.description || '', portraitId: mine.portrait?.imageId || pz?.imageId || '', history: mine.history || [] };
+    const me = { noPersona: !!c.noPersona, title: pz?.title || '', description: pz?.description || '', portraitId: mine.portrait?.imageId || pz?.imageId || '', history: mine.history || [], world: c.noPersona ? null : mine.world || null };
     let html = buildLettersHtml(c, { myFont: S.settings?.myFont || '', img: tok, myFaceId: myPortrait(k)?.imageId || pz?.imageId || '', myName: myName || pz?.name || '', htmlPaper: htmlPaper(), me });
     const keys = [...new Set(html.match(/@@IMG:[^@]+@@/g) || [])];
     const urls = {};
@@ -2810,7 +2838,7 @@ export function setup(ctx) {
       const mePersonaOpts = (k) => (k === 'none' ? { noPersona: true } : { personaId: S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k)?.id || '' });
       const meRowLabel = meKeys.length === 1 ? `${meLabel(meKeys[0])}` : '나';
       // 탭: 보고 있는 것에 따라
-      const TABS = P.view === 'me' ? [['me', '내 모습'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자'], ['report', '기록부'], ['story', '이야기']];
+      const TABS = P.view === 'me' ? [['me', '내 모습'], ['world', '내 세계'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자'], ['report', '기록부'], ['story', '이야기']];
       const cur = P.view === 'me' ? P.meTab : P.tab;
       const tabs = el('div', { class: 'im-tabs' }, TABS.map(([k, t]) => el('button', { type: 'button', class: cur === k ? 'im-on' : '', text: t, onclick: () => { if (P.view === 'me') P.meTab = k; else P.tab = k; save(); panelView.render(); } })));
       const head = P.view === 'me'
@@ -2820,6 +2848,7 @@ export function setup(ctx) {
       if (P.view === 'me') {
         if (P.meTab === 'cal') body = lettersCalendar(mine);
         else if (P.meTab === 'boxes') body = boxesView(mine, (id) => openC(id, 'box'));
+        else if (P.meTab === 'world') body = worldView(meKeys, meLabel, (k) => mePersonaOpts(k).personaId, pact);
         else body = meKeys.map((k) => meCard(k, meLabel(k), mePersonaOpts(k), pact));
       } else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「이세계 편지」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
@@ -3178,6 +3207,141 @@ export function setup(ctx) {
   const SLOW_NOTE = '원래 연결이 막혀 있으면 다시 시도하고 대체 연결로 넘어가느라 1~2분 걸릴 수 있어요. 창을 닫아도 서버에서 계속돼요.';
   const workingBox = (key) => (working.has(key) ? el('div', { class: 'im-transit' }, [el('div', {}, [el('span', { class: 'im-spin' }), working.get(key)]), el('div', { class: 'im-muted', style: 'font-size:11px', text: SLOW_NOTE })]) : null);
   const runSlow = (key, label, act, fn) => { if (working.has(key)) return; working.set(key, label); rerenderAll(); act(async () => { try { await fn(); } finally { working.delete(key); rerenderAll(); } }); };
+  // 내 세계: 페르소나마다 세계(로어북·달력), 내 쪽 연대기, 시간 감기. 페르소나 없음에는 없다
+  const worldDrafts = new Map(); // key → { draft, book, attach }
+  const skipDraft = new Map(); // key → { n, unit, life }
+  const calText = (cal) => (cal?.months || []).map((m) => `${m.name}:${m.days}`).join(', ');
+  // 달력 고치는 칸 묶음 → { node, read() }
+  function calendarFields(cal) {
+    const real = el('input', { type: 'checkbox', checked: !cal || undefined });
+    const months = el('input', { type: 'text', value: calText(cal), placeholder: '달 이름:일수, … — 예: 씨앗달:30, 불꽃달:30, 서리달:31' });
+    const dayH = el('input', { type: 'number', min: 6, max: 100, value: cal?.dayHours || 24, style: 'width:70px' });
+    const yl = el('input', { type: 'text', value: cal?.yearLabel || '', placeholder: '연호(선택)', style: 'width:110px' });
+    const y = el('input', { type: 'number', value: cal?.start?.year ?? 1, style: 'width:80px' });
+    const mo = el('input', { type: 'text', value: cal ? cal.months[cal.start.month]?.name || '' : '', placeholder: '시작 달', style: 'width:100px' });
+    const d = el('input', { type: 'number', min: 1, max: 100, value: cal?.start?.day || 1, style: 'width:60px' });
+    const custom = el('div', { class: 'im-col', style: `gap:6px;${!cal ? 'display:none' : ''}` }, [
+      months,
+      el('div', { class: 'im-row', style: 'flex-wrap:wrap;gap:6px;align-items:center' }, ['하루', dayH, '시간 · 지금은', y, yl, mo, d, '일']),
+    ]);
+    let isReal = !cal; // 체크 상태는 변수로 들고 있는다(가짜 DOM에서도 같게)
+    real.onchange = (e) => { isReal = !!e.target.checked; custom.style.display = isReal ? 'none' : ''; };
+    return {
+      node: el('div', { class: 'im-col', style: 'gap:6px' }, [el('label', { class: 'im-row', style: 'gap:6px;align-items:center' }, [real, '현실과 같은 달력(오늘 날짜로 흐름)']), custom]),
+      read: () => {
+        if (isReal) return null;
+        const ms = months.value.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean).map((x) => { const [n, dd] = x.split(/[:：]/); return { name: (n || '').trim(), days: Number(dd) || 30 }; }).filter((m) => m.name);
+        if (!ms.length) throw new Error('달 이름을 하나 이상 적어 주세요(예: 씨앗달:30).');
+        const mi = Math.max(0, ms.findIndex((m) => m.name === mo.value.trim()));
+        return { dayHours: Number(dayH.value) || 24, months: ms, yearLabel: yl.value.trim(), start: { year: Number(y.value) || 1, month: mi, day: Number(d.value) || 1, hour: 9 }, style: 'calendar' };
+      },
+    };
+  }
+  function worldView(keys, labelOf, personaIdOf, act) {
+    const ks = keys.filter((k) => k !== 'none');
+    if (!ks.length) return [el('div', { class: 'im-muted', text: '「페르소나 없음」은 이 세계의 진짜 나라서, 따로 내 세계를 만들지 않아요. 내 쪽 시간도 현실 시계 그대로예요.' })];
+    return ks.map((k) => worldCard(k, labelOf(k), personaIdOf(k), act));
+  }
+  function worldCard(k, name, personaId, act) {
+    const w = S.me?.[k]?.world || null;
+    const box = [el('h4', { text: `${name}의 세계` })];
+    if (!personaId) return el('div', { class: 'im-letter' }, [...box, el('div', { class: 'im-muted', text: '페르소나를 찾지 못했어요.' })]);
+    if (!w) {
+      const wd = worldDrafts.get(k);
+      if (!wd) {
+        box.push(
+          el('div', { class: 'im-muted', style: 'font-size:12px', text: `${name}이(가) 사는 세계를 만들어요. 페르소나에 붙어 있는 로어북이 있으면 그걸 이어 쓰고, 빠진 것(세계 개요·사는 곳·주변 사람·달력)만 AI가 초안해요. 초안은 고친 뒤 확정해요. 편지 상대는 이 세계를 모르고, 내가 편지에 쓴 만큼만 알아요.` }),
+          working.has(`world:${k}`) ? workingBox(`world:${k}`) : btn('내 세계 초안 받기 (글 1회)', () => runSlow(`world:${k}`, '내 세계 초안을 쓰는 중이에요…', act, async () => {
+            const r = await ask('myWorldDraft', { personaId }, 300000);
+            worldDrafts.set(k, { draft: r.draft, book: r.book, attach: false });
+          }), { primary: true }),
+        );
+        return el('div', { class: 'im-letter' }, box);
+      }
+      // 초안 고치기
+      const rows = wd.draft.entries.map((e) => {
+        const t = el('input', { type: 'text', value: e.title, oninput: (ev) => { e.title = ev.target.value; } });
+        const kk = el('input', { type: 'text', value: (e.keys || []).join(', '), placeholder: '키워드(쉼표로)', oninput: (ev) => { e.keys = ev.target.value.split(',').map((x) => x.trim()).filter(Boolean); } });
+        const ct = el('textarea', { rows: 3, value: e.content, oninput: (ev) => { e.content = ev.target.value; } });
+        return el('div', { class: 'im-world-entry' }, [el('div', { class: 'im-row', style: 'gap:6px' }, [t, kk, link('빼기', () => { wd.draft.entries.splice(wd.draft.entries.indexOf(e), 1); rerenderAll(); })]), ct]);
+      });
+      const cal = calendarFields(wd.draft.calendar);
+      box.push(
+        el('div', { class: 'im-muted', style: 'font-size:12px', text: wd.book ? `페르소나에 붙은 로어북 「${wd.book.name}」(${wd.book.count}항목)에 아래 항목을 더해요. 빼고 싶은 건 빼고, 고칠 건 고쳐 주세요.` : '새 로어북 「내 세계 · 이름」을 만들어 아래 항목을 넣어요.' }),
+        ...rows,
+        link('+ 항목 더하기', () => { wd.draft.entries.push({ title: '', keys: [], content: '' }); rerenderAll(); }),
+        el('h4', { text: '내 쪽 달력' }),
+        cal.node,
+        wd.book ? null : el('label', { class: 'im-row', style: 'gap:6px;align-items:center;font-size:12.5px' }, [
+          el('input', { type: 'checkbox', checked: wd.attach || undefined, onchange: (ev) => { wd.attach = ev.target.checked; } }),
+          '이 로어북을 페르소나에도 붙이기 (일반 채팅에서도 이 세계가 쓰여요)',
+        ]),
+        el('div', { class: 'im-row', style: 'gap:8px' }, [
+          btn('확정', () => act(async () => {
+            const calendar = cal.read();
+            await ask('myWorldSave', { personaId, entries: wd.draft.entries, calendar, attach: !!wd.attach }, 120000);
+            worldDrafts.delete(k);
+            await refresh();
+          }), { primary: true }),
+          link('초안 버리기', () => { worldDrafts.delete(k); rerenderAll(); }),
+        ]),
+      );
+      return el('div', { class: 'im-letter' }, box);
+    }
+    // 세계가 있을 때
+    const nowLabel = myClockLabel(w, Date.now());
+    const sd = skipDraft.get(k) || { n: 1, unit: 'd', life: true };
+    skipDraft.set(k, sd);
+    const n = el('input', { type: 'number', min: 1, max: 366, value: sd.n, style: 'width:70px', oninput: (e) => { sd.n = Number(e.target.value) || 1; } });
+    const unit = el('select', { onchange: (e) => { sd.unit = e.target.value; } }, [['h', '시간'], ['d', '일'], ['w', '주'], ['m', '달(30일)']].map(([v, t]) => el('option', { value: v, text: t, selected: sd.unit === v || undefined })));
+    const lifeCk = el('input', { type: 'checkbox', checked: sd.life || undefined, onchange: (e) => { sd.life = e.target.checked; } });
+    const calEdit = worldDrafts.get(`cal:${k}`) ? calendarFields(w.calendar) : null;
+    const life = [...(w.life || [])].reverse();
+    box.push(
+      el('div', { class: 'im-world-now' }, [el('span', { class: 'im-muted', text: '내 쪽 지금' }), el('b', { text: nowLabel }), w.skipHours ? el('span', { class: 'im-muted', style: 'font-size:11px', text: `(감은 시간 ${formatSpan(w.skipHours)})` }) : null]),
+      el('div', { class: 'im-muted', style: 'font-size:12px', text: `로어북 「${w.bookName || '내 세계'}」${w.linked === 'persona' ? ' · 페르소나에 붙어 있음' : ''} — 항목은 루미버스 로어북 화면에서 고칠 수 있어요.` }),
+      calEdit
+        ? el('div', { class: 'im-col', style: 'gap:6px' }, [calEdit.node, el('div', { class: 'im-row', style: 'gap:8px' }, [
+          btn('달력 저장', () => act(async () => { await ask('myWorldSet', { personaId, calendar: calEdit.read() }); worldDrafts.delete(`cal:${k}`); await refresh(); }), { primary: true }),
+          link('그만두기', () => { worldDrafts.delete(`cal:${k}`); rerenderAll(); }),
+        ])])
+        : link(w.calendar ? `달력 고치기 (${w.calendar.months.length}달)` : '달력 고치기 (지금은 현실 달력)', () => { worldDrafts.set(`cal:${k}`, true); rerenderAll(); }),
+      el('h4', { text: '내 쪽 흐름' }),
+      el('div', { class: 'im-row', style: 'gap:8px;flex-wrap:wrap;align-items:center' }, [
+        el('select', { onchange: (e) => act(async () => { await ask('myWorldSet', { personaId, lifeMode: e.target.value }); await refresh(); }) }, [
+          el('option', { value: 'auto', text: '자동 — 답장 정리 때 함께 (글 추가 없음)', selected: w.lifeMode === 'auto' || undefined }),
+          el('option', { value: 'manual', text: '수동 — 내가 누를 때만', selected: w.lifeMode === 'manual' || undefined }),
+        ]),
+        working.has(`life:${k}`) ? workingBox(`life:${k}`) : btn('지금까지 내 쪽 일 받기 (글 1회)', () => runSlow(`life:${k}`, '내 쪽에 있었던 일을 적는 중이에요…', act, async () => { await ask('myLife', { personaId }, 300000); await refresh(); })),
+      ]),
+      el('div', { class: 'im-muted', style: 'font-size:11.5px', text: w.lifeMode === 'auto' ? '답장이 와서 정리할 때, 그사이 내 주변에 있었던 일도 함께 적어요(설정의 정리 단계가 켜져 있어야 해요). 내 말·감정·선택은 정하지 않아요.' : '버튼을 누를 때만, 지난 기록 뒤로 흐른 시간 동안 내 주변에 있었던 일을 적어요. 내 말·감정·선택은 정하지 않아요.' }),
+      el('h4', { text: '시간 감기' }),
+      el('div', { class: 'im-row', style: 'gap:8px;flex-wrap:wrap;align-items:center' }, [
+        n, unit,
+        el('label', { class: 'im-row', style: 'gap:4px;align-items:center;font-size:12.5px' }, [lifeCk, '그사이 내 쪽 일 받기 (글 1회)']),
+        working.has(`skip:${k}`) ? workingBox(`skip:${k}`) : btn('⏭ 감기', async () => {
+          const hours = Math.round(sd.n * ({ h: 1, d: 24, w: 168, m: 720 }[sd.unit] || 24));
+          if (!(await confirmBox(`${name}의 시간을 ${formatSpan(hours)} 감을까요?\n\n· ${name}으로 주고받는 모든 상대에게 같은 시간이 흘러요(그쪽은 시간 비율만큼).\n· 가는 편지는 그만큼 도착에 가까워지고, 기다리던 답장은 그만큼 일찍 써져요(답장마다 글 1회).\n· 되돌릴 수 없어요.`, { title: '시간 감기', ok: '감기' }))) return;
+          runSlow(`skip:${k}`, '시간을 감는 중이에요…', act, async () => {
+            const r = await ask('mySkip', { personaId, hours, life: !!sd.life }, 300000);
+            P.error = `${formatSpan(hours)}을 감았어요. 내 쪽은 이제 ${r.now} · 상대 ${r.moved}명${r.life?.error ? ` · 내 쪽 일은 받지 못했어요(${r.life.error})` : r.life ? ` · 내 쪽 일 ${r.life.added}개` : ''}`;
+            await refresh();
+          });
+        }),
+      ]),
+      el('h4', { text: `내 쪽 연대기 · ${life.length}` }),
+      life.length ? el('div', { class: 'im-timeline' }, life.slice(0, 40).map((e) => el('div', { class: `im-tl im-tl-${e.open ? 'event' : 'me'}` }, [
+        el('div', { class: 'im-tl-when', text: `${e.when || ''}${e.open ? ' · 진행 중' : ''}` }),
+        el('div', { class: 'im-tl-text', text: e.event }),
+      ]))) : el('div', { class: 'im-muted', text: '아직 적힌 일이 없어요.' }),
+      el('div', { class: 'im-row', style: 'justify-content:flex-end' }, [link('내 세계 기록 지우기', () => act(async () => {
+        if (!(await confirmBox(`${name}의 내 세계 기록(달력·연대기·감은 시간)을 지울까요?\n로어북은 그대로 남아요.`, { danger: true }))) return;
+        await ask('myWorldDrop', { personaId }); await refresh();
+      }))]),
+    );
+    return el('div', { class: 'im-letter im-world' }, box);
+  }
+
   // 이야기: 사건 생성기 + 마무리하기 + 그 후 더 듣기
   const storyDraft = new Map(); // c.id → { kw, ask }
   function storyView(c, act, goTab) {

@@ -751,3 +751,21 @@ export function etaLabel(ms, exact) {
   if (h < 3) return '도착까지 두어 시간';
   return `도착까지 약 ${Math.round(h)}시간`;
 }
+
+// ── 내 쪽 시계(페르소나 세계) ──
+// world = { startAt(현실 ms), skipHours, calendar } — 현실 시간과 같이 흐르고, 시간 감기만큼 앞서 간다
+export function myHours(world, now = Date.now()) {
+  if (!world?.startAt) return 0;
+  return Math.max(0, (now - world.startAt) / HOUR + (Number(world.skipHours) || 0));
+}
+export function myClockLabel(world, now = Date.now()) {
+  if (!world?.startAt) return '';
+  const h = myHours(world, now);
+  const cal = world.calendar;
+  if (cal?.months?.length) {
+    const d = calendarDate(cal, h);
+    return `${cal.yearLabel ? `${d.year}${cal.yearLabel} ` : ''}${d.monthName} ${d.day}일 ${partOfDay(d.hour24)}`;
+  }
+  const t = new Date(now + (Number(world.skipHours) || 0) * HOUR);
+  return `${t.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })} ${partOfDay(t.getHours())}`;
+}
