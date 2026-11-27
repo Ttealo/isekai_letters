@@ -39,6 +39,7 @@ export function cleanSettings(s) {
     letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
     letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
     lateChance: num(s?.lateChance, 0, 50, 8), // 우체부가 늦을 확률(%)
+    proseStyle: str(s?.proseStyle, 300).trim() || 'plain', // 묘사·기록부 문체: plain|aesthetic|lyrical|record 또는 직접 적은 말
     fallbackMode: s?.fallbackMode === 'off' ? 'off' : 'auto', // 원래 연결이 한도로 막히면 같은 모델의 NanoGPT 연결로
     fallbackConnectionId: str(s?.fallbackConnectionId, 200), // 비우면 자동(같은 모델 이름)
     showExactEta: !!s?.showExactEta,
@@ -581,6 +582,18 @@ const letterText = (l, c) => {
   const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
+
+// 묘사 문체 → 지시문
+export const PROSE_STYLES = { plain: '담백하게', aesthetic: '탐미적으로', lyrical: '서정적으로', record: '건조한 기록체로' };
+export function proseRule(style = 'plain') {
+  const m = {
+    plain: 'Style: plain and precise. Short clear sentences, concrete visible details, no flourish.',
+    aesthetic: 'Style: aesthetic and sensuous. Linger on texture, light, color and material; rich but controlled imagery.',
+    lyrical: 'Style: lyrical and gentle, like a diary note. Soft images and feelings, still concrete.',
+    record: 'Style: a dry archivist\'s record. Factual, itemized feel, measured and exact, no emotion words.',
+  };
+  return m[style] || `Style (as the reader asked, in Korean): ${String(style).slice(0, 300)}`;
+}
 
 // 현실 날짜·시각(상대가 고른 시간대, 없으면 서울)
 export function realNowLabel(now = Date.now(), tz = '') {

@@ -342,3 +342,10 @@ test('받은 편지 고치기: 본문·추신, 원문은 한 번만 남김', () 
   assert.equal(l.editedAt, 6);
   assert.throws(() => M.editLetter(c, id, { body: '  ' }), /비어/);
 });
+
+test('묘사 문체: 정해 둔 것과 직접 적은 말', () => {
+  assert.match(M.proseRule('plain'), /plain and precise/);
+  assert.match(M.proseRule('record'), /archivist/);
+  assert.match(M.proseRule('시인의 메모처럼'), /시인의 메모처럼/);
+  assert.equal(M.cleanSettings({}).proseStyle, 'plain');
+});

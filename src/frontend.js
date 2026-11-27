@@ -66,6 +66,10 @@ const CSS = `
 .im-row-card .im-emblem,.im-row-card .im-face{width:46px;height:46px}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-looks-text{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.im-look-text{background:var(--lumiverse-bg-elevated,#fff);border-radius:10px;padding:12px 14px;box-shadow:0 4px 12px -8px #0007;font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:14px;line-height:1.75;white-space:pre-wrap}
+.im-look-text b{display:block;font-family:inherit;font-size:13px;color:var(--im-ink);margin-bottom:4px}
+.im-pic-text{display:flex;align-items:center;justify-content:center;padding:12px;font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:13px;line-height:1.6;text-align:center;color:var(--im-ink);overflow:auto}
 .im-box-big{max-width:340px;margin:4px auto 8px}.im-box-big img{width:100%;display:block;border-radius:12px;background:#fff;cursor:zoom-in;box-shadow:0 10px 24px -14px #0008}
 .im-looks{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
 .im-look-tall .im-pic img{object-position:50% 15%}
@@ -439,7 +443,7 @@ export function setup(ctx) {
       el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
       el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
       el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
-      el('details', { class: 'im-scene', open: working.has(`scene:${c.id}`) || undefined }, [
+      !artOn() ? null : el('details', { class: 'im-scene', open: working.has(`scene:${c.id}`) || undefined }, [
         el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '그림 그려서 동봉 (NovelAI)' }),
         (() => {
           const req = el('textarea', { rows: 2, placeholder: '어떤 그림인지 자연어로 — 예: 비 오는 창가에서 편지를 읽는 나, 창밖엔 네온 간판' });
@@ -491,6 +495,7 @@ export function setup(ctx) {
     }
   } catch {}
   const htmlPaper = () => (S.settings?.art?.paperMode || 'html') !== 'image';
+  const artOn = () => S.settings?.art?.enabled !== false;
   const setKindsUi = () => (htmlPaper() ? ['envelope', 'emblem'] : ['paper', 'stamp', 'seal']);
   // 상대 얼굴: 초상화 → 봉인 → 이름 첫 글자
   const avatarEl = (c, cls = 'im-seal', { portraitFirst = false } = {}) => (!portraitFirst && (c.art?.emblem?.imageId || c.art?.seal?.imageId) ? el('img', { class: `${cls} im-emblem`, src: imgUrl(c.art.emblem?.imageId || c.art.seal.imageId, 'sm'), alt: '' })
@@ -515,7 +520,7 @@ export function setup(ctx) {
         el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:6px' }, [
           el('b', { text: `${label}의 모습` }),
           note,
-          working.has(`me:${key}`) ? workingBox(`me:${key}`) : btn(m.portrait ? '다시 그리기 (글 1회 + NovelAI 1장)' : '초상화 그리기 (글 1회 + NovelAI 1장)', () => runSlow(`me:${key}`, '내 초상화를 그리는 중이에요…', act, async () => {
+          !artOn() ? el('div', { class: 'im-muted', text: '그림 사용을 꺼 두어서 초상화는 그리지 않아요. 페르소나 설명이 내 모습이에요.' }) : working.has(`me:${key}`) ? workingBox(`me:${key}`) : btn(m.portrait ? '다시 그리기 (글 1회 + NovelAI 1장)' : '초상화 그리기 (글 1회 + NovelAI 1장)', () => runSlow(`me:${key}`, '내 초상화를 그리는 중이에요…', act, async () => {
             await ask('drawMyPortrait', { ...opts, request: note.value }, 300000);
             const r = await ask('mePortraits'); S.me = r.me || {};
           })),
@@ -900,6 +905,7 @@ export function setup(ctx) {
       const ipsize = el('input', { value: A.paperSize, placeholder: '1024x1024' });
       const iday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perDay) });
       const icday = el('input', { type: 'number', min: '0', step: '1', value: String(A.perCorrespondentDay ?? 0) });
+      const ion = el('select', {}, [el('option', { value: 'on', text: '씀 — 봉투·상징물·추억 상자·초상화·물건을 그림으로', selected: A.enabled !== false }), el('option', { value: 'off', text: '안 씀 — 그림 없이 모습은 글로 묘사', selected: A.enabled === false })]);
       const ipmode = el('select', {}, [
         el('option', { value: 'html', text: '꾸미기 — 편지지는 글씨체·무늬로 꾸미고, 봉투를 그림', selected: A.paperMode !== 'image' }),
         el('option', { value: 'image', text: '그림 — 예전처럼 편지지를 그림으로', selected: A.paperMode === 'image' }),
@@ -934,6 +940,10 @@ export function setup(ctx) {
       const maxT = el('input', { type: 'number', step: '100', min: '500', value: String(s.maxTokens ?? 6000) });
       const recent = el('input', { type: 'number', step: '1', min: '1', max: '20', value: String(s.recentLetters ?? 6) });
       const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta, style: 'width:auto' });
+      const STY = Object.keys(PROSE_STYLES);
+      const styCur = s.proseStyle || 'plain';
+      const stySel = el('select', {}, [...STY.map((k) => el('option', { value: k, text: PROSE_STYLES[k], selected: styCur === k })), el('option', { value: 'custom', text: '직접 적기', selected: !STY.includes(styCur) })]);
+      const styText = el('input', { value: STY.includes(styCur) ? '' : styCur, placeholder: '예: 오래된 박물관 도록처럼 / 시인의 메모처럼 짧게' });
       const lMin = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMin ?? 1000) });
       const lMax = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMax ?? 0) });
       const lateIn = el('input', { type: 'number', step: '1', min: '0', max: '50', value: String(s.lateChance ?? 8) });
@@ -957,11 +967,15 @@ export function setup(ctx) {
         el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
         field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
         el('div', { class: 'im-pair' }, [field('답장 본문 최소 글자 (0=자유)', lMin), field('답장 본문 최대 글자 (0=제한 없음)', lMax)]),
+        el('div', { class: 'im-pair' }, [field('묘사·기록부 문체', stySel), field('직접 적는 문체 (「직접 적기」일 때)', styText)]),
+        el('div', { class: 'im-muted', text: '모습 글(그림을 안 쓸 때)과 기록부에 쓰는 문체예요. 편지 자체의 말투는 상대 성격을 따라요.' }),
         el('div', { class: 'im-muted', text: '예: 최소 1000 · 최대 0 = 1000자 이상, 일이 많으면 더 길게. 짧은 편지를 원하면 최소 0 · 최대 1000. 길게 쓰려면 최대 출력 토큰도 넉넉히(한국어 1000자 ≈ 1500토큰 + 사이 일 기록).' }),
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
         ]),
         img: el('div', {}, [
         el('h4', { text: '그림 (NanoGPT 등 이미지 연결)' }),
+        field('그림 사용', ion),
+        el('div', { class: 'im-muted', text: '안 쓰면 그리기 버튼이 사라지고, 상대의 모습·상징물·봉투·추억 상자는 「모습을 글로 받기」(글 1회)로 고른 문체의 글이 돼요. 편지지 꾸미기(글씨체·무늬)는 그대로예요.' }),
         field('이미지 연결', isel),
         field('전체 기본 모델 (비우면 종류마다 정해 둔 모델)', imodel),
         ilist,
@@ -1068,7 +1082,7 @@ export function setup(ctx) {
         ...Object.values(groups),
         el('div', { class: 'im-muted', style: 'margin-top:10px', text: '저장은 모든 탭의 값을 한꺼번에 저장합니다.' }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value, connectionId: v.conn.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), enabled: ion.value !== 'off', paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value, connectionId: v.conn.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), proseStyle: stySel.value === 'custom' ? (styText.value.trim() || 'plain') : stySel.value, fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1259,8 +1273,9 @@ export function setup(ctx) {
         look: el('div', {}, [
         // 그림
         el('h4', { text: `그림${S.art?.left !== undefined ? ` · 오늘 남은 ${S.art.left}장` : ''}` }),
-        c ? artBar(c, doAct) : null,
-        c ? (() => {
+        c && !artOn() ? lookCards(c, doAct) : null,
+        c && artOn() ? artBar(c, doAct) : null,
+        c && artOn() ? (() => {
           const pimg = c.art?.portrait?.imageId;
           const job = c.portraitJob;
           const sec = job?.startedAt ? Math.max(0, Math.round((Date.now() - job.startedAt) / 1000)) : 0;
@@ -1279,7 +1294,7 @@ export function setup(ctx) {
           ]);
         })() : null,
         c && htmlPaper() ? themeEditor(c, doAct) : null,
-        el('div', { class: 'im-grid' }, [...setKindsUi(), 'locker'].map((k) => {
+        !artOn() ? null : el('div', { class: 'im-grid' }, [...setKindsUi(), 'locker'].map((k) => {
           const img = c?.art?.[k]?.imageId;
           const label = KIND_LABEL[k];
           return el('div', { class: 'im-item' }, [
@@ -1752,6 +1767,7 @@ export function setup(ctx) {
   };
   // 그림 세트(편지지·우표·봉인) 상태와 버튼
   function artBar(c, act) {
+    if (!artOn()) return null;
     const SK = setKindsUi();
     const have = SK.filter((k) => c.art?.[k]?.imageId);
     const job = c.artJob;
@@ -1781,7 +1797,7 @@ export function setup(ctx) {
       ]),
     ]);
   }
-  const drawItemBtn = (x, cid) => (x.imageId || (x.from === 'them' && x.state === 'in_transit') || !cid || ['waiting', 'drawing'].includes(artTarget(byId(cid), 'item', x.id)?.state) ? null
+  const drawItemBtn = (x, cid) => (!artOn() || x.imageId || (x.from === 'them' && x.state === 'in_transit') || !cid || ['waiting', 'drawing'].includes(artTarget(byId(cid), 'item', x.id)?.state) ? null
     : el('button', { class: 'im-link', type: 'button', text: artTarget(byId(cid), 'item', x.id)?.state === 'failed' ? '다시 그리기' : '그리기', style: 'font-size:11px', onclick: async (ev) => {
       ev.stopPropagation();
       if (!confirm(`「${x.name}」을 그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
@@ -1801,7 +1817,7 @@ export function setup(ctx) {
     } catch { window.open(src, '_blank', 'noopener'); }
   }
   const itemCard = (x, who, cid) => el('div', { class: 'im-item', title: x.note || x.name }, [
-    el('div', { class: 'im-pic' }, [x.imageId ? el('img', { src: imgUrl(x.imageId, 'lg'), alt: x.name, loading: 'lazy', title: '눌러서 크게 보기', onclick: (ev) => { ev.stopPropagation(); openImage(x.imageId, x.name, [x.note, who].filter(Boolean).join(' · ')); } }) : el('span', { html: PIC }), stateOverlay(artTarget(byId(cid), 'item', x.id))]),
+    el('div', { class: `im-pic${!x.imageId && !artOn() ? ' im-pic-text' : ''}` }, [x.imageId ? el('img', { src: imgUrl(x.imageId, 'lg'), alt: x.name, loading: 'lazy', title: '눌러서 크게 보기', onclick: (ev) => { ev.stopPropagation(); openImage(x.imageId, x.name, [x.note, who].filter(Boolean).join(' · ')); } }) : !artOn() ? el('div', { text: x.note || x.name }) : el('span', { html: PIC }), stateOverlay(artTarget(byId(cid), 'item', x.id))]),
     el('div', { class: 'im-cap' }, [
       el('b', { text: x.name }),
       x.note ? el('div', { class: 'im-muted', text: short(x.note, 60) }) : null,
@@ -2020,6 +2036,17 @@ export function setup(ctx) {
   }
   // 모습 카드: 초상화(NovelAI)·상징물·봉투·추억 상자. 각자 그리기, 그리는 중·실패를 카드 위에
   function lookCards(c, act) {
+    if (!artOn()) {
+      const t = c.looksText;
+      const tcard = (label, text) => el('div', { class: 'im-look-text' }, [el('b', { text: label }), el('div', { text: text || '아직 없어요.' })]);
+      return el('div', {}, [
+        el('div', { class: 'im-looks-text' }, [tcard('모습', t?.portrait), tcard('상징물', t?.emblem), tcard('봉투', t?.envelope), tcard('추억 상자', t?.box)]),
+        el('div', { class: 'im-row', style: 'margin-top:6px' }, [
+          working.has(`looks:${c.id}`) ? workingBox(`looks:${c.id}`) : btn(t ? '모습 글 다시 받기 (글 1회)' : '모습을 글로 받기 (글 1회)', () => runSlow(`looks:${c.id}`, '모습을 글로 쓰는 중이에요…', act, async () => { await ask('describeLooks', { id: c.id }, 300000); await refresh(); })),
+          t ? el('span', { class: 'im-muted', style: 'font-size:11px', text: `문체: ${PROSE_STYLES[t.style] || t.style || '담백하게'}` }) : null,
+        ]),
+      ]);
+    }
     const card = (label, imgId, state, onDraw, cls = '') => el('div', { class: `im-item im-look ${cls}` }, [
       el('div', { class: 'im-pic' }, [imgId ? el('img', { src: imgUrl(imgId, 'lg'), alt: label, loading: 'lazy', style: 'cursor:zoom-in', onclick: () => openImage(imgId, `${c.name} · ${label}`, '') }) : el('span', { html: PIC }), state]),
       el('div', { class: 'im-cap' }, [el('b', { text: label }), onDraw ? link(imgId ? '다시 그리기' : '그리기', onDraw) : null]),
@@ -2052,7 +2079,7 @@ export function setup(ctx) {
     const pic = (id, cap, sub) => el('div', { class: 'im-item' }, [el('div', { class: 'im-pic' }, [el('img', { src: imgUrl(id, 'lg'), alt: cap, loading: 'lazy', style: 'cursor:zoom-in', onclick: () => openImage(id, cap, sub || '') })]), el('div', { class: 'im-cap' }, [el('b', { text: cap }), sub ? el('div', { class: 'im-muted', text: sub }) : null])]);
     return [
       back ? el('div', { class: 'im-row' }, [link('← 추억 상자들', back)]) : null,
-      c.art?.locker?.imageId ? el('div', { class: 'im-box-big' }, [el('img', { src: imgUrl(c.art.locker.imageId, 'lg'), alt: `${c.name}의 추억 상자`, onclick: () => openImage(c.art.locker.imageId, `${c.name} · 추억 상자`, '') })]) : null,
+      artOn() && c.art?.locker?.imageId ? el('div', { class: 'im-box-big' }, [el('img', { src: imgUrl(c.art.locker.imageId, 'lg'), alt: `${c.name}의 추억 상자`, onclick: () => openImage(c.art.locker.imageId, `${c.name} · 추억 상자`, '') })]) : null,
       el('div', { class: 'im-row', style: 'gap:12px;align-items:center;margin:6px 0' }, [avatarEl(c, 'im-seal', { portraitFirst: true }), el('div', { class: 'im-grow' }, [el('b', { text: c.name }), el('div', { class: 'im-muted', text: `편지 ${c.letters.length}통 · 물건 ${(c.items || []).length}개` })]), link('편지첩 열기', () => { P.id = c.id; P.tab = 'book'; P.view = 'c'; lsSet(`${LS_PANEL}.view`, 'c'); lsSet(`${LS_PANEL}.id`, c.id); lsSet(`${LS_PANEL}.tab`, 'book'); panelView.render(); })]),
       el('h4', { text: '모습' }),
       lookCards(c, act),

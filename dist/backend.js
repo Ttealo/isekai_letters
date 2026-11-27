@@ -39,6 +39,7 @@ export function cleanSettings(s) {
     letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
     letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
     lateChance: num(s?.lateChance, 0, 50, 8), // 우체부가 늦을 확률(%)
+    proseStyle: str(s?.proseStyle, 300).trim() || 'plain', // 묘사·기록부 문체: plain|aesthetic|lyrical|record 또는 직접 적은 말
     fallbackMode: s?.fallbackMode === 'off' ? 'off' : 'auto', // 원래 연결이 한도로 막히면 같은 모델의 NanoGPT 연결로
     fallbackConnectionId: str(s?.fallbackConnectionId, 200), // 비우면 자동(같은 모델 이름)
     showExactEta: !!s?.showExactEta,
@@ -581,6 +582,18 @@ const letterText = (l, c) => {
   const head = `[${c.name} → {{user}}] 쓴 날 ${theirLabel(c, l.theirWrittenAt)}`;
   return `${head}\n${l.body}${l.ps ? `\n추신: ${l.ps}` : ''}${l.enclosures?.length ? `\n(동봉: ${l.enclosures.map((x) => x.item).join(', ')})` : ''}`;
 };
+
+// 묘사 문체 → 지시문
+export const PROSE_STYLES = { plain: '담백하게', aesthetic: '탐미적으로', lyrical: '서정적으로', record: '건조한 기록체로' };
+export function proseRule(style = 'plain') {
+  const m = {
+    plain: 'Style: plain and precise. Short clear sentences, concrete visible details, no flourish.',
+    aesthetic: 'Style: aesthetic and sensuous. Linger on texture, light, color and material; rich but controlled imagery.',
+    lyrical: 'Style: lyrical and gentle, like a diary note. Soft images and feelings, still concrete.',
+    record: 'Style: a dry archivist\'s record. Factual, itemized feel, measured and exact, no emotion words.',
+  };
+  return m[style] || `Style (as the reader asked, in Korean): ${String(style).slice(0, 300)}`;
+}
 
 // 현실 날짜·시각(상대가 고른 시간대, 없으면 서울)
 export function realNowLabel(now = Date.now(), tz = '') {
@@ -1654,6 +1667,7 @@ export function cleanArt(a) {
     paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
     envelopeSize: asize(a?.envelopeSize, DEFAULT_ART.envelopeSize),
     paperMode: a?.paperMode === 'image' ? 'image' : 'html',
+    enabled: a?.enabled !== false, // false면 그림을 쓰지 않고 모습은 글로
     perDay: anum(a?.perDay, 0, 100, DEFAULT_ART.perDay),
     perCorrespondentDay: anum(a?.perCorrespondentDay, 0, 100, 0),
     autoItems: a?.autoItems === 'off' ? 'off' : 'all',
@@ -1940,10 +1954,10 @@ export const isPictureItem = (name = '', note = '') => /사진|초상|자화상|
 
 // 기록부: 상대에 대한 서정적인 기록(내가 보고 싶을 때 글 1회로 받음) + 그쪽 사람들의 소문·평판. 부수 효과 없음.
 
-export function buildReportMessages(c, { cardText = '', lore = '', ledger = '', timeline = '', recent = '', prev = null } = {}) {
+export function buildReportMessages(c, { cardText = '', lore = '', ledger = '', timeline = '', recent = '', prev = null, style = '' } = {}) {
   const system = [
     'You keep a lyrical record book about a correspondent from another world, for the person who exchanges letters with them ({{user}}).',
-    'Write in Korean, gently and poetically, like notes jotted in a diary or an archivist\'s margin — concrete images, no clichés, no purple overload.',
+    style ? `Write in Korean. ${style}` : 'Write in Korean, gently and poetically, like notes jotted in a diary or an archivist\'s margin — concrete images, no clichés, no purple overload.',
     'Stay consistent with the character sheet, world lore and what happened in the letters. Never contradict facts; never decide {{user}}\'s feelings.',
     'voices = people of THEIR world talking about them (family, coworkers, neighbours, rivals, a shopkeeper…), each in their own voice and speech style; use names and relations from the lore when they exist, otherwise invent fitting minor people. Some voices may reveal things the character hides: mark those "hidden": true (1~2 of them).',
   ].join('\n');
@@ -1973,6 +1987,36 @@ export function cleanReport(raw, now = Date.now()) {
     voices: (Array.isArray(raw?.voices) ? raw.voices : []).map((v) => ({ who: rs(v?.who, 60), relation: rs(v?.relation, 80), says: rs(v?.says, 600), hidden: !!v?.hidden })).filter((v) => v.who && v.says).slice(0, 8),
     changed: rs(raw?.changed, 600),
   };
+}
+
+// 그림을 쓰지 않을 때: 모습을 글로(초상화·상징물·봉투·추억 상자). 정확하게, 고른 문체로
+export function buildLooksMessages(c, { cardText = '', lore = '', style = '' } = {}) {
+  const m = c.mail || {};
+  const items = (c.items || []).filter((x) => x.state !== 'in_transit').slice(-8).map((x) => x.name).join(', ');
+  const system = [
+    'You describe, in Korean prose, how things look — as exact written substitutes for pictures of a correspondent from another world.',
+    'Be precise and visual: shapes, materials, colors, sizes, wear, light. Stay strictly consistent with the sheet and lore; invent only small fitting details. Never describe feelings of {{user}}.',
+    style,
+  ].filter(Boolean).join('\n');
+  const user = [
+    `<character name="${c.name}">\n${String(cardText || c.brief || '').slice(0, 3000)}\n</character>`,
+    lore ? `<world>\n${lore.slice(0, 2500)}\n</world>` : '',
+    `letter medium=${m.medium || '-'}; texture=${m.texture || '-'}; seal=${m.seal || '-'}; stamp=${m.stampMotif || '-'}; scent=${m.scent || '-'}`,
+    items ? `keepsakes exchanged so far: ${items}` : '',
+    'Write 3~6 sentences each:',
+    'portrait = how they look right now (face, hair, eyes, build, clothes, what they carry), as if describing a portrait;',
+    'emblem = one small object that symbolizes them;',
+    'envelope = their closed letter as it arrives (material, closure, marks);',
+    'box = the small keepsake box where these letters and keepsakes are kept.',
+    'Output JSON only: {"portrait":"","emblem":"","envelope":"","box":""}',
+  ].filter(Boolean).join('\n').replaceAll('{{char}}', c.name);
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+export function cleanLooks(raw, now = Date.now(), style = '') {
+  const t = (v) => (typeof v === 'string' ? v.trim().slice(0, 1500) : '');
+  const out = { at: now, style, portrait: t(raw?.portrait), emblem: t(raw?.emblem), envelope: t(raw?.envelope), box: t(raw?.box) };
+  if (!out.portrait && !out.emblem && !out.envelope && !out.box) throw new Error('모습 글이 비어 있습니다.');
+  return out;
 }
 
 
@@ -2159,11 +2203,13 @@ export function start(api) {
     await api.userStorage.setJson(WEBP, [...q, ...rows].slice(-200), { userId: user });
   });
   // jobs: [{kind:'paper'|'stamp'|'seal'|'item', itemId?}] — 글 1회로 주제를 받고 그림을 차례로. 백그라운드로 돈다.
+  const ART_OFF = '설정에서 그림 사용을 꺼 두었어요(설정 → 그림). 모습은 글로 볼 수 있어요.';
   const drawArt = async (user, id, jobs, { quiet = false } = {}) => {
     const key = `${user}:${id}:art`;
     if (drawing.has(key)) throw new Error('이 상대의 그림을 이미 그리는 중입니다.');
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
+    if (!art.enabled) throw new Error(ART_OFF);
     const left = quotaLeft(await readUsage(user), art, Date.now(), id);
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
@@ -2352,6 +2398,7 @@ export function start(api) {
   const drawMyPortrait = async (user, { personaId = '', noPersona = false, request = '' } = {}) => {
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
+    if (!art.enabled) throw new Error(ART_OFF);
     const P = cleanPortrait(art.portrait);
     if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
     if (quotaLeft(await readUsage(user), art) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다.');
@@ -2377,6 +2424,7 @@ export function start(api) {
   const drawScene = async (user, id, { request = '', includeThem = true, includeMe = false } = {}) => {
     const settings = await loadSettings(user);
     const art = cleanArt(settings.art);
+    if (!art.enabled) throw new Error(ART_OFF);
     const P = cleanPortrait(art.portrait);
     if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
     if (!String(request).trim()) throw new Error('어떤 그림인지 적어 주세요.');
@@ -2408,6 +2456,7 @@ export function start(api) {
     const key = `${user}:${id}:portrait`;
     if (drawing.has(key)) throw new Error('초상화를 이미 그리는 중입니다.');
     const settings = await loadSettings(user);
+    if (!cleanArt(settings.art).enabled) throw new Error(ART_OFF);
     const art = cleanArt(settings.art);
     const P = cleanPortrait(art.portrait);
     if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
@@ -2537,7 +2586,7 @@ export function start(api) {
       if (pj) await makeTheme(user, id, { reason: [pj.reason, pj.medium].filter(Boolean).join(' — '), letterId }).catch((e) => log('warn', `편지지 테마 바꾸기 실패: ${e?.message || e}`));
       jobs = jobs.filter((j) => j.kind !== 'paper').map((j) => (j.kind === 'stamp' ? { ...j, kind: 'envelope' } : j));
     }
-    if (jobs.length && api.imageGen?.generate) await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
+    if (jobs.length && api.imageGen?.generate && art.enabled) await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
   };
 
   // ── 정리 단계 ──
@@ -2787,7 +2836,7 @@ export function start(api) {
       // 첫 편지의 동봉물도 자동 그리기(설정이 켜져 있으면)
       const settingsA = await loadSettings(user);
       const firstItems = (c.items || []).filter((x) => x.from === 'them' && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
-      if (api.imageGen?.generate && firstItems.length && cleanArt(settingsA.art).autoItems === 'all') drawArtWhenFree(user, c.id, firstItems).catch((e) => log('info', `첫 편지 물건 자동 그림 건너뜀: ${e?.message || e}`));
+      if (api.imageGen?.generate && firstItems.length && cleanArt(settingsA.art).enabled && cleanArt(settingsA.art).autoItems === 'all') drawArtWhenFree(user, c.id, firstItems).catch((e) => log('info', `첫 편지 물건 자동 그림 건너뜀: ${e?.message || e}`));
       if (cleanArt(settingsA.art).paperMode !== 'image') makeTheme(user, c.id).catch((e) => log('info', `편지지 테마 건너뜀: ${e?.message || e}`));
       return { id: c.id, characterId: charId, worldBookId: book.id };
     } catch (e) {
@@ -2869,7 +2918,7 @@ export function start(api) {
         const cur0 = await loadC(user, id);
         maybeChangeArt(user, id, cur0.letters[cur0.letters.length - 1].id, null).catch(() => {});
       }
-      if (api.imageGen?.generate && cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
+      if (api.imageGen?.generate && cleanArt(settings.art).enabled && cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
         const cur = await loadC(user, id);
         const last = cur.letters[cur.letters.length - 1];
         const P0 = cleanPortrait(cleanArt(settings.art).portrait);
@@ -2884,7 +2933,7 @@ export function start(api) {
         const cur = await loadC(user, id);
         const theirs = cur.letters.filter((x) => x.from === 'them').length;
         const pt = cur.art?.portrait;
-        if (P1.connectionId && P1.refreshEvery > 0 && pt?.imageId && theirs - (pt.atLetters || 0) >= P1.refreshEvery && cur.portraitJob?.state !== 'drawing') {
+        if (cleanArt(settings.art).enabled && P1.connectionId && P1.refreshEvery > 0 && pt?.imageId && theirs - (pt.atLetters || 0) >= P1.refreshEvery && cur.portraitJob?.state !== 'drawing') {
           const lastL = cur.letters[cur.letters.length - 1];
           const recent = [...(lastL?.between || []).map((b) => `${b.when || ''} ${b.event}`), (lastL?.body || '').slice(0, 300)].join('\n');
           drawPortrait(user, id, { recent }).catch((e) => log('info', `초상화 갱신 건너뜀: ${e?.message || e}`));
@@ -3169,6 +3218,18 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'describeLooks': {
+        // 그림 대신 모습을 글로(글 1회). 고른 문체로
+        const c = await loadC(user, p.id);
+        const settings = await loadSettings(user);
+        const card = await cardOf(user, c);
+        const lore = (await allLore(user, c).catch(() => [])).map((e) => `[${e.comment || ''}] ${e.content}`).join('\n').slice(0, 2500);
+        const raw = await genJson(user, buildLooksMessages(c, { cardText: cardTextOf(card), lore, style: proseRule(settings.proseStyle) }), { ...settings, createTemperature: 0.8 });
+        const looks = cleanLooks(raw, now, settings.proseStyle);
+        await mutate(user, p.id, (x) => ({ ...x, looksText: looks }));
+        notify(user, { id: p.id });
+        return { looks };
+      }
       case 'makeReport': {
         // 기록부: 내가 원할 때 글 1회. 지난 기록은 쌓아 둔다(최근 20)
         const c = ensureMemory(await loadC(user, p.id));
@@ -3178,7 +3239,7 @@ export function start(api) {
         const m = memoryLayers(c, { budgets: { ...cleanBudgets(settings.budgets), ledgerChars: 1500, timelineItems: 20 }, recentLetters: 0 });
         const recent = c.letters.filter((l) => l.from === 'them' && l.state !== 'in_transit' && l.body).slice(-2).map((l) => l.body.slice(0, 1200)).join('\n---\n');
         const prevR = (c.reports || []).at(-1);
-        const raw = await genJson(user, buildReportMessages(c, { cardText: cardTextOf(card), lore, ledger: m.ledger, timeline: m.timeline, recent, prev: prevR ? { date: new Date(prevR.at).toLocaleDateString('ko-KR'), title: prevR.title, note: prevR.note } : null }), { ...settings, createTemperature: 0.9 });
+        const raw = await genJson(user, buildReportMessages(c, { style: settings.proseStyle && settings.proseStyle !== 'lyrical' ? proseRule(settings.proseStyle) : '', cardText: cardTextOf(card), lore, ledger: m.ledger, timeline: m.timeline, recent, prev: prevR ? { date: new Date(prevR.at).toLocaleDateString('ko-KR'), title: prevR.title, note: prevR.note } : null }), { ...settings, createTemperature: 0.9 });
         const rep = cleanReport(raw, now);
         const c2 = await mutate(user, p.id, (x) => ({ ...x, reports: [...(x.reports || []), rep].slice(-20) }));
         notify(user, { id: p.id });

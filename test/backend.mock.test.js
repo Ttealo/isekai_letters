@@ -901,3 +901,31 @@ test('기록부: 받으면 쌓이고, 갱신하면 지난 기록을 알려 주�
   const c = (await host.ask('u1', 'get', { id })).c;
   assert.deepEqual(c.reports.map((r) => r.title), ['기록 1', '기록 2']);
 });
+
+test('그림 사용 안 함: 그리기는 안내하며 거절, 자동 그리기 없음, 모습은 글로(고른 문체)', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, MATCH);
+  const prompts = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    if (/exact written substitutes for pictures/.test(req.messages[0].content)) { prompts.push(req.messages[0].content); return { content: JSON.stringify({ portrait: '마른 손에 잉크 얼룩.', emblem: '작은 놋쇠 열쇠.', envelope: '기름 먹인 천 봉투.', box: '삼나무 상자.' }) }; }
+    return quiet(req);
+  };
+  const gens = [];
+  host.api.imageGen = { generate: async (r) => { gens.push(r); return { imageId: 'x' }; }, listConnections: async () => [] };
+  const stop = start(host.api);
+  t.after(stop);
+  const s0 = (await host.ask('u1', 'load')).settings;
+  await host.ask('u1', 'saveSettings', { settings: { ...s0, art: { enabled: false, perDay: 10 }, proseStyle: 'aesthetic' } });
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const { id } = await host.ask('u1', 'matchConfirm', { draft });
+  await assert.rejects(host.ask('u1', 'drawSet', { id, kinds: ['envelope'] }), /그림 사용을 꺼/);
+  await assert.rejects(host.ask('u1', 'drawPortrait', { id }), /그림 사용을 꺼/);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(gens.length, 0, '첫 편지 물건도 자동으로 그리지 않음');
+  const r = await host.ask('u1', 'describeLooks', { id });
+  assert.equal(r.looks.emblem, '작은 놋쇠 열쇠.');
+  assert.equal(r.looks.style, 'aesthetic');
+  assert.match(prompts[0], /aesthetic and sensuous/);
+  assert.equal((await host.ask('u1', 'get', { id })).c.looksText.box, '삼나무 상자.');
+});

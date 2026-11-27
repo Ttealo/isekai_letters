@@ -62,6 +62,7 @@ export function cleanArt(a) {
     paperSize: asize(a?.paperSize, DEFAULT_ART.paperSize),
     envelopeSize: asize(a?.envelopeSize, DEFAULT_ART.envelopeSize),
     paperMode: a?.paperMode === 'image' ? 'image' : 'html',
+    enabled: a?.enabled !== false, // false면 그림을 쓰지 않고 모습은 글로
     perDay: anum(a?.perDay, 0, 100, DEFAULT_ART.perDay),
     perCorrespondentDay: anum(a?.perCorrespondentDay, 0, 100, 0),
     autoItems: a?.autoItems === 'off' ? 'off' : 'all',
