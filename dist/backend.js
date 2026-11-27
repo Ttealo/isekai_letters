@@ -2537,8 +2537,9 @@ export function start(api) {
     const list = await connList(user);
     if (settings?.fallbackConnectionId) return list.find((x) => x.id === settings.fallbackConnectionId) || null;
     const primary = connId ? list.find((x) => x.id === connId) : list.find((x) => x.is_default);
-    if (!primary || primary.provider === 'nanogpt' || !primary.model) return null;
-    return list.find((x) => x.id !== primary.id && x.provider === 'nanogpt' && baseModel(x.model) === baseModel(primary.model)) || null;
+    // 자동: 원래 연결과 공급자가 다르고 모델 이름이 같은 연결(어느 공급자든). 고른 연결이 있으면 그것
+    if (!primary || !primary.model) return null;
+    return list.find((x) => x.id !== primary.id && x.provider !== primary.provider && baseModel(x.model) === baseModel(primary.model)) || null;
   };
   const callLLM = async (user, req, connId, settings, what = '글 생성') => {
     // raw 생성은 연결의 모델을 스스로 채우지 않으므로(공급자에 따라 「model 없음」으로 거절) 연결 목록의 모델을 함께 보낸다

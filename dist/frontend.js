@@ -1743,9 +1743,9 @@ export function setup(ctx) {
       const lMin = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMin ?? 1000) });
       const lMax = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMax ?? 0) });
       const lateIn = el('input', { type: 'number', step: '1', min: '0', max: '50', value: String(s.lateChance ?? 8) });
-      const fbMode = el('select', {}, [el('option', { value: 'auto', text: '켬 — 같은 모델의 NanoGPT 연결로', selected: s.fallbackMode !== 'off' }), el('option', { value: 'off', text: '끔', selected: s.fallbackMode === 'off' })]);
+      const fbMode = el('select', {}, [el('option', { value: 'auto', text: '켬', selected: s.fallbackMode !== 'off' }), el('option', { value: 'off', text: '끔', selected: s.fallbackMode === 'off' })]);
       const fbSel = el('select', {}, [
-        el('option', { value: '', text: '자동 (원래 연결과 같은 모델 이름)' }),
+        el('option', { value: '', text: '자동 — 다른 공급자의 같은 모델 연결을 찾음' }),
         ...(connections || []).map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === s.fallbackConnectionId })),
       ]);
       // 탭으로 나눔(입력칸은 한 번만 만들고 보이기만 바꿔서, 탭을 오가도 적던 값이 남음)
@@ -1753,7 +1753,7 @@ export function setup(ctx) {
         text: el('div', {}, [
         field('답장 쓰기 연결', sel),
         el('div', { class: 'im-pair' }, [field('막히면 대체 연결 쓰기', fbMode), field('대체 연결', fbSel)]),
-        el('div', { class: 'im-muted', text: '원래 연결(Vertex 등)이 한도(429)·서버 오류로 막히면 8초·20초 뒤 다시 해 보고, 그래도 안 되면 대체 연결로 보냅니다. 답장·정리·상대 만들기·그림 프롬프트 모두.' }),
+        el('div', { class: 'im-muted', text: '원래 연결(Vertex 등)이 한도(429)·서버 오류로 막히면 8초·20초 뒤 다시 해 보고, 그래도 안 되면 대체 연결로 보냅니다(답장·정리·상대 만들기·그림 프롬프트 모두). 대체 연결은 루미버스 연결 목록에서 고르세요 — 연결 설정에서 하나 복사해 대체용으로 만들어 두면 편합니다. 「자동」은 공급자가 다르고 모델 이름이 같은 연결을 찾습니다.' }),
         field('상대 만들기 연결 (비우면 답장 연결)', csel),
         field('상대 만들기 온도', ctemp),
         el('h4', { text: '정리 단계 (답장마다 1회 더 생성)' }),
