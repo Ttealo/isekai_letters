@@ -563,7 +563,7 @@ export function start(api) {
         const messages = buildOrganizeMessages(c, { letterIds, personaName, loreTitles: idx.map((e) => e.title), cardText: cardTextOf(card), chapterDue: due });
         const req = { messages, parameters: { temperature: settings.organizeTemperature, max_tokens: 6000 }, userId: user };
         const conn = settings.organizeConnectionId || settings.replyConnectionId;
-        const res = conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
+        const res = await callLLM(user, req, conn, settings, `정리(${c.name})`);
         org = cleanOrganize(parseJsonLoose(res?.content));
       } catch (e) {
         log('warn', `정리 실패(${c.name}): ${e?.message || e}`);
@@ -599,6 +599,47 @@ export function start(api) {
     }
   };
 
+  // ── 글 생성 공용 호출 ──
+  // Vertex 등이 한도(429)·서버 오류면 8초·20초 뒤 다시, 그래도 안 되면 같은 모델 이름의 NanoGPT 연결로 넘긴다(설정에서 끌 수 있음)
+  const isLimitError = (e) => /\b(429|5\d\d)\b|exhausted|rate.?limit|overloaded|unavailable|quota/i.test(String(e?.message || e));
+  const connCache = new Map(); // user → { at, list }
+  const connList = async (user) => {
+    const hit = connCache.get(user);
+    if (hit && Date.now() - hit.at < 10 * 60000) return hit.list;
+    let list = [];
+    try { list = (await api.connections.list(user)) || []; } catch {}
+    connCache.set(user, { at: Date.now(), list });
+    return list;
+  };
+  const baseModel = (m) => String(m || '').toLowerCase().replace(/^.*\//, '').trim();
+  const fallbackFor = async (user, connId, settings) => {
+    if (settings?.fallbackMode === 'off') return null;
+    const list = await connList(user);
+    if (settings?.fallbackConnectionId) return list.find((x) => x.id === settings.fallbackConnectionId) || null;
+    const primary = connId ? list.find((x) => x.id === connId) : list.find((x) => x.is_default);
+    if (!primary || primary.provider === 'nanogpt' || !primary.model) return null;
+    return list.find((x) => x.id !== primary.id && x.provider === 'nanogpt' && baseModel(x.model) === baseModel(primary.model)) || null;
+  };
+  const callLLM = async (user, req, connId, settings, what = '글 생성') => {
+    const send = (id, r) => (id ? api.generate.raw({ ...r, connection_id: id }) : api.generate.quiet(r));
+    let lastErr;
+    for (const wait of (globalThis.__IM_FAST_RETRY ? [0, 1, 1] : [0, 8000, 20000])) {
+      if (wait) {
+        log('info', `${what}: 한도·서버 오류, ${wait / 1000}초 뒤 다시 (${String(lastErr?.message || lastErr).slice(0, 60)})`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+      try { return await send(connId, req); } catch (e) {
+        lastErr = e;
+        if (!isLimitError(e)) throw e;
+      }
+    }
+    const fb = await fallbackFor(user, connId, settings);
+    if (!fb) throw lastErr;
+    log('info', `${what}: 원래 연결이 계속 막혀 「${fb.name}」(${fb.model})로 보냄`);
+    const { responseMimeType, responseSchema, responseJsonSchema, ...params } = req.parameters || {};
+    return send(fb.id, { ...req, parameters: params });
+  };
+
   // ── 상대 만들기(매칭) ──
   // JSON 응답: 구글 계열은 JSON 전용 출력을 켠다(다른 공급자는 무시). 깨지면 한 번 더(온도 낮춰) 시도.
   let jsonModeOk = true;
@@ -608,7 +649,7 @@ export function start(api) {
       const parameters = { temperature, max_tokens: Math.max(settings.maxTokens, 20000), ...(jsonModeOk ? { responseMimeType: 'application/json' } : {}) };
       const req = { messages, parameters, userId: user };
       try {
-        return conn ? await api.generate.raw({ ...req, connection_id: conn }) : await api.generate.quiet(req);
+        return await callLLM(user, req, conn, settings, '글 생성');
       } catch (e) {
         if (!jsonModeOk || !/responseMimeType|unknown|unrecognized|invalid/i.test(String(e?.message || e))) throw e;
         jsonModeOk = false;
@@ -616,15 +657,7 @@ export function start(api) {
         return once(temperature);
       }
     };
-    // 한도 초과(429)·서버 오류면 8초 뒤 한 번 더
-    const onceRetry = async (temperature) => {
-      try { return await once(temperature); } catch (e) {
-        if (!/(429|5dd)|exhausted|rate limit/i.test(String(e?.message || e))) throw e;
-        log('info', `글 생성 한도·서버 오류, 8초 뒤 다시: ${String(e?.message || e).slice(0, 80)}`);
-        await new Promise((r) => setTimeout(r, 8000));
-        return once(temperature);
-      }
-    };
+    const onceRetry = (temperature) => once(temperature); // 재시도·대체 연결은 callLLM이 맡음
     let res = await onceRetry(settings.createTemperature);
     try { return parseJsonLoose(res?.content); } catch (e) {
       const c0 = String(res?.content || '');
@@ -790,9 +823,7 @@ export function start(api) {
       };
       let reply;
       try {
-        const res = settings.replyConnectionId
-          ? await api.generate.raw({ ...req, connection_id: settings.replyConnectionId })
-          : await api.generate.quiet(req);
+        const res = await callLLM(user, req, settings.replyConnectionId, settings, `답장(${c.name})`);
         reply = cleanReply(parseJsonLoose(res?.content));
       } catch (e) {
         log('warn', `답장 생성 실패(${c.name}): ${e?.message || e}`);

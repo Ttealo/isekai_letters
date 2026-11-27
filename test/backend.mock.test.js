@@ -805,3 +805,33 @@ test('「우리의 편지」 로어북 항목: 만들고, 다시 누르면 갱�
   assert.equal(r2.updated, true);
   assert.equal([...lib.entries.values()].filter((x) => x.comment === '우리의 편지').length, 1);
 });
+
+test('원래 연결이 계속 429면 같은 모델의 NanoGPT 연결로 넘긴다(끄면 안 넘김)', async (t) => {
+  globalThis.__IM_FAST_RETRY = true;
+  t.after(() => { delete globalThis.__IM_FAST_RETRY; });
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  host.api.connections = { list: async () => [
+    { id: 'vx', name: '[응답·버텍스] Gemini 4 Argon', provider: 'google_vertex', model: 'gemini-4-argon', is_default: true },
+    { id: 'ng', name: '[RP·종량제] Gemini 4 Argon', provider: 'nanogpt', model: 'google/gemini-4-argon' },
+    { id: 'ng2', name: 'Flash', provider: 'nanogpt', model: 'google/gemini-3.8-flash' },
+  ] };
+  const used = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.raw = async (req) => {
+    used.push(req.connection_id);
+    if (req.connection_id === 'vx') throw new Error('Vertex AI generate failed (429): Resource exhausted.');
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const s0 = (await host.ask('u1', 'load')).settings;
+  await host.ask('u1', 'saveSettings', { settings: { ...s0, createConnectionId: 'vx' } });
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  assert.ok(draft.name);
+  assert.deepEqual(used, ['vx', 'vx', 'vx', 'ng']);
+  await host.ask('u1', 'saveSettings', { settings: { ...s0, createConnectionId: 'vx', fallbackMode: 'off' } });
+  used.length = 0;
+  await assert.rejects(host.ask('u1', 'matchDraft', { mode: 'random' }), /429/);
+  assert.deepEqual(used, ['vx', 'vx', 'vx']);
+});

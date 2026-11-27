@@ -850,10 +850,17 @@ export function setup(ctx) {
       const lMin = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMin ?? 1000) });
       const lMax = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMax ?? 0) });
       const lateIn = el('input', { type: 'number', step: '1', min: '0', max: '50', value: String(s.lateChance ?? 8) });
+      const fbMode = el('select', {}, [el('option', { value: 'auto', text: '켬 — 같은 모델의 NanoGPT 연결로', selected: s.fallbackMode !== 'off' }), el('option', { value: 'off', text: '끔', selected: s.fallbackMode === 'off' })]);
+      const fbSel = el('select', {}, [
+        el('option', { value: '', text: '자동 (원래 연결과 같은 모델 이름)' }),
+        ...(connections || []).map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === s.fallbackConnectionId })),
+      ]);
       // 탭으로 나눔(입력칸은 한 번만 만들고 보이기만 바꿔서, 탭을 오가도 적던 값이 남음)
       const groups = {
         text: el('div', {}, [
         field('답장 쓰기 연결', sel),
+        el('div', { class: 'im-pair' }, [field('막히면 대체 연결 쓰기', fbMode), field('대체 연결', fbSel)]),
+        el('div', { class: 'im-muted', text: '원래 연결(Vertex 등)이 한도(429)·서버 오류로 막히면 8초·20초 뒤 다시 해 보고, 그래도 안 되면 대체 연결로 보냅니다. 답장·정리·상대 만들기·그림 프롬프트 모두.' }),
         field('상대 만들기 연결 (비우면 답장 연결)', csel),
         field('상대 만들기 온도', ctemp),
         el('h4', { text: '정리 단계 (답장마다 1회 더 생성)' }),
@@ -974,7 +981,7 @@ export function setup(ctx) {
         ...Object.values(groups),
         el('div', { class: 'im-muted', style: 'margin-top:10px', text: '저장은 모든 탭의 값을 한꺼번에 저장합니다.' }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];

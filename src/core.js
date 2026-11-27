@@ -39,6 +39,8 @@ export function cleanSettings(s) {
     letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
     letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
     lateChance: num(s?.lateChance, 0, 50, 8), // 우체부가 늦을 확률(%)
+    fallbackMode: s?.fallbackMode === 'off' ? 'off' : 'auto', // 원래 연결이 한도로 막히면 같은 모델의 NanoGPT 연결로
+    fallbackConnectionId: str(s?.fallbackConnectionId, 200), // 비우면 자동(같은 모델 이름)
     showExactEta: !!s?.showExactEta,
     initiativeEnabled: s?.initiativeEnabled !== false, // 먼저 오는 편지
     initiativePerDay: Math.round(num(s?.initiativePerDay, 0, 50, 3)),
