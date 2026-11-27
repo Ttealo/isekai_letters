@@ -168,7 +168,7 @@ test('페르소나: 상대에 묶으면 편지·프롬프트가 그 이름을 �
   const stop = start(host.api);
   t.after(stop);
   const ps = await host.ask('u1', 'personas');
-  assert.deepEqual(ps.personas[0], { id: 'p1', name: '시드', title: '반마', imageId: 'img1' });
+  assert.deepEqual(ps.personas[0], { id: 'p1', name: '시드', title: '반마', imageId: 'img1', description: '' });
   await assert.rejects(host.ask('u1', 'create', { input: { name: 'A', brief: 'b', personaId: 'nope' } }), /페르소나/);
   const { id } = await host.ask('u1', 'create', { input: { name: 'A', brief: 'b', personaId: 'p1', deliveryMin: 1, deliveryMax: 1, writeMin: 0, writeMax: 0 } });
   await host.ask('u1', 'send', { id, body: 'x', enclosure: '은행잎\n클로버' });

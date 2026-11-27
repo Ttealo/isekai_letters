@@ -2997,7 +2997,7 @@ export function start(api) {
         const r = await api.personas.list({ limit: 200, userId: user });
         let activeId = '';
         try { activeId = (await api.personas.getActive(user))?.id || ''; } catch {}
-        return { activeId, personas: (r?.data || []).map((x) => ({ id: x.id, name: x.name, title: x.title || '', imageId: x.image_id || '' })) };
+        return { activeId, personas: (r?.data || []).map((x) => ({ id: x.id, name: x.name, title: x.title || '', imageId: x.image_id || '', description: typeof x.description === 'string' ? x.description.slice(0, 4000) : '' })) };
       }
       case 'create': {
         const c = createCorrespondent(await withPersonaName(user, p.input), now);

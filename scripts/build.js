@@ -9,5 +9,5 @@ const join = async (names) =>
 
 await mkdir('dist', { recursive: true });
 await writeFile('dist/backend.js', await join(['core', 'paper', 'match', 'memory', 'art', 'portrait', 'report', 'backend']));
-await writeFile('dist/frontend.js', await join(['core', 'paper', 'frontend']));
+await writeFile('dist/frontend.js', await join(['core', 'paper', 'exporthtml', 'frontend']));
 console.log('built dist/backend.js, dist/frontend.js');
