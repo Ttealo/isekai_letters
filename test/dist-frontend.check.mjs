@@ -135,7 +135,7 @@ ok('편지첩: 가는 중인 내 편지', panelRoot.textContent.includes('내 �
 clickIn(panelRoot, 'button', '봉투 열기'); await tick(8);
 ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-themed.im-theirs').length === 2);
 // 물품
-clickIn(panelRoot, '.im-tabs button', '물품'); await tick();
+clickIn(panelRoot, '.im-tabs button', '물건'); await tick();
 ok('물품: 받은 것 3 / 보낸 것 1', panelRoot.textContent.includes('받은 것 · 3') && panelRoot.textContent.includes('보낸 것 · 1'));
 ok('물품: 카드 4개', panelRoot.querySelectorAll('.im-item').length === 4);
 const drawBtns = [...panelRoot.querySelectorAll('.im-item button')].filter((b) => b.textContent === '그리기');
@@ -149,15 +149,20 @@ flowerImg.dispatchEvent(new window.Event('click', { bubbles: true })); await tic
 ok('물품: 그림 누르면 크게 보기(모달)', modals.length === 1 && modals[0].o.title === '말린 꽃' && modals[0].root.querySelector('img')?.getAttribute('src') === '/api/v1/images/flower' && modals[0].root.textContent.includes('압화'));
 
 // 모음
-clickIn(panelRoot, '.im-tabs button', '모음'); await tick();
-ok('모음: 사물함 2', panelRoot.querySelectorAll('.im-locker').length === 2);
+const meChip = () => panelRoot.querySelector('.im-chip[data-me]');
+ok('상대를 보면 탭은 편지첩·물건·추억 상자', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '편지첩,물건,추억 상자');
+meChip().dispatchEvent(new window.Event('click')); await tick();
+ok('나: 탭은 내 모습·추억 상자·달력, 내 모습 칸', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '내 모습,추억 상자,달력' && panelRoot.querySelectorAll('.im-me').length >= 1);
+clickIn(panelRoot, '.im-tabs button', '추억 상자'); await tick();
+ok('나 → 추억 상자 2', panelRoot.querySelectorAll('.im-locker').length === 2);
 clickIn(panelRoot, '.im-chip', '시드'); await tick();
-ok('모음: 페르소나 고르면 사물함 1', panelRoot.querySelectorAll('.im-locker').length === 1);
+ok('페르소나 고르면 상자 1', panelRoot.querySelectorAll('.im-locker').length === 1);
 clickIn(panelRoot, '.im-locker', '미렌'); await tick();
-ok('사물함 열면 초상화·그림·봉투·물건 칸', ['초상화 ·', '그림·사진 ·', '봉투 ·', '물건 ·'].every((t) => panelRoot.textContent.includes(t)));
+ok('상자 누르면 그 상대의 추억 상자 탭(초상화·그림·봉투·물건)', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '추억 상자' && ['초상화 ·', '그림·사진 ·', '봉투 ·', '물건 ·'].every((t) => panelRoot.textContent.includes(t)));
 clickIn(panelRoot, 'button', '편지첩 열기'); await tick();
 ok('사물함에서 편지첩', panelRoot.querySelector('.im-tabs .im-on')?.textContent === '편지첩');
-// 편지 달력(내 쪽 날짜)
+// 편지 달력(내 쪽 날짜) — 「나」 아래
+meChip().dispatchEvent(new window.Event('click')); await tick();
 clickIn(panelRoot, '.im-tabs button', '달력'); await tick();
 const nowD = new Date();
 ok('달력: 이번 달 머리', panelRoot.textContent.includes(`${nowD.getFullYear()}년 ${nowD.getMonth() + 1}월`));
@@ -257,7 +262,8 @@ await tick(6);
 ok('화면 가득: 처음엔 숨김, 위젯은 우체통 하나', mountVis === false && floats3.length === 1);
 floats3[0].root.querySelector('.im-box').dispatchEvent(new window.Event('click', { bubbles: true })); await tick(6);
 ok('화면 가득: 우체통 누르면 보임', mountVis === true);
-ok('화면 가득: 왼쪽 상대 목록(채팅 목록처럼)', mountRoot.querySelectorAll('.im-page-list .im-row-card').length === 2 && mountRoot.querySelector('.im-page-list').textContent.includes('미렌'));
+ok('화면 가득: 왼쪽 목록 = 페르소나 → 나 → 편지 상대', mountRoot.querySelectorAll('.im-page-list .im-row-card').length === 3 && !!mountRoot.querySelector('.im-page-list .im-me-row') && mountRoot.querySelector('.im-page-list').textContent.includes('미렌') && mountRoot.querySelector('.im-page-list').textContent.includes('편지 상대'));
+[...mountRoot.querySelectorAll('.im-page-list .im-row-card')].find((x) => x.textContent.includes('미렌')).dispatchEvent(new window.Event('click')); await tick();
 ok('화면 가득: 오른쪽 편지첩', !!mountRoot.querySelector('.im-page-main .im-paper'));
 clickIn(mountRoot, '.im-row-card', '하르'); await tick();
 ok('화면 가득: 목록에서 상대 고르기', mountRoot.querySelector('.im-row-card.im-on')?.textContent.includes('하르'));

@@ -958,6 +958,9 @@ const CSS = `
 .im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-list-label{font:600 11px system-ui,sans-serif;letter-spacing:.04em;color:var(--lumiverse-text-muted);margin:10px 4px 4px}
+.im-me-row{border-style:dashed}
+.im-view-head{display:flex;gap:12px;align-items:center;margin:4px 0 10px}
 .im-myface{width:28px;height:28px;border-radius:50%;object-fit:cover;object-position:50% 15%;cursor:zoom-in;box-shadow:0 1px 3px #0004}
 .im-myface-letter{float:right;width:40px;height:40px;margin:0 0 6px 10px}
 .im-me{padding:10px;border-radius:12px;background:var(--lumiverse-bg-elevated,#fff);box-shadow:0 4px 12px -8px #0007;margin-bottom:10px}
@@ -2442,7 +2445,8 @@ ${extra}
   // ══════════════ 보조창(도크) + 우체통 위젯 ══════════════
   let panel = null;
   let widget = null;
-  const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '', locker: '' };
+  const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '', locker: '', view: lsGet(`${LS_PANEL}.view`, 'c'), meTab: lsGet(`${LS_PANEL}.meTab`, 'me') };
+  if (!['book', 'items', 'box'].includes(P.tab)) { P.view = 'me'; P.meTab = P.tab === 'cal' ? 'cal' : 'boxes'; P.tab = 'book'; }
   const panelRoot = el('div', { class: 'im-panel' });
   // 보조창 방식: page=채팅창처럼 앱 화면을 채움(기본, app_manipulation 필요) / dock=오른쪽에 붙이기 / float=떠 있는 창. 새로 고침 뒤 적용
   let panelMode = ['page', 'dock', 'float'].includes(lsGet(LS_PANEL_MODE, 'page')) ? lsGet(LS_PANEL_MODE, 'page') : 'page';
@@ -2523,7 +2527,7 @@ ${extra}
     drawer.render();
   }
   function openPanelFor(id) {
-    P.id = id; P.tab = 'book'; lsSet(`${LS_PANEL}.id`, id); lsSet(`${LS_PANEL}.tab`, 'book');
+    P.id = id; P.tab = 'book'; P.view = 'c'; lsSet(`${LS_PANEL}.view`, 'c'); lsSet(`${LS_PANEL}.id`, id); lsSet(`${LS_PANEL}.tab`, 'book');
     togglePanel(true);
   }
 
@@ -2538,51 +2542,86 @@ ${extra}
       };
       const mine = S.all.filter(inPersona);
       if (!mine.some((c) => c.id === P.id)) P.id = mine[0]?.id || '';
+      if (!mine.length) P.view = 'me';
       const c = byId(P.id);
-      const setTab = (t) => { P.tab = t; lsSet(`${LS_PANEL}.tab`, t); panelView.render(); };
-      const people = el('div', { class: 'im-chips' }, mine.map((x) => {
-        const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
-        return el('button', { class: `im-chip im-plain${x.id === P.id ? ' im-on' : ''}`, type: 'button', onclick: () => { P.id = x.id; lsSet(`${LS_PANEL}.id`, x.id); panelView.render(); } }, [x.name, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]);
-      }));
-      const tabs = el('div', { class: 'im-tabs' }, [['book', '편지첩'], ['items', '물품'], ['album', '모음'], ['cal', '달력']].map(([k, t]) => el('button', { type: 'button', class: P.tab === k ? 'im-on' : '', text: t, onclick: () => setTab(k) })));
+      const save = () => { lsSet(`${LS_PANEL}.tab`, P.tab); lsSet(`${LS_PANEL}.id`, P.id); lsSet(`${LS_PANEL}.view`, P.view); lsSet(`${LS_PANEL}.meTab`, P.meTab); };
+      const openC = (id, tab) => { P.view = 'c'; P.id = id; if (tab) P.tab = tab; save(); panelView.render(); };
+      const openMe = (tab) => { P.view = 'me'; if (tab) P.meTab = tab; save(); panelView.render(); };
+      // 「나」: 고른 페르소나(모두면 상대가 있는 페르소나들)
+      const meKeys = [...new Set((mine.length ? mine : S.all).map((x) => meKeyOf(x)))];
+      if (S.persona !== ALL && S.persona !== NO_PERSONA && !meKeys.includes(S.persona.replace(/[^\w-]/g, '_'))) meKeys.unshift(S.persona.replace(/[^\w-]/g, '_'));
+      if (S.persona === NO_PERSONA && !meKeys.includes('none')) meKeys.unshift('none');
+      const meLabel = (k) => (k === 'none' ? '나 (페르소나 없음)' : (S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k)?.name || '나'));
+      const mePersonaOpts = (k) => (k === 'none' ? { noPersona: true } : { personaId: S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k)?.id || '' });
+      const meRowLabel = meKeys.length === 1 ? `${meLabel(meKeys[0])}` : '나';
+      // 탭: 보고 있는 것에 따라
+      const TABS = P.view === 'me' ? [['me', '내 모습'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자']];
+      const cur = P.view === 'me' ? P.meTab : P.tab;
+      const tabs = el('div', { class: 'im-tabs' }, TABS.map(([k, t]) => el('button', { type: 'button', class: cur === k ? 'im-on' : '', text: t, onclick: () => { if (P.view === 'me') P.meTab = k; else P.tab = k; save(); panelView.render(); } })));
+      const head = P.view === 'me'
+        ? el('div', { class: 'im-view-head' }, [myFace(meKeys[0], 'im-seal im-face') || el('span', { class: 'im-seal', text: '나' }), el('div', { class: 'im-grow' }, [el('div', { class: 'im-name', text: meRowLabel }), el('div', { class: 'im-muted', text: `편지 상대 ${mine.length}명` })])])
+        : null;
       let body = [];
-      if (P.tab === 'album') body = albumView(mine, pact);
-      else if (P.tab === 'cal') body = lettersCalendar(mine);
-      else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
+      if (P.view === 'me') {
+        if (P.meTab === 'cal') body = lettersCalendar(mine);
+        else if (P.meTab === 'boxes') body = boxesView(mine, (id) => openC(id, 'box'));
+        else body = meKeys.map((k) => meCard(k, meLabel(k), mePersonaOpts(k), pact));
+      } else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
+      else if (P.tab === 'box') body = lockerView(c, pact, null);
       else body = bookView(c, pact);
       if (pageMode && panel.pageSub) {
         const pn = S.persona === ALL ? '모든 페르소나' : S.persona === NO_PERSONA ? '페르소나 없음' : (personaOf(S.persona)?.name || '');
         panel.pageSub.textContent = `${pn ? `${pn}의 편지함 · ` : ''}상대 ${mine.length}명${S.list.reduce((n, x) => n + x.unread, 0) ? ` · 새 편지 ${S.list.reduce((n, x) => n + x.unread, 0)}통` : ''}`;
       }
+      // 목록: 페르소나 → 나 → 편지 상대
+      const meRow = el('div', { class: `im-row-card im-me-row${P.view === 'me' ? ' im-on' : ''}`, onclick: () => openMe() }, [
+        myFace(meKeys[0], 'im-seal im-face') || el('span', { class: 'im-seal', text: '나' }),
+        el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:2px;min-width:0' }, [
+          el('span', { class: 'im-name', text: meRowLabel }),
+          el('div', { class: 'im-muted', style: 'font-size:11.5px', text: '내 모습 · 추억 상자 · 달력' }),
+        ]),
+      ]);
+      const rowOf = (x) => {
+        const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
+        const st = S.list.find((y) => y.id === x.id);
+        const last = [...x.letters].reverse().find((l) => l.body);
+        return el('div', { class: `im-row-card${P.view === 'c' && x.id === P.id ? ' im-on' : ''}`, onclick: () => openC(x.id) }, [
+          avatarEl(x),
+          el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:2px;min-width:0' }, [
+            el('div', { class: 'im-row', style: 'flex-wrap:nowrap' }, [el('span', { class: 'im-name im-grow', text: x.name }), x.artJob?.state === 'running' ? el('span', { class: 'im-spin', title: '그림 그리는 중' }) : null, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]),
+            el('div', { class: 'im-muted', style: 'font-size:11.5px', text: st?.status || '' }),
+            last ? el('div', { class: 'im-excerpt', text: last.body.replace(/\s+/g, ' ') }) : null,
+          ]),
+        ]);
+      };
       if (pageMode && panel.listCol) {
         panel.listCol.replaceChildren(
+          el('div', { class: 'im-list-label', text: '페르소나' }),
           personaChips(),
-          ...(mine.length ? mine.map((x) => {
-            const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
-            const s = S.list.find((y) => y.id === x.id);
-            const last = [...x.letters].reverse().find((l) => l.body);
-            return el('div', { class: `im-row-card${x.id === P.id ? ' im-on' : ''}`, onclick: () => { P.id = x.id; lsSet(`${LS_PANEL}.id`, x.id); panelView.render(); } }, [
-              avatarEl(x),
-              el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:2px;min-width:0' }, [
-                el('div', { class: 'im-row', style: 'flex-wrap:nowrap' }, [el('span', { class: 'im-name im-grow', text: x.name }), x.artJob?.state === 'running' ? el('span', { class: 'im-spin', title: '그림 그리는 중' }) : null, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]),
-                el('div', { class: 'im-muted', style: 'font-size:11.5px', text: s?.status || '' }),
-                last ? el('div', { class: 'im-excerpt', text: last.body.replace(/\s+/g, ' ') }) : null,
-              ]),
-            ]);
-          }) : [el('div', { class: 'im-muted', text: '편지 상대가 없습니다.' })]),
+          meRow,
+          el('div', { class: 'im-list-label', text: `편지 상대 · ${mine.length}` }),
+          ...(mine.length ? mine.map(rowOf) : [el('div', { class: 'im-muted', text: '편지 상대가 없습니다.' })]),
           el('div', { class: 'im-muted', style: 'margin-top:8px', text: '새 상대·설정·서류함은 서랍의 「우체통」 탭에 있어요.' }),
         );
       }
+      // 좁은 창(도크·떠 있는 창·휴대폰): 위쪽에 페르소나 칩, 그 아래 [나] + 상대 칩
+      const people = el('div', { class: 'im-chips' }, [
+        el('button', { class: `im-chip im-plain${P.view === 'me' ? ' im-on' : ''}`, type: 'button', 'data-me': '1', onclick: () => openMe() }, [myFace(meKeys[0], 'im-ava') || el('span', { class: 'im-ava', text: '✒' }), '나']),
+        ...mine.map((x) => {
+          const unread = x.letters.filter((l) => l.from === 'them' && l.state === 'delivered').length;
+          return el('button', { class: `im-chip im-plain${P.view === 'c' && x.id === P.id ? ' im-on' : ''}`, type: 'button', onclick: () => openC(x.id) }, [x.name, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]);
+        }),
+      ]);
       panelRoot.replaceChildren(...[
-        // 화면 가득 방식: 넓으면 왼쪽 목록이 페르소나·상대를 맡고, 좁으면(휴대폰) 위쪽 칩으로
-        pageMode ? el('div', { class: 'im-page-chips' }, [personaChips(), mine.length ? people : null]) : personaChips(),
-        !pageMode && mine.length ? people : null,
+        pageMode ? el('div', { class: 'im-page-chips' }, [personaChips(), people]) : personaChips(),
+        !pageMode ? people : null,
+        head,
         tabs,
         ...body,
         P.error || S.error ? el('div', { class: 'im-err', text: P.error || S.error }) : null,
       ].filter(Boolean));
-      if (P.focusLetter && P.tab === 'book') {
+      if (P.focusLetter && P.view === 'c' && P.tab === 'book') {
         const target = panelRoot.querySelector(`[data-lid="${P.focusLetter}"]`);
         P.focusLetter = '';
         if (target) setTimeout(() => { target.scrollIntoView?.({ block: 'start', behavior: 'smooth' }); target.classList.add('im-flash'); }, 30);
@@ -2802,7 +2841,7 @@ ${extra}
     const shown = P.calDay ? selEvents : monthEvents;
     const goLetter = (e) => {
       if (e.kind === 'coming') return;
-      P.id = e.c.id; P.tab = 'book'; P.focusLetter = e.l.id;
+      P.id = e.c.id; P.tab = 'book'; P.view = 'c'; P.focusLetter = e.l.id;
       lsSet(`${LS_PANEL}.id`, e.c.id); lsSet(`${LS_PANEL}.tab`, 'book');
       panelView.render();
     };
@@ -2837,22 +2876,13 @@ ${extra}
 
   // 모음: 페르소나의 모든 편지 묶음 + 모든 물품
   // 모음: 캐릭터마다 추억 상자(보석함). 누르면 그 캐릭터와 나눈 것(초상화·그림·봉투·물건)을 나눠 본다
-  function albumView(list, act) {
-    const go2 = (id) => { P.locker = id; panelView.render(); };
-    const open = list.find((c) => c.id === P.locker);
-    if (open) return lockerView(open, act, () => go2(''));
-    const keys = [...new Set(list.map((c) => meKeyOf(c)))];
+  function boxesView(list, openBox) {
     return [
-      el('h4', { text: '나' }),
-      ...keys.map((k) => {
-        const p = S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k);
-        return meCard(k, k === 'none' ? '나 (페르소나 없음)' : (p?.name || '나'), k === 'none' ? { noPersona: true } : { personaId: p?.id || '' }, act);
-      }),
-      el('h4', { text: `추억 상자 · ${list.length}` }),
+      el('div', { class: 'im-muted', style: 'margin:4px 0 8px', text: '상대마다 하나씩. 누르면 그 상대와 나눈 초상화·그림·봉투·물건이 나뉘어 보여요.' }),
       el('div', { class: 'im-lockers' }, list.map((c) => {
         const img = c.art?.locker?.imageId;
         const n = { pics: (c.items || []).filter((x) => x.imageId && x.state === 'arrived').length, portraits: (c.art?.portrait ? 1 : 0) + (c.art?.portraitHistory || []).length };
-        return el('div', { class: 'im-locker', onclick: () => go2(c.id) }, [
+        return el('div', { class: 'im-locker', onclick: () => openBox(c.id) }, [
           img ? el('img', { src: imgUrl(img, 'lg'), alt: `${c.name}의 추억 상자` }) : el('div', { class: 'im-locker-empty' }, [avatarEl(c)]),
           el('b', { text: c.name }),
           el('div', { class: 'im-muted', style: 'font-size:11px', text: `초상화 ${n.portraits} · 그림·물건 ${n.pics}` }),
@@ -2870,12 +2900,12 @@ ${extra}
     const grid = (arr, f) => el('div', { class: 'im-grid' }, arr.map(f));
     const pic = (id, cap, sub) => el('div', { class: 'im-item' }, [el('div', { class: 'im-pic' }, [el('img', { src: imgUrl(id, 'lg'), alt: cap, loading: 'lazy', style: 'cursor:zoom-in', onclick: () => openImage(id, cap, sub || '') })]), el('div', { class: 'im-cap' }, [el('b', { text: cap }), sub ? el('div', { class: 'im-muted', text: sub }) : null])]);
     return [
-      el('div', { class: 'im-row' }, [link('← 추억 상자들', back), el('span', { class: 'im-grow' }), link(c.art?.locker?.imageId ? '상자 다시 그리기' : '상자 그리기', () => act(async () => {
+      el('div', { class: 'im-row' }, [back ? link('← 추억 상자들', back) : null, el('span', { class: 'im-grow' }), link(c.art?.locker?.imageId ? '상자 다시 그리기' : '상자 그리기', () => act(async () => {
         if (!confirm(`${c.name}에게 어울리는 추억 상자(보석함 크기)를 ${c.art?.locker?.imageId ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
         await ask('drawSet', { id: c.id, kinds: ['locker'] });
         await refresh();
       }))]),
-      el('div', { class: 'im-row', style: 'gap:12px;align-items:center;margin:6px 0' }, [avatarEl(c, 'im-seal', { portraitFirst: true }), el('div', { class: 'im-grow' }, [el('b', { text: c.name }), el('div', { class: 'im-muted', text: `편지 ${c.letters.length}통 · 물건 ${(c.items || []).length}개` })]), link('편지첩 열기', () => { P.id = c.id; P.tab = 'book'; lsSet(`${LS_PANEL}.id`, c.id); lsSet(`${LS_PANEL}.tab`, 'book'); panelView.render(); })]),
+      el('div', { class: 'im-row', style: 'gap:12px;align-items:center;margin:6px 0' }, [avatarEl(c, 'im-seal', { portraitFirst: true }), el('div', { class: 'im-grow' }, [el('b', { text: c.name }), el('div', { class: 'im-muted', text: `편지 ${c.letters.length}통 · 물건 ${(c.items || []).length}개` })]), link('편지첩 열기', () => { P.id = c.id; P.tab = 'book'; P.view = 'c'; lsSet(`${LS_PANEL}.view`, 'c'); lsSet(`${LS_PANEL}.id`, c.id); lsSet(`${LS_PANEL}.tab`, 'book'); panelView.render(); })]),
       el('h4', { text: `초상화 · ${portraits.length}` }),
       portraits.length ? grid(portraits, (x) => pic(x.imageId, x.now ? '지금 모습' : '예전 모습', x.at ? new Date(x.at).toLocaleDateString('ko-KR') : '')) : el('div', { class: 'im-muted', text: '서류함의 「초상화 그리기」로 그릴 수 있어요.' }),
       el('h4', { text: `그림·사진 · ${drawn.length}` }),
