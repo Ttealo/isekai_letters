@@ -477,7 +477,7 @@ export function start(api) {
     if (html) {
       const pj = jobs.find((j) => j.kind === 'paper');
       if (pj) await makeTheme(user, id, { reason: [pj.reason, pj.medium].filter(Boolean).join(' — '), letterId }).catch((e) => log('warn', `편지지 테마 바꾸기 실패: ${e?.message || e}`));
-      jobs = jobs.filter((j) => j.kind !== 'paper');
+      jobs = jobs.filter((j) => j.kind !== 'paper' && j.kind !== 'stamp');
     }
     if (jobs.length && api.imageGen?.generate) await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
   };

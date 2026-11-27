@@ -56,6 +56,8 @@ const CSS = `
 .im-env-postdate{position:absolute;top:calc(9% + 28px);right:calc(17% + 18px);font:700 11px system-ui,sans-serif;opacity:.65;transform:rotate(-12deg)}
 .im-env-seal2{position:absolute;left:50%;top:52%;width:17%;transform:translate(-50%,-50%);border-radius:50%;filter:drop-shadow(0 2px 3px #0006)}
 .im-themed{position:relative;margin-right:22px}
+.im-face{object-fit:cover;object-position:50% 12%;cursor:zoom-in;background:#ddd}
+.im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
 .im-env-btn{align-self:flex-start;font-size:12px;margin:0 0 4px 2px}
 .im-env-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
@@ -419,7 +421,10 @@ export function setup(ctx) {
     }
   } catch {}
   const htmlPaper = () => (S.settings?.art?.paperMode || 'html') !== 'image';
-  const setKindsUi = () => (htmlPaper() ? ['envelope', 'stamp', 'seal'] : ['paper', 'stamp', 'seal']);
+  const setKindsUi = () => (htmlPaper() ? ['envelope', 'seal'] : ['paper', 'stamp', 'seal']);
+  // 상대 얼굴: 초상화 → 봉인 → 이름 첫 글자
+  const avatarEl = (c, cls = 'im-seal') => (c.art?.portrait?.imageId ? el('img', { class: `${cls} im-face`, src: imgUrl(c.art.portrait.imageId, 'sm'), alt: c.name, title: '눌러서 초상화 크게 보기', onclick: (e) => { e.stopPropagation(); openImage(c.art.portrait.imageId, `${c.name} · 초상화`, ''); } })
+    : c.art?.seal?.imageId ? el('img', { class: cls, src: imgUrl(c.art.seal.imageId, 'sm'), alt: '' }) : el('span', { class: cls, text: c.name.replace(/^[[^]]*]s*/, '').slice(0, 1) }));
   const KIND_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' };
   const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
   // 연 편지에도 봉투가 보이게: 작은 봉투(우표·봉인 붙은 채), 누르면 크게
@@ -429,7 +434,6 @@ export function setup(ctx) {
     const st = l?.art?.stamp || c.art?.stamp?.imageId;
     const se = c.art?.seal?.imageId;
     return el('div', { class: `im-env-art ${cls}`, style: `background-image:url("${imgUrl(envImg, 'lg')}")` }, [
-      st ? el('img', { class: 'im-env-stamp', src: imgUrl(st, 'sm'), alt: '우표' }) : null,
       se ? el('img', { class: 'im-env-seal2', src: imgUrl(se, 'sm'), alt: '봉인' }) : null,
     ]);
   };
@@ -1170,12 +1174,11 @@ export function setup(ctx) {
       const stampImg0 = l.art?.stamp || c.art?.stamp?.imageId;
       const face = envImg
         ? el('div', { class: 'im-env-art', style: `background-image:url("${imgUrl(envImg, 'lg')}")` }, [
-          stampImg0 ? el('img', { class: 'im-env-stamp', src: imgUrl(stampImg0, 'sm'), alt: '우표' }) : null,
           el('span', { class: 'im-env-post', html: `<svg viewBox="0 0 80 80" width="74" height="74"><circle cx="40" cy="40" r="30" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="40" cy="40" r="24" fill="none" stroke="currentColor" stroke-width="1"/><path d="M4 34h18M4 40h16M4 46h18M58 34h18M60 40h16M58 46h18" stroke="currentColor" stroke-width="1.5"/></svg>` }),
           el('span', { class: 'im-env-postdate', text: new Date(l.arriveAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) }),
           sealImg ? el('img', { class: 'im-env-seal2', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : null,
         ])
-        : el('div', { class: 'im-env-face' }, [sealImg ? el('img', { class: 'im-env-seal', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : el('span', { class: 'im-env-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) }), stampImg0 ? el('img', { class: 'im-env-stamp', src: imgUrl(stampImg0, 'sm'), alt: '우표' }) : null]);
+        : el('div', { class: 'im-env-face' }, [sealImg ? el('img', { class: 'im-env-seal', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : el('span', { class: 'im-env-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) })]);
       return el('div', { class: 'im-envelope' }, [
         face,
         el('div', { class: 'im-env-body' }, [
@@ -1459,7 +1462,7 @@ ${gallery}
             const s = S.list.find((y) => y.id === x.id);
             const last = [...x.letters].reverse().find((l) => l.body);
             return el('div', { class: `im-row-card${x.id === P.id ? ' im-on' : ''}`, onclick: () => { P.id = x.id; lsSet(`${LS_PANEL}.id`, x.id); panelView.render(); } }, [
-              x.art?.seal?.imageId ? el('img', { class: 'im-seal', src: imgUrl(x.art.seal.imageId, 'sm'), alt: '' }) : el('span', { class: 'im-seal', text: x.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) }),
+              avatarEl(x),
               el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:2px;min-width:0' }, [
                 el('div', { class: 'im-row', style: 'flex-wrap:nowrap' }, [el('span', { class: 'im-name im-grow', text: x.name }), x.artJob?.state === 'running' ? el('span', { class: 'im-spin', title: '그림 그리는 중' }) : null, unread ? el('span', { class: 'im-badge', text: String(unread) }) : null]),
                 el('div', { class: 'im-muted', style: 'font-size:11.5px', text: s?.status || '' }),
@@ -1522,7 +1525,7 @@ ${gallery}
     const sealImg = c.art?.seal?.imageId;
     return [
       el('div', { class: 'im-info' }, [
-        sealImg ? el('img', { class: 'im-seal', src: imgUrl(sealImg, 'sm'), alt: '' }) : el('span', { class: 'im-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) }),
+        avatarEl(c),
         el('div', { class: 'im-grow' }, [
           el('div', { class: 'im-name', text: c.name }),
           el('div', { class: 'im-muted', text: `${c.personaName ? `${c.personaName}의 편지 상대 · ` : ''}그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio}` }),
@@ -1576,8 +1579,8 @@ ${gallery}
         link('닫기', () => act(async () => { await ask('artDismiss', { id: c.id }); await refresh(); })),
       ]) : null,
       el('div', { class: 'im-row' }, [
-        el('span', { class: 'im-muted im-grow', text: `그림 세트 ${have.length}/3${left !== undefined ? ` · 오늘 남은 그림 ${left}장` : ''}` }),
-        link(missing.length ? `그림 세트 만들기(${missing.length}장)` : '세트 다시 그리기(3장)', () => act(async () => {
+        el('span', { class: 'im-muted im-grow', text: `그림 세트 ${have.length}/${SK.length}${left !== undefined ? ` · 오늘 남은 그림 ${left}장` : ''}` }),
+        link(missing.length ? `그림 세트 만들기(${missing.length}장)` : `세트 다시 그리기(${SK.length}장)`, () => act(async () => {
           const kinds = missing.length ? missing : SK;
           if (!confirm(`${c.name}의 ${kinds.map((k) => KIND_LABEL[k]).join('·')}을 그립니다.\n이미지 ${kinds.length}장 + 글 생성 1회. 계속할까요?`)) return;
           await ask('drawSet', { id: c.id, kinds });

@@ -6,7 +6,8 @@ export const ART_KINDS = ['envelope', 'paper', 'stamp', 'seal'];
 export const ALL_KINDS = ['envelope', 'paper', 'stamp', 'seal', 'item'];
 export const ART_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
 // 세트: 편지지를 HTML로 꾸미면(기본) 봉투·우표·봉인, 그림이면 편지지·우표·봉인
-export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'stamp', 'seal']);
+// 꾸미기 모드: 우표는 쓰지 않는다(봉투·봉인만)
+export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'seal']);
 
 export const DEFAULT_STYLE = 'hand-painted storybook illustration, delicate ink linework, soft watercolor washes, muted vintage palette, not a photograph';
 export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render, table, desk, wooden surface, background scene, perspective, shadow, people, person, face, hands, fingers, human figure, text, letters, writing, words, numbers, digits, watermark, signature, logo';

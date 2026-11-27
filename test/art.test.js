@@ -125,6 +125,6 @@ test('편지지 테마: 기본값 고정, 값 검사·대비, 화면용 스타�
   assert.equal((look.corners.match(/<svg/g) || []).length, 4);
   assert.equal(P.paperLook(t, { seed: 'l1' }).outer, look.outer);
   assert.match(P.PAPER_FONT_URL, /^https:\/\/fonts\.googleapis\.com\/css2\?family=Nanum\+Myeongjo/);
-  assert.deepEqual(A.setKinds(A.cleanArt({})), ['envelope', 'stamp', 'seal']);
+  assert.deepEqual(A.setKinds(A.cleanArt({})), ['envelope', 'seal']);
   assert.deepEqual(A.setKinds(A.cleanArt({ paperMode: 'image' })), ['paper', 'stamp', 'seal']);
 });

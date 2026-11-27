@@ -616,15 +616,15 @@ test('편지지·우표 바뀜: 정리 단계가 사건을 찾으면 그 편지�
   const r = await host.ask('u1', 'matchConfirm', { draft });
   const q = await host.ask('u1', 'drawSet', { id: r.id, kinds: ['paper', 'stamp'] });
   assert.equal(q.queued, true); // 첫 편지 물건 자동 그리기가 도는 중이라 대기열로
-  await new Promise((res) => setTimeout(res, 2500));
-  let g = await host.ask('u1', 'get', { id: r.id });
+  let g;
+  for (let i = 0; i < 80; i++) { g = await host.ask('u1', 'get', { id: r.id }); if (g.c.art?.stamp?.imageId && !g.c.artJob) break; await new Promise((res) => setTimeout(res, 100)); }
   const firstStamp = g.c.art.stamp.imageId;
   const firstLetterId = g.c.letters[0].id; // 상대 첫 편지(배송 중)
   now += 1 * H; await host.ask('u1', 'load'); await settle(); // 첫 편지 도착
   await host.ask('u1', 'send', { id: r.id, body: '축제 이야기 들려줘요', enclosure: '' });
   now += 1 * H; await host.ask('u1', 'load'); await settle(); // 도착 → 답장 생성(조개 동봉 → 자동 그림)
-  for (let i = 0; i < 4; i++) { await host.ask('u1', 'load'); await settle(); await settle(); } // 정리 → 우표 바뀜
-  await new Promise((res) => setTimeout(res, 2500)); // 물건 그리기가 끝난 뒤 이어서 그리는 우표
+  for (let i = 0; i < 40; i++) { await host.ask('u1', 'load'); await settle(); const x = await host.ask('u1', 'get', { id: r.id }); if (!x.c.organize && !x.c.reply) break; await new Promise((res) => setTimeout(res, 50)); } // 정리 → 우표 바뀜
+  for (let i = 0; i < 80; i++) { const x = await host.ask('u1', 'get', { id: r.id }); const rl = [...x.c.letters].reverse().find((l) => l.from === 'them'); if (rl?.art?.stamp && !x.c.artJob) break; await new Promise((res) => setTimeout(res, 100)); } // 물건 그리기가 끝난 뒤 이어서 그리는 우표
   now += 2 * H; await host.ask('u1', 'load'); await settle(); // 답장 도착(배송 중엔 내용이 가려짐)
   g = await host.ask('u1', 'get', { id: r.id });
   const reply = [...g.c.letters].reverse().find((l) => l.from === 'them');
@@ -778,7 +778,7 @@ test('편지지 꾸미기(HTML): 매칭 뒤 테마, 사건이면 그 편지부�
   // 세트: 봉투·우표·봉인
   await host.ask('u1', 'saveSettings', { settings: { ...(await host.ask('u1', 'load')).settings, art: { perDay: 10 } } });
   await host.ask('u1', 'drawSet', { id });
-  for (let i = 0; i < 50 && gens.length < 3; i++) await new Promise((r) => setTimeout(r, 20));
+  for (let i = 0; i < 50 && gens.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
   assert.match(gens[0].prompt, /front face of a closed envelope/);
   assert.equal(gens[0].parameters.size, '1536x1024');
   // 수동 테마 고치기(잘못된 값은 버림, 안 읽히는 잉크는 바꿈)

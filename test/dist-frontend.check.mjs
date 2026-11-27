@@ -125,7 +125,7 @@ ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') &&
 ok('편지첩: 편지지엔 우표 없음', !panelRoot.querySelector('.im-themed img'));
 const themed = panelRoot.querySelector('.im-themed.im-theirs');
 ok('편지지 꾸미기: 무늬 띠·모서리 장식 4개·글씨체', (themed?.getAttribute('style') || '').includes('data:image/svg+xml') && themed.querySelectorAll('.im-corners svg').length === 4 && /font-family/.test(themed.children[1]?.getAttribute('style') || ''));
-ok('그림: 우표는 봉투에 붙음', !!panelRoot.querySelector('.im-envelope .im-env-stamp[src="/api/v1/images/st?size=sm"]'));
+ok('그림: 상대 우표는 안 씀', !panelRoot.querySelector('.im-env-stamp'));
 ok('그림: 그리는 중 표시(대상별)', panelRoot.textContent.includes('그림을 그리는 중 0/2') && panelRoot.textContent.includes('· 봉인: 그리는 중…') && panelRoot.textContent.includes('· 깃털: 기다리는 중'));
 ok('그림: 위젯에 그리는 중', widgetRoot.textContent.includes('그림'));
 ok('편지첩: 동봉 줄', panelRoot.textContent.includes('동봉 · 조개 — 얼음 틈에서'));
