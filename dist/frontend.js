@@ -1352,8 +1352,18 @@ export function setup(ctx) {
   const showEnvelope = (c, l) => {
     const big = envelopeFace(c, l, 'im-env-big');
     if (!big) return;
-    const box = el('div', { class: 'im-env-overlay', onclick: () => box.remove() }, [big, el('div', { class: 'im-env-cap', text: [`${c.name}의 봉투`, l?.writtenLabel || l?.theirWrittenLabel, l?.envelope?.medium, l?.envelope?.stamp && `우표: ${l.envelope.stamp}`].filter(Boolean).join(' · ') })]);
-    document.body.append(box);
+    const cap = [`${c.name}의 봉투`, l?.writtenLabel || l?.theirWrittenLabel, l?.envelope?.medium].filter(Boolean).join(' · ');
+    // 앱 모달로(전체 화면 모드의 레이어 위에 뜸). 없으면 화면 위 덮개
+    try {
+      if (typeof ctx.ui.showModal !== 'function') throw new Error('no modal');
+      const m = ctx.ui.showModal({ title: cap, width: Math.min(820, window.innerWidth - 32), maxHeight: Math.min(900, window.innerHeight - 40) });
+      big.style.width = '100%';
+      big.addEventListener('click', () => m.dismiss());
+      m.root.append(el('div', { class: 'im-zoom' }, [big]));
+    } catch {
+      const box = el('div', { class: 'im-env-overlay', onclick: () => box.remove() }, [big, el('div', { class: 'im-env-cap', text: cap })]);
+      document.body.append(box);
+    }
   };
   if (!removeStyle) tab.root.append(el('style', { text: CSS + CSS2 }));
   const root = el('div', { class: 'im-tab' });
