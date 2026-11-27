@@ -3,7 +3,7 @@
 import { cleanCalendar } from './core.js';
 
 // 상대 자동 생성(매칭): 프롬프트, 결과 검사, 카드·로어북·우편 설정으로 나누기. 부수 효과 없음.
-// 카드 양식은 D:\AI\Marinara-Engine_설정\CHARACTER_CARD_COMPACT.md(압축판) 요약. 원본이 바뀌면 여기도 맞춘다.
+// 카드 양식은 압축판 캐릭터 카드 양식(외형·핵심·겉과 속·욕구·말투·never)을 요약한 것.
 
 export const MATCH_MODES = ['prompt', 'random', 'existing'];
 

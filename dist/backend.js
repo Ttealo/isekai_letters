@@ -910,7 +910,7 @@ export function paperLook(theme, { seed = '', narrow = false } = {}) {
 
 
 // 상대 자동 생성(매칭): 프롬프트, 결과 검사, 카드·로어북·우편 설정으로 나누기. 부수 효과 없음.
-// 카드 양식은 D:\AI\Marinara-Engine_설정\CHARACTER_CARD_COMPACT.md(압축판) 요약. 원본이 바뀌면 여기도 맞춘다.
+// 카드 양식은 압축판 캐릭터 카드 양식(외형·핵심·겉과 속·욕구·말투·never)을 요약한 것.
 
 export const MATCH_MODES = ['prompt', 'random', 'existing'];
 
@@ -1796,7 +1796,7 @@ export function ensureArt(c) {
 }
 
 // 캐릭터 초상화(NovelAI V4.5 Full): 카드 → 글 생성이 NAI 태그 프롬프트를 쓰고, 사용자 화풍 프롬프트와 합친다. 부수 효과 없음.
-// 작성 규칙은 사용자 지침 D:\소스\캐릭터챗\11_더스트블러드\NovelAI_Prompt_Guide_v3.md 의 V4.5F 부분을 줄인 것.
+// 작성 규칙은 NovelAI V4.5 Full용 캐릭터 프롬프트 지침(태그 순서·구조 줄·머리·눈 칸 고정 등)을 줄인 것.
 
 // 사용자가 준 기본 화풍·품질 프롬프트(인원 태그 1man, solo는 캐릭터 쪽이 정하므로 뺐다)
 export const NAI_BASE = [
