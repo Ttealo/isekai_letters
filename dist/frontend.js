@@ -959,6 +959,29 @@ const CSS = `
 .im-row-card .im-emblem,.im-row-card .im-face{width:46px;height:46px}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-rep-head{display:flex;gap:16px;align-items:center;margin:6px 0 12px}
+.im-rep-emblem{width:120px;height:120px;border-radius:50%;object-fit:cover;cursor:zoom-in;background:#f6efe2;box-shadow:inset 0 0 0 3px #fff8,0 6px 16px -8px #0008;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px}
+.im-rep-name{font-size:20px;font-weight:700;color:var(--im-ink)}
+.im-rep-title{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:15px;color:var(--im-ink);margin:2px 0}
+.im-rep-paper{background:#f7f1e4;color:#3b2f22;border-radius:6px;padding:20px 22px;box-shadow:0 8px 20px -14px #0008;background-image:repeating-linear-gradient(transparent 0 29px,#d9c7a440 29px 30px)}
+.im-rep-date{font:12px system-ui,sans-serif;color:#8a7458;margin-bottom:8px}
+.im-rep-changed{font-family:"Nanum Pen Script",cursive;font-size:19px;color:#a8322a;margin-bottom:8px}
+.im-rep-note{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:15px;line-height:30px;white-space:pre-wrap}
+.im-rep-facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:13.5px}
+.im-voices{display:flex;flex-direction:column;gap:10px}
+.im-voice{padding:10px 14px;border-left:3px solid var(--im-line);background:var(--lumiverse-fill);border-radius:0 8px 8px 0}
+.im-voice-secret{border-left-color:#7d2019}
+.im-voice-says{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:14.5px;line-height:1.7}
+.im-voice-who{font-size:12px;color:var(--lumiverse-text-muted);margin-top:4px;text-align:right}
+.im-hidden{filter:blur(0);color:var(--lumiverse-text-muted);font-style:italic;cursor:pointer;background:repeating-linear-gradient(135deg,#0000 0 6px,#0000000d 6px 12px);border-radius:4px;padding:2px 6px}
+.im-rep-old summary{cursor:pointer;font-size:13px;color:var(--lumiverse-text-muted);margin:4px 0}
+.im-timeline{border-left:2px solid var(--im-line);margin-left:8px;padding-left:16px;display:flex;flex-direction:column;gap:10px}
+.im-tl{position:relative}
+.im-tl::before{content:"";position:absolute;left:-22px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--im-line)}
+.im-tl-them::before{background:#8a5a2b}.im-tl-me::before{background:#3d6c8f}.im-tl-art::before{background:#c9a45a}.im-tl-secret::before{background:#7d2019}.im-tl-event::before{background:#5f7d3a}
+.im-tl-when{font:11px system-ui,sans-serif;color:var(--lumiverse-text-muted)}
+.im-tl-text{font-size:13.5px}
+.im-tl-sep{font:600 11px system-ui,sans-serif;color:var(--lumiverse-text-muted);margin-top:6px}
 .im-list-label{font:600 11px system-ui,sans-serif;letter-spacing:.04em;color:var(--lumiverse-text-muted);margin:10px 4px 4px}
 .im-me-row{border-style:dashed}
 .im-view-head{display:flex;gap:12px;align-items:center;margin:4px 0 10px}
@@ -1444,7 +1467,7 @@ export function setup(ctx) {
     };
 
     function render() {
-      const body = { home: homeView, c: cView, letter: letterView, form: formView, remove: removeView, settings: settingsView, match: matchView, preview: previewView, dossier: dossierView }[view.name]?.() || [];
+      const body = { home: homeView, c: cView, letter: letterView, form: formView, remove: removeView, report: () => { const c = byId(view.id); return c ? [el('div', { class: 'im-row' }, [link(`← ${c.name}`, () => go({ name: 'c', id: c.id }))]), ...reportView(c, act)] : [el('div', { class: 'im-muted', text: '불러오는 중…' })]; }, settings: settingsView, match: matchView, preview: previewView, dossier: dossierView }[view.name]?.() || [];
       const err = error || S.error;
       root.replaceChildren(...[].concat(body, err ? el('div', { class: 'im-err', text: err }) : null).filter(Boolean));
     }
@@ -1507,7 +1530,7 @@ export function setup(ctx) {
         ]);
       });
       return [
-        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' })), el('span', { class: 'im-grow' }), panel ? link('편지첩으로 보기', () => openPanelFor(c.id)) : null, link('서류함', () => openDossier(c.id)), link('상대 정보 수정', async () => { await reloadPersonas(); go({ name: 'form', id: c.id }); })]),
+        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' })), el('span', { class: 'im-grow' }), panel ? link('편지첩으로 보기', () => openPanelFor(c.id)) : null, link('기록부', () => go({ name: 'report', id: c.id })), link('서류함', () => openDossier(c.id)), link('상대 정보 수정', async () => { await reloadPersonas(); go({ name: 'form', id: c.id }); })]),
         el('h3', { text: c.name }),
         el('div', { class: 'im-muted', text: `그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio} (나의 하루 = 그쪽 ${formatSpan(24 * c.ratio)})` }),
         s ? el('div', { class: s.failed ? 'im-err' : 'im-muted', text: s.status }) : null,
@@ -2447,7 +2470,7 @@ ${extra}
   let panel = null;
   let widget = null;
   const P = { tab: lsGet(`${LS_PANEL}.tab`, 'book'), id: lsGet(`${LS_PANEL}.id`, ''), busy: false, error: '', locker: '', view: lsGet(`${LS_PANEL}.view`, 'c'), meTab: lsGet(`${LS_PANEL}.meTab`, 'me') };
-  if (!['book', 'items', 'box'].includes(P.tab)) { P.view = 'me'; P.meTab = P.tab === 'cal' ? 'cal' : 'boxes'; P.tab = 'book'; }
+  if (!['book', 'items', 'box', 'report'].includes(P.tab)) { P.view = 'me'; P.meTab = P.tab === 'cal' ? 'cal' : 'boxes'; P.tab = 'book'; }
   const panelRoot = el('div', { class: 'im-panel' });
   // 보조창 방식: page=채팅창처럼 앱 화면을 채움(기본, app_manipulation 필요) / dock=오른쪽에 붙이기 / float=떠 있는 창. 새로 고침 뒤 적용
   let panelMode = ['page', 'dock', 'float'].includes(lsGet(LS_PANEL_MODE, 'page')) ? lsGet(LS_PANEL_MODE, 'page') : 'page';
@@ -2556,7 +2579,7 @@ ${extra}
       const mePersonaOpts = (k) => (k === 'none' ? { noPersona: true } : { personaId: S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k)?.id || '' });
       const meRowLabel = meKeys.length === 1 ? `${meLabel(meKeys[0])}` : '나';
       // 탭: 보고 있는 것에 따라
-      const TABS = P.view === 'me' ? [['me', '내 모습'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자']];
+      const TABS = P.view === 'me' ? [['me', '내 모습'], ['boxes', '추억 상자'], ['cal', '달력']] : [['book', '편지첩'], ['items', '물건'], ['box', '추억 상자'], ['report', '기록부']];
       const cur = P.view === 'me' ? P.meTab : P.tab;
       const tabs = el('div', { class: 'im-tabs' }, TABS.map(([k, t]) => el('button', { type: 'button', class: cur === k ? 'im-on' : '', text: t, onclick: () => { if (P.view === 'me') P.meTab = k; else P.tab = k; save(); panelView.render(); } })));
       const head = P.view === 'me'
@@ -2570,6 +2593,7 @@ ${extra}
       } else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
       else if (P.tab === 'box') body = lockerView(c, pact, null);
+      else if (P.tab === 'report') body = reportView(c, pact);
       else body = bookView(c, pact);
       if (pageMode && panel.pageSub) {
         const pn = S.persona === ALL ? '모든 페르소나' : S.persona === NO_PERSONA ? '페르소나 없음' : (personaOf(S.persona)?.name || '');
@@ -2876,6 +2900,79 @@ ${extra}
   }
 
   // 모음: 페르소나의 모든 편지 묶음 + 모든 물품
+  // ── 기록부: 서정적인 기록·알려진 것·그쪽 사람들의 소문(가려진 것은 눌러서)·편지로 이어진 일들·상징물 ──
+  const revealed = new Set();
+  function reportView(c, act) {
+    const reps = c.reports || [];
+    const cur = reps.at(-1);
+    const emb = c.art?.emblem?.imageId || c.art?.seal?.imageId;
+    const day = (t) => new Date(t).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+    const head = el('div', { class: 'im-rep-head' }, [
+      emb ? el('img', { class: 'im-rep-emblem', src: imgUrl(emb, 'lg'), alt: '상징물', title: '눌러서 크게', onclick: () => openImage(emb, `${c.name} · 상징물`, '') }) : el('div', { class: 'im-rep-emblem im-me-empty', text: '상징물 없음' }),
+      el('div', { class: 'im-grow' }, [
+        el('div', { class: 'im-rep-name', text: c.name }),
+        cur ? el('div', { class: 'im-rep-title', text: `「${cur.title}」` }) : null,
+        el('div', { class: 'im-muted', text: `그쪽은 지금 ${c.theirNowLabel || ''} · 편지 ${c.letters.length}통${cur ? ` · ${day(cur.at)} 기록` : ''}` }),
+        c.art?.portrait?.imageId ? link('초상화 보기', () => openImage(c.art.portrait.imageId, `${c.name} · 초상화`, '')) : null,
+      ]),
+    ]);
+    const askBtn = btn(cur ? '기록 갱신하기 (글 1회)' : '기록부 받기 (글 1회)', () => act(async () => { await ask('makeReport', { id: c.id }, 300000); await refresh(); }), { primary: !cur });
+    // 편지로 이어진 일들(글 생성 없음): 편지 오감, 그쪽 사건(드러난 것 / 가려진 것), 물건, 모습 바뀜
+    const tl = [];
+    for (const l of c.letters) {
+      if (l.from === 'them' && l.state === 'in_transit') continue;
+      tl.push({ t: l.from === 'me' ? l.sentAt : l.arriveAt, when: l.from === 'me' ? (l.theirSentLabel || '') : (l.theirWrittenLabel || ''), kind: l.from === 'me' ? 'me' : 'them', text: l.from === 'me' ? '내가 편지를 보냄' : `${c.name}의 편지가 닿음${l.enclosures?.length ? ` · 동봉 ${l.enclosures.map((x) => x.item).join(', ')}` : ''}`, sub: (l.body || '').replace(/\s+/g, ' ').slice(0, 70) });
+      if (l.artNote) tl.push({ t: (l.arriveAt || l.sentAt) + 1, when: l.theirWrittenLabel || '', kind: 'art', text: l.artNote });
+    }
+    (c.memory?.timeline || []).forEach((e, i) => tl.push({ t: null, order: i, when: e.when || '', kind: e.open ? 'event' : 'secret', text: e.event }));
+    const dated = tl.filter((x) => x.t).sort((a, b) => a.t - b.t);
+    const events = tl.filter((x) => !x.t);
+    const tlNode = (x, i) => {
+      const key = `${c.id}:tl:${i}`;
+      const hide = x.kind === 'secret' && !revealed.has(key);
+      return el('div', { class: `im-tl im-tl-${x.kind}` }, [
+        el('div', { class: 'im-tl-when', text: x.t ? `${new Date(x.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}${x.when ? ` · 그쪽 ${x.when.replace('만난 지 ', '')}` : ''}` : (x.when || '그쪽에서') }),
+        el('div', { class: `im-tl-text${hide ? ' im-hidden' : ''}`, text: hide ? '편지에 쓰지 않은 그쪽의 일 — 눌러서 보기' : x.text, onclick: hide ? () => { revealed.add(key); rerenderAll(); } : undefined }),
+        x.sub ? el('div', { class: 'im-muted', style: 'font-size:11px', text: x.sub }) : null,
+      ]);
+    };
+    const body = [head];
+    if (!cur) {
+      body.push(el('div', { class: 'im-rep-paper' }, [
+        el('div', { class: 'im-muted', text: `${c.name}에 대한 기록을 아직 받지 않았어요. 받으면 서정적인 기록과, 그쪽 세계 사람들이 ${c.name}에 대해 하는 말(일부는 가려져 있어요)이 남아요. 원할 때 갱신하면 지난 기록과 함께 쌓여요.` }),
+        askBtn,
+      ]));
+    } else {
+      body.push(el('div', { class: 'im-rep-paper' }, [
+        el('div', { class: 'im-rep-date', text: `${day(cur.at)}의 기록` }),
+        cur.changed ? el('div', { class: 'im-rep-changed', text: `지난 기록 뒤로 — ${cur.changed}` }) : null,
+        el('div', { class: 'im-rep-note', text: cur.note }),
+      ]));
+      if (cur.facts.length) body.push(el('h4', { text: '알려진 것' }), el('div', { class: 'im-rep-facts' }, cur.facts.flatMap((f) => [el('div', { class: 'im-muted', text: f.label }), el('div', { text: f.value })])));
+      if (cur.voices.length) {
+        body.push(el('h4', { text: `그쪽 사람들이 하는 말 · ${cur.voices.length}` }), el('div', { class: 'im-voices' }, cur.voices.map((v, i) => {
+          const key = `${c.id}:${cur.at}:v${i}`;
+          const hide = v.hidden && !revealed.has(key);
+          return el('div', { class: `im-voice${v.hidden ? ' im-voice-secret' : ''}` }, [
+            el('div', { class: `im-voice-says${hide ? ' im-hidden' : ''}`, text: hide ? '가려진 소문 — 눌러서 듣기' : `“${v.says}”`, onclick: hide ? () => { revealed.add(key); rerenderAll(); } : undefined }),
+            el('div', { class: 'im-voice-who', text: `— ${v.who}${v.relation ? `, ${v.relation}` : ''}${v.hidden ? ' · 쉿' : ''}` }),
+          ]);
+        })));
+      }
+      body.push(el('div', { class: 'im-row', style: 'margin:10px 0' }, [askBtn, el('span', { class: 'im-muted', style: 'font-size:11px', text: '갱신하면 새 기록이 위에 오고, 지난 기록은 아래에 남아요.' })]));
+      if (reps.length > 1) {
+        body.push(el('h4', { text: `지난 기록 · ${reps.length - 1}` }), ...[...reps].slice(0, -1).reverse().map((r) => el('details', { class: 'im-rep-old' }, [
+          el('summary', { text: `${day(r.at)} · 「${r.title}」` }),
+          el('div', { class: 'im-rep-note', text: r.note }),
+          r.voices.length ? el('div', { class: 'im-muted', style: 'margin-top:6px', text: r.voices.filter((v) => !v.hidden).map((v) => `${v.who}: “${v.says}”`).join('\n') }) : null,
+        ])));
+      }
+    }
+    body.push(el('h4', { text: '편지로 이어진 일들' }));
+    body.push(dated.length || events.length ? el('div', { class: 'im-timeline' }, [...dated.map(tlNode), ...(events.length ? [el('div', { class: 'im-tl-sep', text: '그쪽 연대기' }), ...events.map((x, i) => tlNode(x, i + 1000))] : [])]) : el('div', { class: 'im-muted', text: '아직 이어진 일이 없어요.' }));
+    return body;
+  }
+
   // 모음: 캐릭터마다 추억 상자(보석함). 누르면 그 캐릭터와 나눈 것(초상화·그림·봉투·물건)을 나눠 본다
   function boxesView(list, openBox) {
     return [

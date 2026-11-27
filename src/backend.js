@@ -8,6 +8,7 @@ import {
 } from './match.js';
 import { cleanPortrait, buildPortraitMessages, cleanPortraitPrompt, composePortrait, buildSceneMessages, cleanScenePrompt, composeScene, isPictureItem } from './portrait.js';
 import { cleanTheme, defaultTheme, buildThemeMessages } from './paper.js';
+import { buildReportMessages, cleanReport } from './report.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
@@ -1208,6 +1209,21 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'makeReport': {
+        // 기록부: 내가 원할 때 글 1회. 지난 기록은 쌓아 둔다(최근 20)
+        const c = ensureMemory(await loadC(user, p.id));
+        const settings = await loadSettings(user);
+        const card = await cardOf(user, c);
+        const lore = (await allLore(user, c).catch(() => [])).map((e) => `[${e.comment || (e.key || []).join(', ')}] ${e.content}`).join('\n').slice(0, 3500);
+        const m = memoryLayers(c, { budgets: { ...cleanBudgets(settings.budgets), ledgerChars: 1500, timelineItems: 20 }, recentLetters: 0 });
+        const recent = c.letters.filter((l) => l.from === 'them' && l.state !== 'in_transit' && l.body).slice(-2).map((l) => l.body.slice(0, 1200)).join('\n---\n');
+        const prevR = (c.reports || []).at(-1);
+        const raw = await genJson(user, buildReportMessages(c, { cardText: cardTextOf(card), lore, ledger: m.ledger, timeline: m.timeline, recent, prev: prevR ? { date: new Date(prevR.at).toLocaleDateString('ko-KR'), title: prevR.title, note: prevR.note } : null }), { ...settings, createTemperature: 0.9 });
+        const rep = cleanReport(raw, now);
+        const c2 = await mutate(user, p.id, (x) => ({ ...x, reports: [...(x.reports || []), rep].slice(-20) }));
+        notify(user, { id: p.id });
+        return { report: rep, count: c2.reports.length };
+      }
       case 'syncOurLetters': {
         // 상대의 로어북에 「우리의 편지」 항목: 관계·약속·시기 요약·최근 편지 요약. 일반 채팅에서도 편지 일을 알게
         const c = ensureMemory(await loadC(user, p.id));

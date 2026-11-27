@@ -873,3 +873,30 @@ test('내 초상화: 페르소나 설명으로 그리고, 지난 모습 남기�
   await host.ask('u1', 'drawScene', { id, request: '비 오는 밤의 나', includeMe: true });
   assert.match(sent.at(-1), /reuse them exactly.*1boy, solo, black hair, red eyes, black coat/s);
 });
+
+test('기록부: 받으면 쌓이고, 갱신하면 지난 기록을 알려 주며 새 기록', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  const prompts = [];
+  const quiet = host.api.generate.quiet;
+  let k = 0;
+  host.api.generate.quiet = async (req) => {
+    if (/lyrical record book/.test(req.messages[0].content)) {
+      prompts.push(req.messages[1].content);
+      return { content: JSON.stringify({ title: `기록 ${++k}`, note: '얼음 위에 등불을 놓는 사람.', facts: [{ label: '일', value: '등대지기' }], voices: [{ who: '하나', relation: '이웃', says: '말이 없지.', hidden: false }, { who: '로', relation: '형', says: '사실은 겁쟁이야.', hidden: true }], changed: k > 1 ? '편지가 길어졌다' : '' }) };
+    }
+    return quiet(req);
+  };
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const { id } = await host.ask('u1', 'matchConfirm', { draft });
+  const r1 = await host.ask('u1', 'makeReport', { id });
+  assert.equal(r1.report.voices[1].hidden, true);
+  assert.doesNotMatch(prompts[0], /previous_record/);
+  const r2 = await host.ask('u1', 'makeReport', { id });
+  assert.equal(r2.count, 2);
+  assert.match(prompts[1], /previous_record[\s\S]*기록 1/);
+  const c = (await host.ask('u1', 'get', { id })).c;
+  assert.deepEqual(c.reports.map((r) => r.title), ['기록 1', '기록 2']);
+});

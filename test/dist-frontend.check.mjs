@@ -150,7 +150,10 @@ ok('물품: 그림 누르면 크게 보기(모달)', modals.length === 1 && moda
 
 // 모음
 const meChip = () => panelRoot.querySelector('.im-chip[data-me]');
-ok('상대를 보면 탭은 편지첩·물건·추억 상자', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '편지첩,물건,추억 상자');
+ok('상대를 보면 탭은 편지첩·물건·추억 상자·기록부', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '편지첩,물건,추억 상자,기록부');
+clickIn(panelRoot, '.im-tabs button', '기록부'); await tick();
+ok('기록부: 아직 없으면 받기 버튼 + 편지로 이어진 일들 타임라인', panelRoot.textContent.includes('기록부 받기') && panelRoot.querySelectorAll('.im-timeline .im-tl').length >= 2);
+clickIn(panelRoot, '.im-tabs button', '편지첩'); await tick();
 meChip().dispatchEvent(new window.Event('click')); await tick();
 ok('나: 탭은 내 모습·추억 상자·달력, 내 모습 칸', [...panelRoot.querySelectorAll('.im-tabs button')].map((b) => b.textContent).join() === '내 모습,추억 상자,달력' && panelRoot.querySelectorAll('.im-me').length >= 1);
 clickIn(panelRoot, '.im-tabs button', '추억 상자'); await tick();
