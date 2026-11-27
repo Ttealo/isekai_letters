@@ -2541,7 +2541,12 @@ export function start(api) {
     return list.find((x) => x.id !== primary.id && x.provider === 'nanogpt' && baseModel(x.model) === baseModel(primary.model)) || null;
   };
   const callLLM = async (user, req, connId, settings, what = '글 생성') => {
-    const send = (id, r) => (id ? api.generate.raw({ ...r, connection_id: id }) : api.generate.quiet(r));
+    // raw 생성은 연결의 모델을 스스로 채우지 않으므로(공급자에 따라 「model 없음」으로 거절) 연결 목록의 모델을 함께 보낸다
+    const send = async (id, r) => {
+      if (!id) return api.generate.quiet(r);
+      const cn = (await connList(user)).find((x) => x.id === id);
+      return api.generate.raw({ ...r, connection_id: id, ...(cn?.model && !r.model ? { model: cn.model } : {}) });
+    };
     let lastErr;
     for (const wait of (globalThis.__IM_FAST_RETRY ? [0, 1, 1] : [0, 8000, 20000])) {
       if (wait) {

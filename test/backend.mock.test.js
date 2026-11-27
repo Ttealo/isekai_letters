@@ -816,10 +816,10 @@ test('원래 연결이 계속 429면 같은 모델의 NanoGPT 연결로 넘긴�
     { id: 'ng', name: '[RP·종량제] Gemini 4 Argon', provider: 'nanogpt', model: 'google/gemini-4-argon' },
     { id: 'ng2', name: 'Flash', provider: 'nanogpt', model: 'google/gemini-3.8-flash' },
   ] };
-  const used = [];
+  const used = []; const models = [];
   const quiet = host.api.generate.quiet;
   host.api.generate.raw = async (req) => {
-    used.push(req.connection_id);
+    used.push(req.connection_id); models.push(req.model);
     if (req.connection_id === 'vx') throw new Error('Vertex AI generate failed (429): Resource exhausted.');
     return quiet(req);
   };
@@ -830,6 +830,8 @@ test('원래 연결이 계속 429면 같은 모델의 NanoGPT 연결로 넘긴�
   const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
   assert.ok(draft.name);
   assert.deepEqual(used, ['vx', 'vx', 'vx', 'ng']);
+  assert.equal(models.at(-1), 'google/gemini-4-argon'); // 대체 연결의 모델을 함께 보냄
+  assert.equal(models[0], 'gemini-4-argon');
   await host.ask('u1', 'saveSettings', { settings: { ...s0, createConnectionId: 'vx', fallbackMode: 'off' } });
   used.length = 0;
   await assert.rejects(host.ask('u1', 'matchDraft', { mode: 'random' }), /429/);
