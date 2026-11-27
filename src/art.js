@@ -15,6 +15,7 @@ export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render
 // {subject} = 글 생성이 써 준 영어 주제, {style} = 전체 룩
 export const DEFAULT_TEMPLATES = {
   envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
+  postcard: 'picture postcard illustration of {subject}, a wide landscape view of that world, atmospheric depth, rich environmental detail, thin white postcard border, {style}, no people in focus, no lettering, no text',
   emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
@@ -155,6 +156,9 @@ export function artParamAttempts(size, art) {
   return out;
 }
 export const isParamRejection = (e) => /\(400\)|not support|unsupported|negative|resolution|size/i.test(String(e?.message || e));
+
+// 받은 물건 중 풍경 엽서·그림엽서는 엽서 양식(가로 풍경)으로
+export const isPostcard = (name = '', note = '') => /엽서|풍경화|postcard/i.test(`${name} ${note}`);
 
 // 바뀔 그림 고르기. change: 정리 단계가 찾은 모양 변화 {paper, stamp, reason, medium, motif} | null
 // seasonChanged: 이번 편지와 직전 상대 편지의 그쪽 달(계절)이 다른지

@@ -13,7 +13,7 @@ import {
   queueOrganize, chapterDue, readCardField, setCardField, approxTokens, MODES, CARD_FIELDS,
 } from './memory.js';
 import {
-  ART_KINDS, setKinds, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, artChangeJobs, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
+  ART_KINDS, setKinds, isPostcard, artParamAttempts, isParamRejection, modelFor, cleanArt, dayKey, artChangeJobs, quotaLeft, useQuota, buildArtPromptMessages, cleanArtPrompts, composePrompt, ensureArt,
 } from './art.js';
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -255,7 +255,8 @@ export function start(api) {
             await setTarget(i, { state: 'failed', error: msg });
             continue;
           }
-          const prompt = composePrompt(j.kind, subject, art);
+          const postcard = j.kind === 'item' && isPostcard(j.name, j.note);
+          const prompt = composePrompt(postcard ? 'postcard' : j.kind, subject, art);
           const t0 = Date.now();
           await setTarget(i, { state: 'drawing', startedAt: t0 });
           notify(user, { id });
@@ -264,7 +265,7 @@ export function start(api) {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
-            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' ? art.envelopeSize : art.size, art)) {
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || postcard ? art.envelopeSize : art.size, art)) {
               try {
                 // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
                 let timer;
@@ -1111,6 +1112,23 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'syncOurLetters': {
+        // 상대의 로어북에 「우리의 편지」 항목: 관계·약속·시기 요약·최근 편지 요약. 일반 채팅에서도 편지 일을 알게
+        const c = ensureMemory(await loadC(user, p.id));
+        if (!c.worldBookId) throw new Error('이 상대에는 연결된 로어북이 없습니다.');
+        const m = memoryLayers(c, { budgets: { ...cleanBudgets((await loadSettings(user)).budgets), ledgerChars: 900, summaries: 6, summaryChars: 900, chapterChars: 900 }, recentLetters: 0 });
+        const n = c.letters.filter((l) => l.state !== 'in_transit').length;
+        const content = [
+          `{{char}}와 {{user}}는 서로 다른 세계에서 편지만 주고받는다(지금까지 ${n}통, 얼굴을 본 적 없음).`,
+          m.ledger, m.chapters && `지난 이야기:\n${m.chapters}`, m.summaries && `최근 편지:\n${m.summaries}`,
+        ].filter(Boolean).join('\n').replaceAll(c.name, '{{char}}').slice(0, 3000);
+        const entries = await listEntries(user, c.worldBookId);
+        const old = entries.find((e) => e.comment === '우리의 편지');
+        const input = entryInput({ title: '우리의 편지', keys: ['편지', '우체통', '답장'], content, constant: !!p.constant }, 90);
+        if (old) await api.world_books.entries.update(old.id, input, user);
+        else await api.world_books.entries.create(c.worldBookId, input, user);
+        return { updated: !!old, chars: content.length };
+      }
       case 'drawScene': {
         // 내 편지에 넣을 그림: 자연어 → NovelAI. 사진 동봉처럼 쓴다
         const r = await drawScene(user, p.id, { request: p.request, includeThem: !!p.includeThem, includeMe: !!p.includeMe });

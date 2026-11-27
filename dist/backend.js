@@ -1592,6 +1592,7 @@ export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render
 // {subject} = 글 생성이 써 준 영어 주제, {style} = 전체 룩
 export const DEFAULT_TEMPLATES = {
   envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
+  postcard: 'picture postcard illustration of {subject}, a wide landscape view of that world, atmospheric depth, rich environmental detail, thin white postcard border, {style}, no people in focus, no lettering, no text',
   emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
@@ -1732,6 +1733,9 @@ export function artParamAttempts(size, art) {
   return out;
 }
 export const isParamRejection = (e) => /\(400\)|not support|unsupported|negative|resolution|size/i.test(String(e?.message || e));
+
+// 받은 물건 중 풍경 엽서·그림엽서는 엽서 양식(가로 풍경)으로
+export const isPostcard = (name = '', note = '') => /엽서|풍경화|postcard/i.test(`${name} ${note}`);
 
 // 바뀔 그림 고르기. change: 정리 단계가 찾은 모양 변화 {paper, stamp, reason, medium, motif} | null
 // seasonChanged: 이번 편지와 직전 상대 편지의 그쪽 달(계절)이 다른지
@@ -2153,7 +2157,8 @@ export function start(api) {
             await setTarget(i, { state: 'failed', error: msg });
             continue;
           }
-          const prompt = composePrompt(j.kind, subject, art);
+          const postcard = j.kind === 'item' && isPostcard(j.name, j.note);
+          const prompt = composePrompt(postcard ? 'postcard' : j.kind, subject, art);
           const t0 = Date.now();
           await setTarget(i, { state: 'drawing', startedAt: t0 });
           notify(user, { id });
@@ -2162,7 +2167,7 @@ export function start(api) {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
-            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' ? art.envelopeSize : art.size, art)) {
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || postcard ? art.envelopeSize : art.size, art)) {
               try {
                 // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
                 let timer;
@@ -3009,6 +3014,23 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'syncOurLetters': {
+        // 상대의 로어북에 「우리의 편지」 항목: 관계·약속·시기 요약·최근 편지 요약. 일반 채팅에서도 편지 일을 알게
+        const c = ensureMemory(await loadC(user, p.id));
+        if (!c.worldBookId) throw new Error('이 상대에는 연결된 로어북이 없습니다.');
+        const m = memoryLayers(c, { budgets: { ...cleanBudgets((await loadSettings(user)).budgets), ledgerChars: 900, summaries: 6, summaryChars: 900, chapterChars: 900 }, recentLetters: 0 });
+        const n = c.letters.filter((l) => l.state !== 'in_transit').length;
+        const content = [
+          `{{char}}와 {{user}}는 서로 다른 세계에서 편지만 주고받는다(지금까지 ${n}통, 얼굴을 본 적 없음).`,
+          m.ledger, m.chapters && `지난 이야기:\n${m.chapters}`, m.summaries && `최근 편지:\n${m.summaries}`,
+        ].filter(Boolean).join('\n').replaceAll(c.name, '{{char}}').slice(0, 3000);
+        const entries = await listEntries(user, c.worldBookId);
+        const old = entries.find((e) => e.comment === '우리의 편지');
+        const input = entryInput({ title: '우리의 편지', keys: ['편지', '우체통', '답장'], content, constant: !!p.constant }, 90);
+        if (old) await api.world_books.entries.update(old.id, input, user);
+        else await api.world_books.entries.create(c.worldBookId, input, user);
+        return { updated: !!old, chars: content.length };
+      }
       case 'drawScene': {
         // 내 편지에 넣을 그림: 자연어 → NovelAI. 사진 동봉처럼 쓴다
         const r = await drawScene(user, p.id, { request: p.request, includeThem: !!p.includeThem, includeMe: !!p.includeMe });

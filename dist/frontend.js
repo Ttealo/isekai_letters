@@ -2046,6 +2046,10 @@ export function setup(ctx) {
         })),
         // 관계 장부
         el('h4', { text: '관계 장부' }),
+        c?.worldBookId ? el('div', { class: 'im-row' }, [
+          el('span', { class: 'im-muted im-grow', text: '「우리의 편지」 로어북 항목: 이 캐릭터와 일반 채팅을 할 때도 편지로 쌓은 관계·약속·지난 이야기를 알게 합니다(글 생성 없음).' }),
+          link('로어북에 넣기·갱신', () => doAct(async () => { const r = await ask('syncOurLetters', { id: view.id }, 60000); error = `「우리의 편지」 항목을 ${r.updated ? '갱신' : '만들'}었습니다(${r.chars}자).`; })),
+        ]) : null,
         L.stage || L.mood || L.calledMe ? el('div', { class: 'im-muted', text: [L.stage && `거리: ${L.stage}`, L.mood && `상대 마음: ${L.mood}`, L.calledMe && `나를 부르는 말: ${L.calledMe}`, L.calledThem && `내가 부르는 말: ${L.calledThem}`].filter(Boolean).join(' · ') }) : el('div', { class: 'im-muted', text: '아직 기록이 없습니다.' }),
         list('약속', L.promises, (x) => `${x.who === 'me' ? '나' : '상대'}: ${x.what}${x.state === 'done' ? ' (지킴)' : ''}`),
         list('아직 답 못 받은 질문', L.openQuestions, (x) => `${x.who === 'me' ? '내가' : '상대가'} 물음: ${x.q}`),

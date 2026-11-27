@@ -788,3 +788,20 @@ test('편지지 꾸미기(HTML): 매칭 뒤 테마, 사건이면 그 편지부�
   assert.notEqual(r2.theme.ink, '#f4ead6');
   assert.deepEqual(themes, [false]);
 });
+
+test('「우리의 편지」 로어북 항목: 만들고, 다시 누르면 갱신', async (t) => {
+  const host = fakeHost();
+  const lib = addLibrary(host, { ...MATCH, first_letter: null });
+  host.api.world_books.entries.update = async (id, input) => Object.assign(lib.entries.get(id), input);
+  const stop = start(host.api);
+  t.after(stop);
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const { id } = await host.ask('u1', 'matchConfirm', { draft });
+  const r1 = await host.ask('u1', 'syncOurLetters', { id });
+  assert.equal(r1.updated, false);
+  const e = [...lib.entries.values()].find((x) => x.comment === '우리의 편지');
+  assert.ok(e && /편지만 주고받는다/.test(e.content) && e.key.includes('편지'));
+  const r2 = await host.ask('u1', 'syncOurLetters', { id });
+  assert.equal(r2.updated, true);
+  assert.equal([...lib.entries.values()].filter((x) => x.comment === '우리의 편지').length, 1);
+});

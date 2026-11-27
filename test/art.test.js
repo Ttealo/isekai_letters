@@ -128,3 +128,9 @@ test('편지지 테마: 기본값 고정, 값 검사·대비, 화면용 스타�
   assert.deepEqual(A.setKinds(A.cleanArt({})), ['envelope', 'emblem']);
   assert.deepEqual(A.setKinds(A.cleanArt({ paperMode: 'image' })), ['paper', 'stamp', 'seal']);
 });
+
+test('엽서: 이름으로 알아보고 엽서 양식', () => {
+  assert.ok(A.isPostcard('구름바다 그림엽서'));
+  assert.ok(!A.isPostcard('납 조각'));
+  assert.match(A.composePrompt('postcard', 'sea of clouds', A.cleanArt({})), /picture postcard illustration of sea of clouds/);
+});
