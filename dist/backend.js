@@ -1,4 +1,4 @@
-// 이세계 우체통 공용 로직(백엔드·프런트·테스트가 같이 씀). 의존성 없음, 부수 효과 없음.
+// 이세계 편지 공용 로직(백엔드·프런트·테스트가 같이 씀). 의존성 없음, 부수 효과 없음.
 // 시각: 현실 시각은 ms(Date.now()), 상대 쪽 시각은 "만난 뒤 흐른 시간(시간 단위, 실수)".
 
 export const HOUR = 3600 * 1000;
@@ -2042,7 +2042,7 @@ const cPath = (id) => `c/${id}.json`;
 const ID_RE = /^c[0-9a-z]{4,40}$/;
 
 export function start(api) {
-  const log = (lvl, msg) => api.log?.[lvl]?.(`[우체통] ${msg}`);
+  const log = (lvl, msg) => api.log?.[lvl]?.(`[이세계 편지] ${msg}`);
   const queues = new Map(); // userId → 쓰기 순서 보장용 Promise
   const busy = new Set(); // `${userId}:${cid}` 생성 중
   const recovered = new Set(); // 이번 실행에서 복구를 마친 사용자
@@ -2344,8 +2344,8 @@ export function start(api) {
         }).catch(() => {});
         if (errors.length) log('warn', `그림 일부 실패: ${errors.join(' / ')}`);
         try {
-          if (errors.length) api.toast?.error?.(`${c00.name}: 그림 ${jobs.length - doneCount}장 실패 — ${errors[0].slice(0, 120)}`, { title: '이세계 우체통', userId: user });
-          else api.toast?.success?.(`${c00.name}: 그림 ${doneCount}장 완성`, { title: '이세계 우체통', userId: user });
+          if (errors.length) api.toast?.error?.(`${c00.name}: 그림 ${jobs.length - doneCount}장 실패 — ${errors[0].slice(0, 120)}`, { title: '이세계 편지', userId: user });
+          else api.toast?.success?.(`${c00.name}: 그림 ${doneCount}장 완성`, { title: '이세계 편지', userId: user });
         } catch {}
         notify(user, { id });
       }
@@ -2509,12 +2509,12 @@ export function start(api) {
         if (old) { try { await api.images.delete(old, user); } catch {} }
         await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0, kind: 'portrait' }]);
         log('info', `초상화 완성(${c.name}) ${Math.round((Date.now() - t0) / 1000)}초`);
-        api.toast?.success?.(`${c.name}: 초상화 완성`, { title: '이세계 우체통', userId: user });
+        api.toast?.success?.(`${c.name}: 초상화 완성`, { title: '이세계 편지', userId: user });
       } catch (e) {
         const msg = String(e?.message || e).slice(0, 300);
         log('warn', `초상화 실패(${c.name}): ${msg}`);
         await mutate(user, id, (x) => ({ ...x, portraitJob: { state: 'failed', startedAt: t0, error: msg } })).catch(() => {});
-        api.toast?.error?.(`${c.name}: 초상화 실패 — ${msg.slice(0, 120)}`, { title: '이세계 우체통', userId: user });
+        api.toast?.error?.(`${c.name}: 초상화 실패 — ${msg.slice(0, 120)}`, { title: '이세계 편지', userId: user });
       } finally {
         drawing.delete(key);
         notify(user, { id });
@@ -2802,8 +2802,8 @@ export function start(api) {
     if (mode === 'existing' && !characterId) throw new Error('기존 캐릭터 id가 없습니다.');
     // 1) 로어북
     const book = await api.world_books.create({
-      name: mode === 'existing' ? `${d.name} · 우체통` : `${d.worldTitle} · 우체통`,
-      description: '이세계 우체통이 만든 로어북. 편지가 오가며 항목이 늘어날 수 있다.',
+      name: mode === 'existing' ? `${d.name} · 이세계 편지` : `${d.worldTitle} · 이세계 편지`,
+      description: '이세계 편지이 만든 로어북. 편지가 오가며 항목이 늘어날 수 있다.',
       metadata: { isekai_mailbox: true },
     }, user);
     const made = { bookId: book.id, characterId: '' };
@@ -2821,8 +2821,8 @@ export function start(api) {
           description: d.card.description,
           personality: d.card.personality,
           post_history_instructions: d.card.never,
-          creator_notes: '이세계 우체통에서 만든 편지 상대입니다.',
-          tags: ['이세계 우체통'],
+          creator_notes: '이세계 편지에서 만든 편지 상대입니다.',
+          tags: ['이세계 편지'],
           world_book_ids: [book.id],
           extensions: { isekai_mailbox: { mail: d.mail, worldBookId: book.id } },
         }, user);
@@ -2969,7 +2969,7 @@ export function start(api) {
       ? `${arrivals[0].name}의 편지${total > 1 ? ` ${total}통이` : '가'} 도착했어요`
       : `편지 ${total}통이 도착했어요 — ${arrivals.map((a) => a.name).join(', ')}`;
     try {
-      await api.push.send({ title: '이세계 우체통', body, tag: 'isekai-mailbox', url: '/', rawTitle: true, icon: arrivals[0].stampId ? `/api/v1/images/${arrivals[0].stampId}?size=sm` : undefined }, user);
+      await api.push.send({ title: '이세계 편지', body, tag: 'isekai-mailbox', url: '/', rawTitle: true, icon: arrivals[0].stampId ? `/api/v1/images/${arrivals[0].stampId}?size=sm` : undefined }, user);
     } catch (e) { log('info', `푸시 알림 못 보냄: ${e?.message || e}`); }
   };
 
@@ -3346,7 +3346,7 @@ export function start(api) {
         if (status && status.available === false) throw new Error('알림을 받을 기기가 등록돼 있지 않습니다. 루미버스 설정에서 알림을 먼저 등록해 주세요.');
         const delay = Math.min(120, Math.max(5, Number(p.delaySec) || 30));
         setTimeout(() => {
-          api.push.send({ title: '이세계 우체통', body: '알림 시험이에요. 편지가 도착하면 이렇게 알려 드려요.', tag: 'isekai-mailbox-test', url: '/', rawTitle: true }, user)
+          api.push.send({ title: '이세계 편지', body: '알림 시험이에요. 편지가 도착하면 이렇게 알려 드려요.', tag: 'isekai-mailbox-test', url: '/', rawTitle: true }, user)
             .then((r) => log('info', `알림 시험 보냄: ${r?.sent ?? '?'}대`))
             .catch((e) => log('warn', `알림 시험 실패: ${e?.message || e}`));
         }, delay * 1000);
@@ -3421,7 +3421,7 @@ export function start(api) {
       case 'importAll': {
         // 되살리기: 같은 id가 있으면 건너뜀(replace면 덮어씀). 캐릭터·로어북이 이 서버에 없으면 사본으로 새로 만든다.
         const b = p.backup;
-        if (!b || b.kind !== 'isekai_mailbox_backup' || !Array.isArray(b.correspondents)) throw new Error('이세계 우체통 백업 파일이 아닙니다.');
+        if (!b || b.kind !== 'isekai_mailbox_backup' || !Array.isArray(b.correspondents)) throw new Error('이세계 편지 백업 파일이 아닙니다.');
         const have = new Set(await listIds(user));
         const res = { added: 0, replaced: 0, skipped: 0, characters: 0, books: 0 };
         for (const row of b.correspondents) {

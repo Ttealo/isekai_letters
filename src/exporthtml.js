@@ -86,7 +86,7 @@ ${hist.length ? `<h3>지난 모습 · ${hist.length}</h3><div class="grid tall">
   const sections = [['letters', '편지', letterHtml || '<p class="empty">아직 주고받은 편지가 없어요.</p>'], ['record', '기록부', reportHtml], ...(meHtml ? [['me', '나', meHtml]] : []), ['album', '모음', albumHtml || '<p class="empty">아직 모인 그림이 없어요.</p>'], ['timeline', '이어진 일들', tlHtml]];
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${exEsc(c.name)} — 이세계 우체통 편지첩</title>
+<title>${exEsc(c.name)} — 이세계 편지첩</title>
 <link rel="stylesheet" href="${PAPER_FONT_URL}">
 <style>
 *{box-sizing:border-box}
@@ -176,7 +176,7 @@ ${myFaceId || myName ? `<div class="me">${myFaceId ? pic(myFaceId, 'sm', '나') 
 </header>
 <nav>${sections.map(([k, t]) => `<a href="#${k}">${t}</a>`).join('')}</nav>
 ${sections.map(([k, t, h]) => `<section id="${k}"><h2>${t}</h2>${h}</section>`).join('\n')}
-<footer>이세계 우체통 · ${exEsc(exDt(now, true))} 저장</footer>
+<footer>이세계 편지 · ${exEsc(exDt(now, true))} 저장</footer>
 </main>
 <div id="zoom"><img alt=""><div></div></div>
 <script>

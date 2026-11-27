@@ -1,4 +1,4 @@
-// 이세계 우체통 공용 로직(백엔드·프런트·테스트가 같이 씀). 의존성 없음, 부수 효과 없음.
+// 이세계 편지 공용 로직(백엔드·프런트·테스트가 같이 씀). 의존성 없음, 부수 효과 없음.
 // 시각: 현실 시각은 ms(Date.now()), 상대 쪽 시각은 "만난 뒤 흐른 시간(시간 단위, 실수)".
 
 export const HOUR = 3600 * 1000;
@@ -1005,7 +1005,7 @@ ${hist.length ? `<h3>지난 모습 · ${hist.length}</h3><div class="grid tall">
   const sections = [['letters', '편지', letterHtml || '<p class="empty">아직 주고받은 편지가 없어요.</p>'], ['record', '기록부', reportHtml], ...(meHtml ? [['me', '나', meHtml]] : []), ['album', '모음', albumHtml || '<p class="empty">아직 모인 그림이 없어요.</p>'], ['timeline', '이어진 일들', tlHtml]];
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${exEsc(c.name)} — 이세계 우체통 편지첩</title>
+<title>${exEsc(c.name)} — 이세계 편지첩</title>
 <link rel="stylesheet" href="${PAPER_FONT_URL}">
 <style>
 *{box-sizing:border-box}
@@ -1095,7 +1095,7 @@ ${myFaceId || myName ? `<div class="me">${myFaceId ? pic(myFaceId, 'sm', '나') 
 </header>
 <nav>${sections.map(([k, t]) => `<a href="#${k}">${t}</a>`).join('')}</nav>
 ${sections.map(([k, t, h]) => `<section id="${k}"><h2>${t}</h2>${h}</section>`).join('\n')}
-<footer>이세계 우체통 · ${exEsc(exDt(now, true))} 저장</footer>
+<footer>이세계 편지 · ${exEsc(exDt(now, true))} 저장</footer>
 </main>
 <div id="zoom"><img alt=""><div></div></div>
 <script>
@@ -1106,7 +1106,7 @@ document.addEventListener('click',(e)=>{const t=e.target;if(t.matches&&t.matches
 }
 
 
-// 이세계 우체통 프런트
+// 이세계 편지 프런트
 // 1) 서랍 탭: 페르소나별 상대 목록, 새 상대·수정, 편지 쓰기, 설정
 // 2) 우체통 위젯(플로트, ui_panels): 새 편지면 깃발과 숫자. 누르면 보조창을 열고 닫음
 // 3) 보조창(오른쪽 도크, ui_panels): 페르소나 → 상대 → 편지첩 / 물품 / 모음
@@ -1589,10 +1589,10 @@ export function setup(ctx) {
 
   // ══════════════ 서랍 탭 ══════════════
   const tab = ctx.ui.registerDrawerTab({
-    id: 'isekai-mailbox', title: '이세계 우체통', shortName: '우체통',
+    id: 'isekai-mailbox', title: '이세계 편지', shortName: '이세계 편지',
     description: '다른 세계의 누군가와 주고받는 편지',
-    keywords: ['letter', 'mail', 'post', '편지', '우체통', '이세계'],
-    headerTitle: '이세계 우체통', iconSvg: ICON,
+    keywords: ['letter', 'mail', 'post', '편지', '우체통', '이세계', '이세계 편지'],
+    headerTitle: '이세계 편지', iconSvg: ICON,
   });
   const removeStyle = typeof ctx.dom?.addStyle === 'function' ? ctx.dom.addStyle(CSS + CSS2) : null;
   let fontLink = null;
@@ -1604,7 +1604,7 @@ export function setup(ctx) {
   } catch {}
   const htmlPaper = () => (S.settings?.art?.paperMode || 'html') !== 'image';
   // 확인창: 루미버스 앱 확인창(모바일에서도 뜸). 없으면 브라우저 confirm
-  const confirmBox = async (message, { title = '이세계 우체통', ok = '확인', cancel = '취소', danger = false } = {}) => {
+  const confirmBox = async (message, { title = '이세계 편지', ok = '확인', cancel = '취소', danger = false } = {}) => {
     try {
       if (typeof ctx.ui?.showConfirm === 'function') {
         const r = await ctx.ui.showConfirm({ title, message: String(message), variant: danger ? 'danger' : 'info', confirmLabel: ok, cancelLabel: cancel });
@@ -1814,14 +1814,14 @@ export function setup(ctx) {
       return [
         back,
         el('h3', { text: `${r.name} 지우기` }),
-        el('div', { class: 'im-muted', text: `편지 ${r.letters}통 · 물건 ${r.items}개의 우체통 기록은 지워집니다. 되돌릴 수 없습니다.` }),
+        el('div', { class: 'im-muted', text: `편지 ${r.letters}통 · 물건 ${r.items}개의 편지 기록은 지워집니다. 되돌릴 수 없습니다.` }),
         el('h4', { text: '함께 지울 것' }),
         r.images ? box('removeImages', `그림 ${r.images}장`, '편지지·우표·봉인·물건 그림') : el('div', { class: 'im-muted', text: '그림 없음' }),
         r.character ? box('removeCharacter', `캐릭터 「${r.character.name}」`, r.sharedCharacter ? `다른 상대 ${r.sharedCharacter}명이 이 캐릭터를 씁니다 — 남겨 두는 것이 좋아요.` : r.character.made ? '매칭으로 만든 캐릭터' : '원래 있던 캐릭터입니다(기존 캐릭터로 시작) — 보통은 남겨 둡니다.') : el('div', { class: 'im-muted', text: '연결된 캐릭터 없음' }),
         r.book ? box('removeBook', `로어북 「${r.book.name}」`, '매칭 때 만든 세계·달력·우편 로어북') : el('div', { class: 'im-muted', text: '연결된 로어북 없음' }),
         el('div', { class: 'im-row' }, [
           btn('지우기', () => act(async () => {
-            if (!(await confirmBox(`${r.name}의 우체통 기록${r.pick.removeImages && r.images ? '·그림' : ''}${r.pick.removeCharacter && r.character ? '·캐릭터' : ''}${r.pick.removeBook && r.book ? '·로어북' : ''}을 지울까요? 되돌릴 수 없습니다.`))) return;
+            if (!(await confirmBox(`${r.name}의 편지 기록${r.pick.removeImages && r.images ? '·그림' : ''}${r.pick.removeCharacter && r.character ? '·캐릭터' : ''}${r.pick.removeBook && r.book ? '·로어북' : ''}을 지울까요? 되돌릴 수 없습니다.`))) return;
             await ask('delete', { id: view.id, ...r.pick }, 60000);
             removeInfo = null;
             await refresh();
@@ -2099,7 +2099,7 @@ export function setup(ctx) {
         fontPrev,
         el('div', { class: 'im-muted', text: '모습 글(그림을 안 쓸 때)과 기록부에 쓰는 문체예요. 편지 자체의 말투는 상대 성격을 따라요.' }),
         el('div', { class: 'im-muted', text: '예: 최소 1000 · 최대 0 = 1000자 이상, 일이 많으면 더 길게. 짧은 편지를 원하면 최소 0 · 최대 1000. 길게 쓰려면 최대 출력 토큰도 넉넉히(한국어 1000자 ≈ 1500토큰 + 사이 일 기록).' }),
-        el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
+        el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 이세계 편지가 자기 지시문과 위 값을 보냅니다.' }),
         ]),
         img: el('div', {}, [
         el('h4', { text: '그림 (NanoGPT 등 이미지 연결)' }),
@@ -2181,7 +2181,7 @@ export function setup(ctx) {
               if (!f) return;
               let backup;
               try { backup = JSON.parse(await f.text()); } catch { throw new Error('JSON 파일을 읽지 못했습니다.'); }
-              if (backup?.kind !== 'isekai_mailbox_backup') throw new Error('이세계 우체통 백업 파일이 아닙니다.');
+              if (backup?.kind !== 'isekai_mailbox_backup') throw new Error('이세계 편지 백업 파일이 아닙니다.');
               const n = backup.correspondents?.length || 0;
               const replace = await confirmBox(`백업의 상대 ${n}명을 되살립니다.\n\n이미 있는 상대를 백업 내용으로 덮어쓸까요?\n확인 = 덮어쓰기 / 취소 = 없는 상대만 추가`);
               const withSettings = await confirmBox('백업의 설정도 되살릴까요? (취소 = 지금 설정 유지)');
@@ -2240,7 +2240,7 @@ export function setup(ctx) {
           el('option', { value: '', text: M.characters?.length ? '고르기' : '불러오는 중…' }),
           ...(M.characters || []).map((c) => el('option', { value: c.id, text: c.books ? `${c.name} (로어북 ${c.books})` : c.name, selected: c.id === M.characterId })),
         ])));
-        body.push(el('div', { class: 'im-muted', text: '원본 카드와 로어북은 바꾸지 않고, 우편 설정과 「〈이름〉 · 우체통」 로어북만 새로 만듭니다.' }));
+        body.push(el('div', { class: 'im-muted', text: '원본 카드와 로어북은 바꾸지 않고, 우편 설정과 「〈이름〉 · 이세계 편지」 로어북만 새로 만듭니다.' }));
       }
       return [
         el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
@@ -2651,7 +2651,7 @@ export function setup(ctx) {
       const listCol = el('div', { class: 'im-page-list' });
       const mainCol = el('div', { class: 'im-page-main' }, [panelRoot]);
       const page = el('div', { class: 'im-page' }, [
-        el('div', { class: 'im-page-head' }, [el('span', { class: 'im-mini', html: MINI_BOX }), el('div', { class: 'im-grow' }, [el('div', { class: 'im-title', text: '이세계 우체통' }), pageSub]), closeBtn]),
+        el('div', { class: 'im-page-head' }, [el('span', { class: 'im-mini', html: MINI_BOX }), el('div', { class: 'im-grow' }, [el('div', { class: 'im-title', text: '이세계 편지' }), pageSub]), closeBtn]),
         el('div', { class: 'im-page-body' }, [listCol, mainCol]),
       ]);
       mount.root.append(page);
@@ -2683,10 +2683,10 @@ export function setup(ctx) {
     } else if (panelMode === 'float') {
       const w = Math.min(460, Math.max(320, window.innerWidth - 40));
       const h = Math.min(700, Math.max(360, window.innerHeight - 80));
-      const fw = ctx.ui.createFloatWidget({ width: w, height: h, initialPosition: { x: Math.max(8, window.innerWidth - w - 24), y: 40 }, snapToEdge: false, tooltip: '이세계 우체통 · 편지첩', chromeless: false, touchScrollMode: 'native' });
+      const fw = ctx.ui.createFloatWidget({ width: w, height: h, initialPosition: { x: Math.max(8, window.innerWidth - w - 24), y: 40 }, snapToEdge: false, tooltip: '이세계 편지 · 편지첩', chromeless: false, touchScrollMode: 'native' });
       fw.setVisible(false);
       const head = el('div', { class: 'im-row', style: 'padding:6px 10px;border-bottom:1px solid var(--lumiverse-border);cursor:move;font-size:12px' }, [
-        el('b', { class: 'im-grow', text: '이세계 우체통 · 편지첩' }),
+        el('b', { class: 'im-grow', text: '이세계 편지 · 편지첩' }),
         el('button', { class: 'im-link', type: 'button', text: '닫기', onclick: () => togglePanel(false) }),
       ]);
       // 창은 머리줄로만 옮긴다: 내용 칸에서 누르기가 위젯 끌기로 번지지 않게 막는다(글 고르기·스크롤·입력칸)
@@ -2703,7 +2703,7 @@ export function setup(ctx) {
         destroy: () => fw.destroy(),
       };
     } else {
-      panel = ctx.ui.requestDockPanel({ edge: 'right', title: '이세계 우체통 · 편지첩', size: 440, minSize: 320, maxSize: 760, resizable: true, startCollapsed: true });
+      panel = ctx.ui.requestDockPanel({ edge: 'right', title: '이세계 편지 · 편지첩', size: 440, minSize: 320, maxSize: 760, resizable: true, startCollapsed: true });
       panel.root.append(panelRoot);
       if (!removeStyle) panel.root.append(el('style', { text: CSS + CSS2 }));
       panel.onVisibilityChange?.((visible) => { if (visible) refresh(); renderWidget(); drawer.render(); });
@@ -2757,7 +2757,7 @@ export function setup(ctx) {
         if (P.meTab === 'cal') body = lettersCalendar(mine);
         else if (P.meTab === 'boxes') body = boxesView(mine, (id) => openC(id, 'box'));
         else body = meKeys.map((k) => meCard(k, meLabel(k), mePersonaOpts(k), pact));
-      } else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「우체통」 탭에서 새 상대를 만들어 주세요.' })];
+      } else if (!c) body = [el('div', { class: 'im-muted', text: S.all.length ? '이 페르소나와 편지를 주고받는 상대가 없습니다.' : '아직 상대가 없습니다. 서랍의 「이세계 편지」 탭에서 새 상대를 만들어 주세요.' })];
       else if (P.tab === 'items') body = itemsView(c);
       else if (P.tab === 'box') body = lockerView(c, pact, null);
       else if (P.tab === 'report') body = reportView(c, pact);
@@ -2796,7 +2796,7 @@ export function setup(ctx) {
           meRow,
           el('div', { class: 'im-list-label', text: `편지 상대 · ${mine.length}` }),
           ...(mine.length ? mine.map(rowOf) : [el('div', { class: 'im-muted', text: '편지 상대가 없습니다.' })]),
-          el('div', { class: 'im-muted', style: 'margin-top:8px', text: '새 상대·설정·서류함은 서랍의 「우체통」 탭에 있어요.' }),
+          el('div', { class: 'im-muted', style: 'margin-top:8px', text: '새 상대·설정·서류함은 서랍의 「이세계 편지」 탭에 있어요.' }),
         );
       }
       // 좁은 창(도크·떠 있는 창·휴대폰): 위쪽에 페르소나 칩, 그 아래 [나] + 상대 칩
@@ -3266,10 +3266,10 @@ export function setup(ctx) {
   }
 
   // 우체통 위젯
-  const box = el('div', { class: 'im-box', title: '이세계 우체통' });
+  const box = el('div', { class: 'im-box', title: '이세계 편지' });
   let lastDrag = 0;
   try {
-    widget = ctx.ui.createFloatWidget({ width: 76, height: 96, initialPosition: { x: Math.max(12, window.innerWidth - 110), y: Math.max(12, window.innerHeight - 190) }, snapToEdge: false, tooltip: '이세계 우체통', chromeless: true });
+    widget = ctx.ui.createFloatWidget({ width: 76, height: 96, initialPosition: { x: Math.max(12, window.innerWidth - 110), y: Math.max(12, window.innerHeight - 190) }, snapToEdge: false, tooltip: '이세계 편지', chromeless: true });
     widget.root.append(box);
     if (!removeStyle) widget.root.append(el('style', { text: CSS + CSS2 }));
     // 끌기와 누르기 구분: 위치가 실제로 바뀐 끌기 직후의 클릭만 무시한다
@@ -3316,7 +3316,7 @@ export function setup(ctx) {
     if (running) box.append(el('span', { class: 'im-pill', style: 'background:#7a5a2b', title: '그림을 그리는 중' }, [el('span', { class: 'im-spin', style: 'width:7px;height:7px;margin-right:3px' }), '그림']));
     else if (failed) box.append(el('span', { class: 'im-pill', style: 'background:#a33', title: '그림 그리기 실패 — 편지첩에서 확인' }, ['그림 실패']));
     box.style.position = 'relative';
-    widget.root.title = [unread ? `새 편지 ${unread}통` : '이세계 우체통', running ? '그림 그리는 중' : '', failed ? '그림 실패 있음' : ''].filter(Boolean).join(' · ');
+    widget.root.title = [unread ? `새 편지 ${unread}통` : '이세계 편지', running ? '그림 그리는 중' : '', failed ? '그림 실패 있음' : ''].filter(Boolean).join(' · ');
   }
   views.add({ render: renderWidget });
 
