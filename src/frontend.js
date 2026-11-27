@@ -436,7 +436,7 @@ export function setup(ctx) {
       el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
       el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
       el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
-      el('details', { class: 'im-scene' }, [
+      el('details', { class: 'im-scene', open: working.has(`scene:${c.id}`) || undefined }, [
         el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '그림 그려서 동봉 (NovelAI)' }),
         (() => {
           const req = el('textarea', { rows: 2, placeholder: '어떤 그림인지 자연어로 — 예: 비 오는 창가에서 편지를 읽는 나, 창밖엔 네온 간판' });
@@ -445,13 +445,15 @@ export function setup(ctx) {
           return el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, [
             req,
             el('div', { class: 'im-row', style: 'gap:14px' }, [el('label', { class: 'im-row', style: 'flex-direction:row' }, [me, '나(페르소나)']), el('label', { class: 'im-row', style: 'flex-direction:row' }, [them, `${c.name}`])]),
-            btn('그려서 넣기 (글 1회 + 그림 1장)', () => act(async () => {
-              if (d.photos.length >= 3) throw new Error('그림·사진은 편지 한 통에 3장까지예요.');
+            working.has(`scene:${c.id}`) ? workingBox(`scene:${c.id}`) : btn('그려서 넣기 (글 1회 + 그림 1장)', () => {
               const text = req.value.trim();
-              if (!text) throw new Error('어떤 그림인지 적어 주세요.');
-              const r = await ask('drawScene', { id: c.id, request: text, includeMe: me.checked, includeThem: them.checked }, 300000);
-              d.photos.push({ imageId: r.imageId, name: short(text, 60) });
-            }), { disabled: busyRef() || d.photos.length >= 3 }),
+              if (!text) { act(async () => { throw new Error('어떤 그림인지 적어 주세요.'); }); return; }
+              if (d.photos.length >= 3) { act(async () => { throw new Error('그림·사진은 편지 한 통에 3장까지예요.'); }); return; }
+              runSlow(`scene:${c.id}`, '그림을 그리는 중이에요…', act, async () => {
+                const r = await ask('drawScene', { id: c.id, request: text, includeMe: me.checked, includeThem: them.checked }, 300000);
+                d.photos.push({ imageId: r.imageId, name: short(text, 60) });
+              });
+            }, { disabled: busyRef() || d.photos.length >= 3 }),
             el('div', { class: 'im-muted', style: 'font-size:11px', text: '적은 글을 지침대로 NovelAI 프롬프트로 바꿔 그립니다. 다 그리면 아래 동봉 칸에 붙어요(빼기 가능).' }),
           ]);
         })(),
@@ -510,7 +512,7 @@ export function setup(ctx) {
         el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:6px' }, [
           el('b', { text: `${label}의 모습` }),
           note,
-          btn(m.portrait ? '다시 그리기 (글 1회 + NovelAI 1장)' : '초상화 그리기 (글 1회 + NovelAI 1장)', () => act(async () => {
+          working.has(`me:${key}`) ? workingBox(`me:${key}`) : btn(m.portrait ? '다시 그리기 (글 1회 + NovelAI 1장)' : '초상화 그리기 (글 1회 + NovelAI 1장)', () => runSlow(`me:${key}`, '내 초상화를 그리는 중이에요…', act, async () => {
             await ask('drawMyPortrait', { ...opts, request: note.value }, 300000);
             const r = await ask('mePortraits'); S.me = r.me || {};
           })),
@@ -1810,7 +1812,7 @@ ${extra}
       c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [el('span', { class: 'im-err im-grow', text: `우편 사고: ${c.reply.error || ''}` }), btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); }))]) : null,
       ...(nodes.length ? nodes : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다. 첫 편지를 써 보세요.' })]),
       c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs' }, [el('span', { class: 'im-spin' }), `${c.name}이(가) 답장을 쓰고 있는 듯합니다`]) : null,
-      el('details', { class: 'im-compose', open: !c.letters.length }, [
+      el('details', { class: 'im-compose', open: !c.letters.length || working.has(`scene:${c.id}`) || (drafts.get(c.id)?.photos?.length > 0) || undefined }, [
         el('summary', { text: '✒ 편지 쓰기' }),
         composeBox(c, { busyRef: () => P.busy, act }),
       ]),
@@ -2009,6 +2011,10 @@ ${extra}
   // 모음: 페르소나의 모든 편지 묶음 + 모든 물품
   // ── 기록부: 서정적인 기록·알려진 것·그쪽 사람들의 소문(가려진 것은 눌러서)·편지로 이어진 일들·상징물 ──
   const revealed = new Set();
+  const working = new Map(); // 키 → 안내 글(오래 걸리는 요청이 도는 동안)
+  const SLOW_NOTE = '원래 연결이 막혀 있으면 다시 시도하고 대체 연결로 넘어가느라 1~2분 걸릴 수 있어요. 창을 닫아도 서버에서 계속돼요.';
+  const workingBox = (key) => (working.has(key) ? el('div', { class: 'im-transit' }, [el('div', {}, [el('span', { class: 'im-spin' }), working.get(key)]), el('div', { class: 'im-muted', style: 'font-size:11px', text: SLOW_NOTE })]) : null);
+  const runSlow = (key, label, act, fn) => { if (working.has(key)) return; working.set(key, label); rerenderAll(); act(async () => { try { await fn(); } finally { working.delete(key); rerenderAll(); } }); };
   function reportView(c, act) {
     const reps = c.reports || [];
     const cur = reps.at(-1);
@@ -2023,7 +2029,7 @@ ${extra}
         c.art?.portrait?.imageId ? link('초상화 보기', () => openImage(c.art.portrait.imageId, `${c.name} · 초상화`, '')) : null,
       ]),
     ]);
-    const askBtn = btn(cur ? '기록 갱신하기 (글 1회)' : '기록부 받기 (글 1회)', () => act(async () => { await ask('makeReport', { id: c.id }, 300000); await refresh(); }), { primary: !cur });
+    const askBtn = working.has(`report:${c.id}`) ? workingBox(`report:${c.id}`) : btn(cur ? '기록 갱신하기 (글 1회)' : '기록부 받기 (글 1회)', () => runSlow(`report:${c.id}`, cur ? '기록을 갱신하는 중이에요…' : '기록부를 받는 중이에요…', act, async () => { await ask('makeReport', { id: c.id }, 300000); await refresh(); }), { primary: !cur });
     // 편지로 이어진 일들(글 생성 없음): 편지 오감, 그쪽 사건(드러난 것 / 가려진 것), 물건, 모습 바뀜
     const tl = [];
     for (const l of c.letters) {
