@@ -349,3 +349,18 @@ test('묘사 문체: 정해 둔 것과 직접 적은 말', () => {
   assert.match(M.proseRule('시인의 메모처럼'), /시인의 메모처럼/);
   assert.equal(M.cleanSettings({}).proseStyle, 'plain');
 });
+
+test('바로 받기: 가는 중인 내 편지는 지금 닿고 답장은 지금 쓸 차례(rush), 기다릴 게 없으면 안내', () => {
+  let c = M.createCorrespondent(base, 0, () => 0);
+  assert.throws(() => M.rushLetters(c, 0), /기다리는 편지가 없어요/);
+  c = M.sendLetter(c, { body: '안녕' }, 0, () => 0);
+  assert.equal(c.letters[0].state, 'in_transit');
+  c = M.rushLetters(c, 5);
+  assert.equal(c.letters[0].state, 'arrived');
+  assert.equal(c.reply.state, 'waiting');
+  assert.equal(c.reply.dueAt, 5);
+  assert.equal(c.reply.rush, true);
+  c = M.applyReply(c, { body: '답장', envelope: {}, enclosures: [], between: [] }, 6, () => 0, { immediate: true });
+  c = M.advance(c, 6).c;
+  assert.equal(c.letters.at(-1).state, 'delivered');
+});

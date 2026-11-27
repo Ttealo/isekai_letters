@@ -929,3 +929,18 @@ test('그림 사용 안 함: 그리기는 안내하며 거절, 자동 그리기 
   assert.match(prompts[0], /aesthetic and sensuous/);
   assert.equal((await host.ask('u1', 'get', { id })).c.looksText.box, '삼나무 상자.');
 });
+
+test('바로 받기: 보낸 편지가 바로 닿고, 답장을 지금 써서 배송 없이 도착', async (t) => {
+  const host = fakeHost();
+  const stop = start(host.api);
+  t.after(stop);
+  const { id } = await host.ask('u1', 'create', { input: { name: '등대지기', brief: '무뚝뚝', ratio: 7, deliveryMin: 5, deliveryMax: 5, writeMin: 48, writeMax: 48 } });
+  await host.ask('u1', 'send', { id, body: '안녕하세요' });
+  await host.ask('u1', 'rush', { id });
+  for (let i = 0; i < 60; i++) { const g = await host.ask('u1', 'get', { id }); if (g.c.letters.some((l) => l.from === 'them')) break; await new Promise((r) => setTimeout(r, 50)); }
+  const g = await host.ask('u1', 'get', { id });
+  const theirs = g.c.letters.find((l) => l.from === 'them');
+  assert.ok(theirs, '답장이 생김');
+  assert.equal(theirs.state, 'delivered');
+  assert.equal(g.c.reply, null);
+});

@@ -1,7 +1,7 @@
 import {
   cleanSettings, createCorrespondent, updateCorrespondent, toInput, sendLetter, recallLetter, markOpened,
   advance, recover, markGenerating, markFailed, retryReply, applyReply, initiativeCheck, startInitiative, cleanCalendar, shiftCalendarStart, calendarDate,
-  parseJsonLoose, proseRule, imageIdsOf, editLetter, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
+  parseJsonLoose, proseRule, rushLetters, imageIdsOf, editLetter, cleanReply, buildReplyMessages, summarize, publicView, MINUTE,
 } from './core.js';
 import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
@@ -906,7 +906,10 @@ export function start(api) {
             await api.userStorage.setJson(INIT_USAGE, { day: dayKey(), count: (u.day === dayKey() ? u.count : 0) + 1 }, { userId: user });
           }).catch(() => {});
         }
-        const next = applyReply(cur, reply, Date.now(), Math.random, { lateChance: settings.lateChance });
+        // 바로 받기로 쓴 답장은 배송 없이 바로 도착
+        const rushed = !!cur.reply?.rush;
+        let next = applyReply(cur, reply, Date.now(), Math.random, { lateChance: settings.lateChance, immediate: rushed });
+        if (rushed) next = advance(next, Date.now()).c;
         const newId = next.letters[next.letters.length - 1].id;
         return settings.organizeEnabled ? queueOrganize(next, [...answered, newId]) : next;
       });
@@ -1111,6 +1114,12 @@ export function start(api) {
         const personaName = await personaNameFor(user, await loadC(user, p.id));
         const lateChance = (await loadSettings(user)).lateChance;
         const c = await mutate(user, p.id, (c) => ({ ...sendLetter(c, { body: p.body, enclosure: p.enclosure, personaName, photos: p.photos, lateChance }, now), ...(p.userTz ? { userTz: String(p.userTz).slice(0, 60) } : {}) }));
+        return { c: publicView(c, now) };
+      }
+      case 'rush': {
+        const c = await mutate(user, p.id, (c) => rushLetters(c, now));
+        notify(user, { id: p.id });
+        tickUser(user).catch((e) => log('warn', `바로 받기 뒤 처리 실패: ${e?.message || e}`));
         return { c: publicView(c, now) };
       }
       case 'recall': {

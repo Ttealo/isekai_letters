@@ -1743,6 +1743,14 @@ export function setup(ctx) {
       c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [el('span', { class: 'im-err im-grow', text: `우편 사고: ${c.reply.error || ''}` }), btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); }))]) : null,
       ...(nodes.length ? nodes : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다. 첫 편지를 써 보세요.' })]),
       c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs' }, [el('span', { class: 'im-spin' }), `${c.name}이(가) 답장을 쓰고 있는 듯합니다`]) : null,
+      // 바로 받기: 배송·답장 쓰는 시간을 건너뜀
+      (c.reply && c.reply.state !== 'failed' && c.reply.state !== 'generating') || c.letters.some((l) => l.state === 'in_transit') ? el('div', { class: 'im-row', style: 'justify-content:flex-end' }, [
+        el('button', { class: 'im-link', type: 'button', text: '⏩ 바로 받기', title: '배송과 답장 쓰는 시간을 건너뛰고 지금 받아요', onclick: () => act(async () => {
+          if (!confirm(`${c.name}과의 편지를 기다리지 않고 지금 받을까요?\n\n· 가는 중인 편지는 바로 도착해요.\n· 답장을 기다리는 중이면 지금 써서 바로 도착해요(글 생성 1회).`)) return;
+          await ask('rush', { id: c.id });
+          await refresh();
+        }) }),
+      ]) : null,
       el('details', { class: 'im-compose', open: !c.letters.length || working.has(`scene:${c.id}`) || (drafts.get(c.id)?.photos?.length > 0) || undefined }, [
         el('summary', { text: '✒ 편지 쓰기' }),
         composeBox(c, { busyRef: () => P.busy, act }),
