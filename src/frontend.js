@@ -66,6 +66,8 @@ const CSS = `
 .im-row-card .im-emblem,.im-row-card .im-face{width:46px;height:46px}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-rush{padding:8px 18px;border-radius:999px;font-weight:600;background:var(--im-ink,#3b2f22);color:var(--lumiverse-bg-elevated,#fff);border-color:transparent;min-height:40px;touch-action:manipulation}
+.im-font-prev{padding:10px 14px;border-radius:8px;background:#eef1f4;color:#26313b;margin:-4px 0 6px}
 .im-looks-text{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .im-look-text{background:var(--lumiverse-bg-elevated,#fff);border-radius:10px;padding:12px 14px;box-shadow:0 4px 12px -8px #0007;font-family:"Gowun Batang","Nanum Myeongjo",serif;font-size:14px;line-height:1.75;white-space:pre-wrap}
 .im-look-text b{display:block;font-family:inherit;font-size:13px;color:var(--im-ink);margin-bottom:4px}
@@ -495,6 +497,21 @@ export function setup(ctx) {
     }
   } catch {}
   const htmlPaper = () => (S.settings?.art?.paperMode || 'html') !== 'image';
+  // 확인창: 루미버스 앱 확인창(모바일에서도 뜸). 없으면 브라우저 confirm
+  const confirmBox = async (message, { title = '이세계 우체통', ok = '확인', cancel = '취소', danger = false } = {}) => {
+    try {
+      if (typeof ctx.ui?.showConfirm === 'function') {
+        const r = await ctx.ui.showConfirm({ title, message: String(message), variant: danger ? 'danger' : 'info', confirmLabel: ok, cancelLabel: cancel });
+        return !!r?.confirmed;
+      }
+    } catch {}
+    try { return window.confirm(String(message)); } catch { return false; }
+  };
+  // 내 편지 글씨체(설정에서 고름)
+  const myFontStyle = () => {
+    const f = PAPER_FONTS[S.settings?.myFont || ''];
+    return f ? `font-family:"${f.family}","Nanum Myeongjo","Noto Serif KR",Georgia,serif;font-size:${(14.5 * f.size).toFixed(1)}px;line-height:28px` : undefined; // 줄 간격은 편지지 줄(28px)에 맞춤
+  };
   const artOn = () => S.settings?.art?.enabled !== false;
   const setKindsUi = () => (htmlPaper() ? ['envelope', 'emblem'] : ['paper', 'stamp', 'seal']);
   // 상대 얼굴: 초상화 → 봉인 → 이름 첫 글자
@@ -624,7 +641,7 @@ export function setup(ctx) {
             el('div', { text: short(l.body, 140) }),
             l.state === 'in_transit'
               ? el('div', { class: 'im-row' }, [el('span', { class: 'im-muted im-grow', text: etaLabel(l.arriveAt - now, exact) }), link('회수하기', () => act(async () => {
-                if (!confirm('이 편지를 회수할까요? 상대에게 가지 않습니다.')) return;
+                if (!(await confirmBox('이 편지를 회수할까요? 상대에게 가지 않습니다.'))) return;
                 await ask('recall', { id: c.id, letterId: l.id });
                 await refresh();
               }))])
@@ -698,7 +715,7 @@ export function setup(ctx) {
         r.book ? box('removeBook', `로어북 「${r.book.name}」`, '매칭 때 만든 세계·달력·우편 로어북') : el('div', { class: 'im-muted', text: '연결된 로어북 없음' }),
         el('div', { class: 'im-row' }, [
           btn('지우기', () => act(async () => {
-            if (!confirm(`${r.name}의 우체통 기록${r.pick.removeImages && r.images ? '·그림' : ''}${r.pick.removeCharacter && r.character ? '·캐릭터' : ''}${r.pick.removeBook && r.book ? '·로어북' : ''}을 지울까요? 되돌릴 수 없습니다.`)) return;
+            if (!(await confirmBox(`${r.name}의 우체통 기록${r.pick.removeImages && r.images ? '·그림' : ''}${r.pick.removeCharacter && r.character ? '·캐릭터' : ''}${r.pick.removeBook && r.book ? '·로어북' : ''}을 지울까요? 되돌릴 수 없습니다.`))) return;
             await ask('delete', { id: view.id, ...r.pick }, 60000);
             removeInfo = null;
             await refresh();
@@ -940,6 +957,10 @@ export function setup(ctx) {
       const maxT = el('input', { type: 'number', step: '100', min: '500', value: String(s.maxTokens ?? 6000) });
       const recent = el('input', { type: 'number', step: '1', min: '1', max: '20', value: String(s.recentLetters ?? 6) });
       const exact = el('input', { type: 'checkbox', checked: !!s.showExactEta, style: 'width:auto' });
+      const fontPrev = el('div', { class: 'im-font-prev', text: '오늘은 창가에 앉아 당신 편지를 다시 읽었어요.' });
+      const setPrev = (k) => { const f = PAPER_FONTS[k]; fontPrev.style.fontFamily = f ? `"${f.family}","Nanum Myeongjo",serif` : '"Nanum Myeongjo","Noto Serif KR",serif'; fontPrev.style.fontSize = f ? `${(15 * f.size).toFixed(1)}px` : '15px'; };
+      const fontSel = el('select', { onchange: (e) => setPrev(e.target.value) }, [el('option', { value: '', text: '기본 (나눔명조)', selected: !s.myFont }), ...Object.entries(PAPER_FONTS).map(([k, f]) => el('option', { value: k, text: f.label, selected: s.myFont === k }))]);
+      setPrev(s.myFont || '');
       const STY = Object.keys(PROSE_STYLES);
       const styCur = s.proseStyle || 'plain';
       const stySel = el('select', {}, [...STY.map((k) => el('option', { value: k, text: PROSE_STYLES[k], selected: styCur === k })), el('option', { value: 'custom', text: '직접 적기', selected: !STY.includes(styCur) })]);
@@ -968,6 +989,8 @@ export function setup(ctx) {
         field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
         el('div', { class: 'im-pair' }, [field('답장 본문 최소 글자 (0=자유)', lMin), field('답장 본문 최대 글자 (0=제한 없음)', lMax)]),
         el('div', { class: 'im-pair' }, [field('묘사·기록부 문체', stySel), field('직접 적는 문체 (「직접 적기」일 때)', styText)]),
+        field('내 편지 글씨체', fontSel),
+        fontPrev,
         el('div', { class: 'im-muted', text: '모습 글(그림을 안 쓸 때)과 기록부에 쓰는 문체예요. 편지 자체의 말투는 상대 성격을 따라요.' }),
         el('div', { class: 'im-muted', text: '예: 최소 1000 · 최대 0 = 1000자 이상, 일이 많으면 더 길게. 짧은 편지를 원하면 최소 0 · 최대 1000. 길게 쓰려면 최대 출력 토큰도 넉넉히(한국어 1000자 ≈ 1500토큰 + 사이 일 기록).' }),
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
@@ -1054,8 +1077,8 @@ export function setup(ctx) {
               try { backup = JSON.parse(await f.text()); } catch { throw new Error('JSON 파일을 읽지 못했습니다.'); }
               if (backup?.kind !== 'isekai_mailbox_backup') throw new Error('이세계 우체통 백업 파일이 아닙니다.');
               const n = backup.correspondents?.length || 0;
-              const replace = confirm(`백업의 상대 ${n}명을 되살립니다.\n\n이미 있는 상대를 백업 내용으로 덮어쓸까요?\n확인 = 덮어쓰기 / 취소 = 없는 상대만 추가`);
-              const withSettings = confirm('백업의 설정도 되살릴까요? (취소 = 지금 설정 유지)');
+              const replace = await confirmBox(`백업의 상대 ${n}명을 되살립니다.\n\n이미 있는 상대를 백업 내용으로 덮어쓸까요?\n확인 = 덮어쓰기 / 취소 = 없는 상대만 추가`);
+              const withSettings = await confirmBox('백업의 설정도 되살릴까요? (취소 = 지금 설정 유지)');
               const r = await ask('importAll', { backup, replace, withSettings }, 300000);
               await refresh();
               error = `되살렸습니다: 추가 ${r.added} · 덮어씀 ${r.replaced} · 건너뜀 ${r.skipped}${r.characters ? ` · 캐릭터 새로 ${r.characters}` : ''}${r.books ? ` · 로어북 새로 ${r.books}` : ''}`;
@@ -1082,7 +1105,7 @@ export function setup(ctx) {
         ...Object.values(groups),
         el('div', { class: 'im-muted', style: 'margin-top:10px', text: '저장은 모든 탭의 값을 한꺼번에 저장합니다.' }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), enabled: ion.value !== 'off', paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value, connectionId: v.conn.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), proseStyle: stySel.value === 'custom' ? (styText.value.trim() || 'plain') : stySel.value, fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), enabled: ion.value !== 'off', paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value, connectionId: v.conn.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), myFont: fontSel.value, proseStyle: stySel.value === 'custom' ? (styText.value.trim() || 'plain') : stySel.value, fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -1286,7 +1309,7 @@ export function setup(ctx) {
               el('b', { text: '초상화 (NovelAI)' }),
               st ? el('div', { class: job.state === 'failed' ? 'im-err' : 'im-muted', text: st }) : null,
               btn(pimg ? '초상화 다시 그리기' : '초상화 그리기', () => doAct(async () => {
-                if (!confirm(`${c.name}의 초상화를 ${pimg ? '다시 ' : ''}그립니다. 글 생성 1회 + 그림 1장(NovelAI). 계속할까요?`)) return;
+                if (!(await confirmBox(`${c.name}의 초상화를 ${pimg ? '다시 ' : ''}그립니다. 글 생성 1회 + 그림 1장(NovelAI). 계속할까요?`))) return;
                 await ask('drawPortrait', { id: view.id });
               }), { disabled: job?.state === 'drawing' }),
               c.art?.portrait?.character ? el('details', {}, [el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '쓴 프롬프트' }), el('div', { class: 'im-muted', style: 'font-size:11px;white-space:pre-wrap', text: `[캐릭터]\n${c.art.portrait.character}\n\n[기본]\n${c.art.portrait.prompt}` })]) : null,
@@ -1300,7 +1323,7 @@ export function setup(ctx) {
           return el('div', { class: 'im-item' }, [
             el('div', { class: 'im-pic' }, [img ? el('img', { src: imgUrl(img, 'lg'), alt: label, loading: 'lazy', style: 'cursor:zoom-in', title: '눌러서 크게 보기', onclick: () => openImage(img, `${c?.name || ''} · ${label}`) }) : el('span', { html: PIC }), stateOverlay(artTarget(c, k))]),
             el('div', { class: 'im-cap' }, [el('b', { text: label }), link(img ? '다시 그리기' : '그리기', () => doAct(async () => {
-              if (!confirm(`${label}을(를) ${img ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+              if (!(await confirmBox(`${label}을(를) ${img ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`))) return;
               await ask('drawSet', { id: view.id, kinds: [k] });
             }))]),
           ]);
@@ -1342,10 +1365,10 @@ export function setup(ctx) {
             el('option', { value: 'count', text: '만난 지 N일째만', selected: c.calendar.style === 'count' }),
           ]) : null,
           btn(c?.calendar ? '달력 다시 만들기(글 1회)' : '달력 만들기(글 1회)', () => doAct(async () => {
-            if (!confirm('로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 그쪽 달력을 만듭니다. 글 생성 1회. 계속할까요?')) return;
+            if (!(await confirmBox('로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 그쪽 달력을 만듭니다. 글 생성 1회. 계속할까요?'))) return;
             await ask('makeCalendar', { id: view.id }, 120000);
           })),
-          c?.calendar ? link('달력 지우기', () => doAct(async () => { if (confirm('달력을 지우고 「만난 지 N일째」로 표시할까요?')) await ask('setCalendar', { id: view.id, calendar: null }); })) : null,
+          c?.calendar ? link('달력 지우기', () => doAct(async () => { if (await confirmBox('달력을 지우고 「만난 지 N일째」로 표시할까요?')) await ask('setCalendar', { id: view.id, calendar: null }); })) : null,
         ]),
         c?.calendar ? (() => {
           // 달력 직접 고치기: 하루 길이·연도·연도 표기·달 목록(만난 날의 달·일은 그대로)
@@ -1491,7 +1514,7 @@ export function setup(ctx) {
     const pz = c.noPersona ? null : personaOf(c.personaId || S.activePersonaId);
     const mine = S.me?.[k] || {};
     const me = { noPersona: !!c.noPersona, title: pz?.title || '', description: pz?.description || '', portraitId: mine.portrait?.imageId || pz?.imageId || '', history: mine.history || [] };
-    let html = buildLettersHtml(c, { img: tok, myFaceId: myPortrait(k)?.imageId || pz?.imageId || '', myName: myName || pz?.name || '', htmlPaper: htmlPaper(), me });
+    let html = buildLettersHtml(c, { myFont: S.settings?.myFont || '', img: tok, myFaceId: myPortrait(k)?.imageId || pz?.imageId || '', myName: myName || pz?.name || '', htmlPaper: htmlPaper(), me });
     const keys = [...new Set(html.match(/@@IMG:[^@]+@@/g) || [])];
     const urls = {};
     await Promise.all(keys.map(async (t) => { const [, id, size] = t.slice(2, -2).split(':'); urls[t] = await dataUrlOf(id, size); }));
@@ -1711,14 +1734,14 @@ export function setup(ctx) {
             l.late ? el('div', { style: 'color:var(--im-wax)', text: `✦ 우체부가 늦어지고 있어요 — ${l.late}` }) : null,
             el('div', { text: short(l.body, 60) }),
             link('회수하기', () => act(async () => {
-              if (!confirm('이 편지를 회수할까요? 상대에게 가지 않습니다.')) return;
+              if (!(await confirmBox('이 편지를 회수할까요? 상대에게 가지 않습니다.'))) return;
               await ask('recall', { id: c.id, letterId: l.id });
               await refresh();
             })),
           ]);
         }
         const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item) : (l.enclosure ? [l.enclosure] : []);
-        return el('div', { class: 'im-paper im-mine' }, [
+        return el('div', { class: 'im-paper im-mine', style: myFontStyle() }, [
           myFace(meKeyOf(c), 'im-myface im-myface-letter'),
           el('div', { class: 'im-meta', text: `${l.personaName || '나'}의 편지 · ${when(l.sentAt)} 보냄 · 그쪽 ${l.theirArriveLabel} 도착${l.late ? ` · 늦게 닿음(${l.late})` : ''}` }),
           el('div', { text: l.body }),
@@ -1745,8 +1768,8 @@ export function setup(ctx) {
       c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs' }, [el('span', { class: 'im-spin' }), `${c.name}이(가) 답장을 쓰고 있는 듯합니다`]) : null,
       // 바로 받기: 배송·답장 쓰는 시간을 건너뜀
       (c.reply && c.reply.state !== 'failed' && c.reply.state !== 'generating') || c.letters.some((l) => l.state === 'in_transit') ? el('div', { class: 'im-row', style: 'justify-content:flex-end' }, [
-        el('button', { class: 'im-link', type: 'button', text: '⏩ 바로 받기', title: '배송과 답장 쓰는 시간을 건너뛰고 지금 받아요', onclick: () => act(async () => {
-          if (!confirm(`${c.name}과의 편지를 기다리지 않고 지금 받을까요?\n\n· 가는 중인 편지는 바로 도착해요.\n· 답장을 기다리는 중이면 지금 써서 바로 도착해요(글 생성 1회).`)) return;
+        el('button', { class: 'im-btn im-rush', type: 'button', text: '⏩ 바로 받기', title: '배송과 답장 쓰는 시간을 건너뛰고 지금 받아요', onclick: () => act(async () => {
+          if (!(await confirmBox(`${c.name}과의 편지를 기다리지 않고 지금 받을까요?\n\n· 가는 중인 편지는 바로 도착해요.\n· 답장을 기다리는 중이면 지금 써서 바로 도착해요(글 생성 1회).`))) return;
           await ask('rush', { id: c.id });
           await refresh();
         }) }),
@@ -1798,7 +1821,7 @@ export function setup(ctx) {
         el('span', { class: 'im-muted im-grow', text: left !== undefined ? `오늘 남은 그림 ${left}장` : '' }),
         // 종류마다 따로(봉투는 사건마다 바뀌고 상징물은 한 번이면 되므로 묶지 않음)
         ...SK.map((k) => link(`${KIND_LABEL[k]} ${have.includes(k) ? '다시 그리기' : '그리기'}`, () => act(async () => {
-          if (!confirm(`${c.name}의 ${KIND_LABEL[k]}을(를) ${have.includes(k) ? '다시 ' : ''}그립니다.\n이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+          if (!(await confirmBox(`${c.name}의 ${KIND_LABEL[k]}을(를) ${have.includes(k) ? '다시 ' : ''}그립니다.\n이미지 1장 + 글 생성 1회. 계속할까요?`))) return;
           await ask('drawSet', { id: c.id, kinds: [k] });
           await refresh();
         }))),
@@ -1808,7 +1831,7 @@ export function setup(ctx) {
   const drawItemBtn = (x, cid) => (!artOn() || x.imageId || (x.from === 'them' && x.state === 'in_transit') || !cid || ['waiting', 'drawing'].includes(artTarget(byId(cid), 'item', x.id)?.state) ? null
     : el('button', { class: 'im-link', type: 'button', text: artTarget(byId(cid), 'item', x.id)?.state === 'failed' ? '다시 그리기' : '그리기', style: 'font-size:11px', onclick: async (ev) => {
       ev.stopPropagation();
-      if (!confirm(`「${x.name}」을 그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+      if (!(await confirmBox(`「${x.name}」을 그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`))) return;
       try { await ask('drawItem', { id: cid, itemId: x.id }); await refresh(); } catch (e) { alert(e.message || String(e)); }
     } }));
   // 그림 크게 보기: 앱 모달(테마 따라감). 모달이 없으면 새 탭
@@ -2063,14 +2086,14 @@ export function setup(ctx) {
     const sec = pj?.startedAt ? Math.max(0, Math.round((Date.now() - pj.startedAt) / 1000)) : 0;
     const pState = pj?.state === 'drawing' ? el('div', { class: 'im-state' }, [el('span', { class: 'im-spin' }), `그리는 중… ${sec < 60 ? `${sec}초째` : `${Math.floor(sec / 60)}분째`}`]) : pj?.state === 'failed' ? el('div', { class: 'im-state im-bad', title: pj.error || '' }, [`실패 — ${short(pj.error || '', 40)}`]) : null;
     const drawKind = (k, label) => () => act(async () => {
-      if (!confirm(`${c.name}의 ${label}을(를) ${c.art?.[k]?.imageId ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`)) return;
+      if (!(await confirmBox(`${c.name}의 ${label}을(를) ${c.art?.[k]?.imageId ? '다시 ' : ''}그립니다. 이미지 1장 + 글 생성 1회. 계속할까요?`))) return;
       await ask('drawSet', { id: c.id, kinds: [k] });
       await refresh();
     });
     const kinds = htmlPaper() ? [['emblem', '상징물'], ['envelope', '봉투'], ['locker', '추억 상자']] : [['paper', '편지지'], ['stamp', '우표'], ['seal', '봉인'], ['locker', '추억 상자']];
     return el('div', { class: 'im-grid im-looks' }, [
       card('초상화', c.art?.portrait?.imageId, pState, pj?.state === 'drawing' ? null : () => act(async () => {
-        if (!confirm(`${c.name}의 초상화를 ${c.art?.portrait?.imageId ? '다시 ' : ''}그립니다. 글 생성 1회 + 그림 1장(NovelAI). 계속할까요?`)) return;
+        if (!(await confirmBox(`${c.name}의 초상화를 ${c.art?.portrait?.imageId ? '다시 ' : ''}그립니다. 글 생성 1회 + 그림 1장(NovelAI). 계속할까요?`))) return;
         await ask('drawPortrait', { id: c.id });
         await refresh();
       }), 'im-look-tall'),

@@ -1,11 +1,13 @@
-import { paperLook, defaultTheme, PAPER_FONT_URL } from './paper.js';
+import { paperLook, defaultTheme, PAPER_FONT_URL, PAPER_FONTS } from './paper.js';
 
 // 편지첩 HTML(한 장짜리 책): 표지 → 차례 → 편지 → 기록부 → 모음 → 이어진 일들. 그림은 img(id, size)가 준 주소를 쓰고, 누르면 크게.
 // 부수 효과 없음 — 그림 주소는 호출하는 쪽이 data URL로 바꿔 넣는다.
 const exEsc = (t) => String(t ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const exDt = (ms, withTime = false) => (ms ? new Date(ms).toLocaleString('ko-KR', withTime ? { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' } : { year: 'numeric', month: 'long', day: 'numeric' }) : '');
 
-export function buildLettersHtml(c, { img = () => '', myFaceId = '', myName = '', now = Date.now(), htmlPaper = true, me = null } = {}) {
+export function buildLettersHtml(c, { img = () => '', myFaceId = '', myName = '', now = Date.now(), htmlPaper = true, me = null, myFont = '' } = {}) {
+  const mf = PAPER_FONTS[myFont];
+  const myStyle = mf ? ` style="font-family:'${mf.family}','Nanum Myeongjo',serif;font-size:${(15.5 * mf.size).toFixed(1)}px"` : '';
   const letters = (c.letters || []).filter((l) => !(l.from === 'them' && l.state === 'in_transit'));
   const itemsOf = (l) => (c.items || []).filter((x) => x.letterId === l.id && x.imageId);
   const pic = (id, size, alt, cls = '') => (id && img(id, size) ? `<img class="${cls}" src="${img(id, size)}" alt="${exEsc(alt)}" data-zoom="${exEsc(alt)}" loading="lazy">` : '');
@@ -23,7 +25,7 @@ export function buildLettersHtml(c, { img = () => '', myFaceId = '', myName = ''
     const text = unread ? '<p class="unread">아직 열지 않은 편지</p>' : `<div class="text">${exEsc(l.body + (l.ps ? `\n\n추신. ${l.ps}` : ''))}</div>`;
     const divider = `<div class="divider"><span>${exEsc(exDt(mine ? l.sentAt : l.arriveAt))}${mine ? (l.theirArriveLabel ? ` · 그쪽 ${exEsc(l.theirArriveLabel)} 도착` : '') : (theirTitle(l) ? ` · 그쪽 ${exEsc(theirTitle(l))}` : '')}</span></div>`;
     if (mine) {
-      return `${divider}<article class="letter mine">${myFaceId ? pic(myFaceId, 'sm', '나', 'face') : ''}<div class="meta">${exEsc(l.personaName || myName || '나')}의 편지${l.late ? ` · 늦게 닿음(${exEsc(l.late)})` : ''}</div>${text}${enc ? `<ul class="encl">${enc}</ul>` : ''}${thumbs ? `<div class="thumbs">${thumbs}</div>` : ''}</article>`;
+      return `${divider}<article class="letter mine"${myStyle}>${myFaceId ? pic(myFaceId, 'sm', '나', 'face') : ''}<div class="meta">${exEsc(l.personaName || myName || '나')}의 편지${l.late ? ` · 늦게 닿음(${exEsc(l.late)})` : ''}</div>${text}${enc ? `<ul class="encl">${enc}</ul>` : ''}${thumbs ? `<div class="thumbs">${thumbs}</div>` : ''}</article>`;
     }
     const e = l.envelope || {};
     const env = envId(l) ? `<details class="env"><summary>✉ 봉투 보기</summary>${pic(envId(l), 'lg', `${c.name}의 봉투`, 'envimg')}</details>` : '';

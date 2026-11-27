@@ -145,7 +145,7 @@ test('편지첩 HTML: 표지·차례·편지·기록부(가린 소문은 접힘)
     items: [{ id: 'i', letterId: 'l1', name: '조각', imageId: 'x', from: 'them', state: 'arrived' }],
     reports: [{ at: 1, title: '첫 기척', note: '기록', facts: [], voices: [{ who: '로', relation: '형', says: '겁쟁이', hidden: true }], changed: '' }],
     memory: { timeline: [{ when: '어제', event: '숨은 일', open: false }] } };
-  const h = buildLettersHtml(c, { img: (id) => `IMG-${id}`, myName: '시드', me: { title: '떠돌이 기록자', description: '검은 코트의 사람', portraitId: 'mp', history: [{ imageId: 'mo', at: 1 }] } });
+  const h = buildLettersHtml(c, { myFont: 'gaegu', img: (id) => `IMG-${id}`, myName: '시드', me: { title: '떠돌이 기록자', description: '검은 코트의 사람', portraitId: 'mp', history: [{ imageId: 'mo', at: 1 }] } });
   for (const t of ['href="#me"', '떠돌이 기록자', '검은 코트의 사람', 'IMG-mp', 'IMG-mo']) assert.ok(h.includes(t), t);
   for (const t of ['<h1>레온</h1>', '「첫 기척」', 'href="#letters"', 'href="#record"', 'href="#album"', 'href="#timeline"', 'IMG-p', 'IMG-e', 'IMG-b', 'IMG-x', 'data-zoom', '가려진 소문', '편지에 쓰지 않은 그쪽의 일']) assert.ok(h.includes(t), t);
   assert.ok(h.includes('안녕 &lt;b&gt;'));

@@ -364,3 +364,8 @@ test('바로 받기: 가는 중인 내 편지는 지금 닿고 답장은 지금 
   c = M.advance(c, 6).c;
   assert.equal(c.letters.at(-1).state, 'delivered');
 });
+
+test('내 편지 글씨체 설정', () => {
+  assert.equal(M.cleanSettings({}).myFont, '');
+  assert.equal(M.cleanSettings({ myFont: 'gaegu' }).myFont, 'gaegu');
+});

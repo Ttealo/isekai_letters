@@ -39,6 +39,7 @@ export function cleanSettings(s) {
     letterMin: Math.round(num(s?.letterMin, 0, 20000, 1000)),
     letterMax: Math.round(num(s?.letterMax, 0, 30000, 0)),
     lateChance: num(s?.lateChance, 0, 50, 8), // 우체부가 늦을 확률(%)
+    myFont: str(s?.myFont, 40).trim(), // 내 편지 글씨체(편지지 글씨체 목록의 키, 비면 기본 명조)
     proseStyle: str(s?.proseStyle, 300).trim() || 'plain', // 묘사·기록부 문체: plain|aesthetic|lyrical|record 또는 직접 적은 말
     fallbackMode: s?.fallbackMode === 'off' ? 'off' : 'auto', // 원래 연결이 한도로 막히면 같은 모델의 NanoGPT 연결로
     fallbackConnectionId: str(s?.fallbackConnectionId, 200), // 비우면 자동(같은 모델 이름)
