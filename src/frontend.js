@@ -63,6 +63,7 @@ const CSS = `
 .im-locker img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px;background:#fff}
 .im-locker-empty{width:100%;aspect-ratio:1;border-radius:8px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(90deg,#c8a46a33 0 2px,transparent 2px 46%),linear-gradient(#e9d9b8,#d9c39a);box-shadow:inset 0 0 0 3px #b08a5a55}
 .im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
+.im-row-card .im-emblem,.im-row-card .im-face{width:46px;height:46px}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
 .im-list-label{font:600 11px system-ui,sans-serif;letter-spacing:.04em;color:var(--lumiverse-text-muted);margin:10px 4px 4px}
