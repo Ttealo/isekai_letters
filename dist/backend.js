@@ -1667,7 +1667,9 @@ export function cleanArt(a) {
 }
 
 export const templateFor = (art, kind) => art.kinds?.[kind]?.template || DEFAULT_TEMPLATES[kind] || DEFAULT_TEMPLATES.item;
-export const modelFor = (art, kind) => art.kinds?.[kind]?.model || art.model || '';
+// 종류별 기본 모델(NanoGPT 기준, 싸면서 지금 그림체에 맞는 것). 사용자가 종류·전체 모델을 정하면 그것이 우선
+export const DEFAULT_KIND_MODEL = { envelope: 'chroma', locker: 'chroma', emblem: 'seedream-v5.0-lite', item: 'seedream-v5.0-lite', paper: 'recraft/v4.1/flash/v2/text-to-image', stamp: 'recraft/v4.1/flash/v2/text-to-image', seal: 'recraft/v4.1/flash/v2/text-to-image' };
+export const modelFor = (art, kind) => art.kinds?.[kind]?.model || art.model || DEFAULT_KIND_MODEL[kind] || '';
 
 // 하루 사용량(서버 날짜 기준 YYYY-MM-DD)
 export function dayKey(now = Date.now()) {

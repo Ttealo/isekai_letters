@@ -65,6 +65,7 @@ const CSS = `
 .im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-tsum{font-size:12.5px;line-height:1.6;padding:8px 10px;border-radius:8px;background:var(--lumiverse-fill);color:var(--lumiverse-text);margin-bottom:6px}
 .im-thumbs{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;white-space:normal}
 .im-thumbs figure{margin:0;width:120px;cursor:zoom-in;background:#fffa;padding:4px;box-shadow:0 3px 8px -4px #0007;transform:rotate(-1deg)}
 .im-thumbs figure:nth-child(even){transform:rotate(1.2deg)}
@@ -686,17 +687,31 @@ export function setup(ctx) {
       const text = (k, ph, rows) => (inputs[k] = rows ? el('textarea', { value: v[k] || '', placeholder: ph, rows }) : el('input', { value: v[k] ?? '', placeholder: ph }));
       const numIn = (k, step = 'any') => (inputs[k] = el('input', { type: 'number', step, min: '0', value: String(v[k] ?? '') }));
       inputs.personaId = el('select', {}, personaOptions(v.personaId));
+      // 시간 칸을 사람 말로 풀어 보여 줌
+      const tsum = el('div', { class: 'im-tsum' });
+      const span = (h) => (h >= 48 ? `${Math.round(h / 24 * 10) / 10}일` : `${Math.round(h * 10) / 10}시간`);
+      const updT = () => {
+        const n = (k) => Number(inputs[k]?.value) || 0;
+        const r = n('ratio') || 1;
+        tsum.textContent = [
+          `내 하루 = 그쪽 ${span(24 * r)}`,
+          `편지는 현실 ${n('deliveryMin')}~${n('deliveryMax')}시간 걸려 닿음`,
+          `상대는 받고 그쪽 시간 ${span(n('writeMin'))}~${span(n('writeMax'))} 뒤 답장(현실로는 최대 ${n('maxReplyRealHours')}시간)`,
+          n('waitHours') ? `내가 답이 없으면 그쪽 시간 ${span(n('waitHours'))} 뒤 먼저 씀` : '먼저 쓰지 않음',
+        ].join(' · ');
+      };
       const read = () => { const o = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value])); return { ...o, ...personaPick(o.personaId) }; };
       return [
         el('div', { class: 'im-row' }, [link('← 돌아가기', () => (editing ? go({ name: 'c', id: view.id }) : go({ name: 'home' })))]),
-        el('h3', { text: editing ? '상대 정보 수정' : '새 상대' }),
+        (setTimeout(updT, 0), el('h3', { text: editing ? '상대 정보 수정' : '새 상대' })),
         field('편지를 쓰는 나 (페르소나)', inputs.personaId),
         el('div', { class: 'im-muted', text: '상대를 직접 적습니다. 캐릭터 카드·로어북 자동 생성과 무작위 매칭은 다음 단계에서 붙습니다.' }),
         field('이름', text('name', '예: 하르텐')),
         field('상대 설명 (성격·말투·처지 — 캐릭터 카드처럼 적어도 됩니다)', text('brief', '운하 도시의 빵집 주인. 수다스럽고 편지마다 오늘 구운 빵 얘기를 한다…', 6)),
         field('그쪽 세계 (선택)', text('world', '바다가 얼어붙는 북쪽 해안. 우편은 철새 다리에 묶어 보낸다…', 4)),
         el('h4', { text: '시간' }),
-        el('div', { class: 'im-pair' }, [
+        tsum,
+        el('div', { class: 'im-pair', oninput: updT }, [
           field('시간 비율 (나의 1 = 그쪽 ?)', numIn('ratio')),
           field('답장까지 현실 최대(시간)', numIn('maxReplyRealHours')),
           field('배송 최소(현실 시간)', numIn('deliveryMin')),
@@ -728,6 +743,7 @@ export function setup(ctx) {
       ];
     }
 
+    let settingsTab = 'text';
     function settingsView() {
       const s = { ...(S.settings || {}) };
       if (!connections) {
@@ -774,15 +790,19 @@ export function setup(ctx) {
       isel.addEventListener('change', () => loadModels(isel.value));
       loadModels(isel.value);
       const istyle = el('textarea', { value: A.style, rows: 3, placeholder: 'hand-painted storybook illustration, delicate ink linework, soft watercolor washes, …' });
-      const KINDS = [['paper', '편지지'], ['stamp', '우표'], ['seal', '봉인'], ['item', '물건']];
+      const KINDS = [['envelope', '봉투'], ['emblem', '상징물'], ['locker', '추억 상자'], ['item', '물건'], ['paper', '편지지 (그림 방식)'], ['stamp', '우표 (그림 방식)'], ['seal', '봉인 (그림 방식)']];
+      const DEF_MODEL = { envelope: 'chroma', locker: 'chroma', emblem: 'seedream-v5.0-lite', item: 'seedream-v5.0-lite', paper: 'recraft/v4.1/flash/v2/text-to-image', stamp: 'recraft/v4.1/flash/v2/text-to-image', seal: 'recraft/v4.1/flash/v2/text-to-image' };
       const DEF_T = {
+        envelope: 'closed letter as one object … its closure and postal marks are part of the picture, {style}',
+        emblem: 'single small iconic object that represents a person, ornate, round vignette, {subject}, {style}',
+        locker: 'shallow open tray box with no lid, front and slightly above, packed full of {subject}, {style}',
         paper: 'flat 2D stationery design … ornamental border and small corner vignettes showing {subject}, large blank center …, {style}',
         stamp: 'flat 2D postage stamp design … vintage engraved illustration of {subject} …, {style}',
         seal: 'flat 2D illustration of a seal impression seen from directly above, {subject} …, {style}',
         item: 'highly detailed illustration of {subject}, intricate textures … single object on plain paper background, {style}',
       };
       const kIn = Object.fromEntries(KINDS.map(([k]) => [k, {
-        model: el('input', { value: A.kinds?.[k]?.model || '', placeholder: '비우면 위 모델', list: 'im-image-models' }),
+        model: el('input', { value: A.kinds?.[k]?.model || '', placeholder: `비우면 위 기본 모델, 그것도 비면 ${DEF_MODEL[k] || '연결 기본'}`, list: 'im-image-models' }),
         template: el('textarea', { value: A.kinds?.[k]?.template || '', rows: 3, placeholder: `비우면 기본 양식: ${DEF_T[k]}` }),
       }]));
       const ineg = el('input', { type: 'checkbox', style: 'width:auto', checked: !!A.sendNegative });
@@ -830,9 +850,9 @@ export function setup(ctx) {
       const lMin = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMin ?? 1000) });
       const lMax = el('input', { type: 'number', step: '100', min: '0', value: String(s.letterMax ?? 0) });
       const lateIn = el('input', { type: 'number', step: '1', min: '0', max: '50', value: String(s.lateChance ?? 8) });
-      return [
-        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
-        el('h3', { text: '설정' }),
+      // 탭으로 나눔(입력칸은 한 번만 만들고 보이기만 바꿔서, 탭을 오가도 적던 값이 남음)
+      const groups = {
+        text: el('div', {}, [
         field('답장 쓰기 연결', sel),
         field('상대 만들기 연결 (비우면 답장 연결)', csel),
         field('상대 만들기 온도', ctemp),
@@ -840,37 +860,41 @@ export function setup(ctx) {
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [orgOn, '답장이 오면 요약·관계 장부·로어북·카드를 정리하기']),
         field('정리 연결 (비우면 답장 연결)', osel),
         field('정리 온도', otemp),
-        el('h4', { text: '기억 예산 (프롬프트에 넣는 양)' }),
-        el('div', { class: 'im-pair' }, BL.map(([k, t]) => field(t, bIn[k]))),
-        el('div', { class: 'im-muted', text: '최근 원문 통수는 위 「최근 편지 수」입니다. 예산을 넘어 빠진 양은 상대 서류함의 모의 조립에서 보입니다.' }),
         el('div', { class: 'im-pair' }, [field('온도', temp), field('최대 출력 토큰', maxT)]),
         field('프롬프트에 넣는 최근 편지 수(양쪽 합)', recent),
-        el('div', { class: 'im-pair' }, [field('답장 본문 최소 글자 (0=자유)', lMin), field('답장 본문 최대 글자 (0=제한 없음)', lMax), field('우체부가 늦을 확률(%, 0=끔)', lateIn)]),
+        el('div', { class: 'im-pair' }, [field('답장 본문 최소 글자 (0=자유)', lMin), field('답장 본문 최대 글자 (0=제한 없음)', lMax)]),
         el('div', { class: 'im-muted', text: '예: 최소 1000 · 최대 0 = 1000자 이상, 일이 많으면 더 길게. 짧은 편지를 원하면 최소 0 · 최대 1000. 길게 쓰려면 최대 출력 토큰도 넉넉히(한국어 1000자 ≈ 1500토큰 + 사이 일 기록).' }),
-        el('label', { class: 'im-row', style: 'flex-direction:row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
         el('div', { class: 'im-muted', text: '연결에 붙은 프리셋은 쓰지 않고, 우체통이 자기 지시문과 위 값을 보냅니다.' }),
+        ]),
+        img: el('div', {}, [
         el('h4', { text: '그림 (NanoGPT 등 이미지 연결)' }),
         field('이미지 연결', isel),
-        field('기본 모델', imodel),
+        field('전체 기본 모델 (비우면 종류마다 정해 둔 모델)', imodel),
         ilist,
         imodelNote,
+        el('div', { class: 'im-pair' }, [field('편지지 방식', ipmode), field('받은 물건 자동 그리기', iauto), field('하루 최대 장수', iday), field('상대 한 명 하루 최대(0=제한 없음)', icday), field('편지지 바뀜 (꾸미기면 테마·봉투가 바뀜)', ipch)]),
+        el('div', { class: 'im-muted', text: '편지지 「꾸미기」: 편지지는 글씨체·무늬로 꾸미고 봉투·상징물·추억 상자를 그림으로. 사건이 생기면 그 편지부터 편지지 테마와 봉투가 바뀝니다.' }),
         field('전체 룩 (영어, 양식의 {style} 자리에 들어감)', istyle),
         el('details', {}, [
-          el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '종류별 양식·모델 (편지지·우표·봉인·물건)' }),
-          el('div', { class: 'im-muted', text: '{subject}는 글 생성이 써 주는 주제, {style}은 위 전체 룩입니다. 비우면 기본 양식(평면 도안·세밀한 물건 그림)을 씁니다.' }),
+          el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '종류별 모델·양식 (봉투·상징물·추억 상자·물건 …)' }),
+          el('div', { class: 'im-muted', text: '모델 칸을 비우면 종류마다 정해 둔 모델(봉투·상자: chroma, 상징물·물건: seedream-v5.0-lite)을 씁니다. {subject}는 글 생성이 써 주는 주제, {style}은 전체 룩.' }),
           ...KINDS.flatMap(([k, t]) => [el('h4', { text: t }), field('모델', kIn[k].model), field('양식', kIn[k].template)]),
+          el('label', { class: 'im-row', style: 'flex-direction:row' }, [ineg, '금지어를 negative prompt로 보내기 (받지 않는 모델이 많아요. 거절되면 빼고 다시 시도합니다)']),
+          field('금지어', inegText),
+          field('그림 크기', isize), field('봉투 크기', iesize),
         ]),
-        el('label', { class: 'im-row', style: 'flex-direction:row' }, [ineg, '금지어를 negative prompt로 보내기 (받지 않는 모델이 많아요. 거절되면 빼고 다시 시도합니다)']),
-        field('금지어', inegText),
-        el('div', { class: 'im-pair' }, [
-          field('편지지 테두리 두께(px) — 글씨는 이 안쪽에만', iborder),
-          field('그림에서 테두리로 쓸 비율(%)', islice),
-          field('글씨 칸 선명도 (100=그림 그대로, 낮을수록 크림색으로 덮음)', istrength),
+        el('details', {}, [
+          el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '편지지를 그림으로 쓸 때 (그림 방식 전용)' }),
+          el('div', { class: 'im-pair' }, [
+            field('편지지 크기', ipsize), field('우표 바뀜', isch),
+            field('편지지 테두리 두께(px) — 글씨는 이 안쪽에만', iborder),
+            field('그림에서 테두리로 쓸 비율(%)', islice),
+            field('글씨 칸 선명도 (100=그림 그대로, 낮을수록 크림색으로 덮음)', istrength),
+          ]),
         ]),
-        el('div', { class: 'im-muted', text: '편지지 그림은 액자처럼 씁니다: 모서리·테두리는 늘리지 않고 편지 길이에 맞춰 가장자리만 이어 붙입니다. 장식이 글씨에 닿으면 두께나 비율을 올려 주세요.' }),
-        el('div', { class: 'im-pair' }, [field('크기', isize), field('편지지 크기', ipsize), field('편지지 방식', ipmode), field('봉투 크기', iesize), field('하루 최대 장수', iday), field('상대 한 명 하루 최대(0=제한 없음)', icday), field('받은 물건 자동 그리기', iauto), field('편지지 바뀜', ipch), field('우표 바뀜', isch)]),
-        el('div', { class: 'im-muted', text: '편지지·우표가 바뀌면 그 편지부터 새 그림을 쓰고, 예전 편지는 그때 그림을 그대로 가집니다. 바뀔 때마다 그림 1~2장 + 글 1회, 하루 최대 장수 안에서만. 「사건」은 정리 단계가 편지 내용에서 찾습니다(정리 단계를 끄면 계절 바뀜만).' }),
-        el('div', { class: 'im-muted', text: '사람·얼굴·손·글자는 그리지 않습니다. 만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
+        el('div', { class: 'im-muted', text: '만든 그림은 이 브라우저에서 WebP로 바꿔 다시 저장합니다(원본 png는 지움).' }),
+        ]),
+        portrait: el('div', {}, [
         el('h4', { text: '초상화 (NovelAI V4.5 Full)' }),
         el('div', { class: 'im-muted', text: '상대의 카드를 읽어 글 생성이 NovelAI 태그 프롬프트(외형 고정 → 캐릭터 칸, 구도·배경 → 기본 칸)를 쓰고, 아래 화풍 프롬프트와 합쳐 그립니다. 상대 서류함의 「초상화 그리기」로 시작합니다. 글 1회 + 그림 1장.' }),
         field('NovelAI 이미지 연결', psel),
@@ -881,6 +905,11 @@ export function setup(ctx) {
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [pavx, '원래 있던 캐릭터(기존 캐릭터로 시작)도 아바타 바꾸기']),
         field('초상화를 요즘 모습으로 새로 그리기: 상대 편지 몇 통마다 (0=안 함)', prefresh),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [ppic, '상대가 보낸 사진·그림·초상류 동봉은 NovelAI로 그리기']),
+        ]),
+        flow: el('div', {}, [
+        el('h4', { text: '배송' }),
+        el('div', { class: 'im-pair' }, [field('우체부가 늦을 확률(%, 0=끔)', lateIn)]),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [exact, '배송 중 남은 시간을 분 단위로 보기']),
         el('h4', { text: '먼저 오는 편지' }),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [initOn, '내가 오래 답장하지 않으면 상대가 먼저 쓰기']),
         el('div', { class: 'im-pair' }, [field('하루 최대(전체)', initDay), field('답 없이 연달아 쓰는 최대 통수', initStreak)]),
@@ -892,6 +921,11 @@ export function setup(ctx) {
           const r = await ask('pushTest', { delaySec: 30 });
           error = `${r.delaySec}초 뒤에 시험 알림을 보냅니다. 그사이 루미버스 화면(모든 탭·창)을 닫거나 다른 앱으로 가 주세요.`;
         })),
+        ]),
+        etc: el('div', {}, [
+        el('h4', { text: '기억 예산 (프롬프트에 넣는 양)' }),
+        el('div', { class: 'im-pair' }, BL.map(([k, t]) => field(t, bIn[k]))),
+        el('div', { class: 'im-muted', text: '최근 원문 통수는 「글」 탭의 최근 편지 수입니다. 예산을 넘어 빠진 양은 상대 서류함 → 고급의 모의 조립에서 보입니다.' }),
         el('h4', { text: '백업' }),
         el('div', { class: 'im-muted', text: '모든 상대의 편지·물건·기억·설정과 캐릭터 카드·로어북 사본을 파일 하나로 저장합니다. 그림은 루미버스에 남아 있는 것만 다시 보입니다.' }),
         el('div', { class: 'im-row' }, [
@@ -928,6 +962,17 @@ export function setup(ctx) {
           el('option', { value: 'float', text: '떠 있는 창 (메인 화면 위에 겹침, 끌어서 옮김)', selected: lsGet(LS_PANEL_MODE, 'page') === 'float' }),
         ]),
         el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
+        ]),
+      };
+      const TABS = [["text","글"],["img","그림"],["portrait","초상화"],["flow","편지 흐름"],["etc","기억·기타"]];
+      const tabBtns = TABS.map(([k, t]) => el('button', { type: 'button', class: settingsTab === k ? 'im-on' : '', text: t, onclick: () => { settingsTab = k; for (const [g, node] of Object.entries(groups)) node.style.display = g === k ? '' : 'none'; tabBtns.forEach((b, i) => { b.className = TABS[i][0] === k ? 'im-on' : ''; }); } }));
+      for (const [g, node] of Object.entries(groups)) node.style.display = g === settingsTab ? '' : 'none';
+      return [
+        el('div', { class: 'im-row' }, [link('← 우편함', () => go({ name: 'home' }))]),
+        el('h3', { text: '설정' }),
+        el('div', { class: 'im-tabs im-subtabs' }, tabBtns),
+        ...Object.values(groups),
+        el('div', { class: 'im-muted', style: 'margin-top:10px', text: '저장은 모든 탭의 값을 한꺼번에 저장합니다.' }),
         btn('저장', () => act(async () => {
           S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
@@ -1082,6 +1127,7 @@ export function setup(ctx) {
     }
     const STATE = { applied: '적용됨', pending: '승인 대기', apply: '적용 중', failed: '실패', reverted: '되돌림', rejected: '거절', locked: '잠김(제안만)', conflict: '충돌' };
     const MODE_LABEL = { auto: '자동', approve: '승인 후', off: '끔' };
+    let dossierTab = 'look';
     function dossierView() {
       const c = byId(view.id);
       const back = el('div', { class: 'im-row' }, [link(`← ${c?.name || '상대'}`, () => go({ name: 'c', id: view.id })), el('span', { class: 'im-grow' }), link('새로 고침', () => openDossier(view.id))]);
@@ -1114,41 +1160,9 @@ export function setup(ctx) {
       const modes = el('div', { class: 'im-pair' }, [
         modeSel('loreAdd', '로어북 추가'), modeSel('loreEdit', '로어북 수정'), modeSel('cardAdd', '카드 칸 추가'), modeSel('cardEdit', '카드 칸 수정'), modeSel('origLore', '원본 캐릭터 로어북 수정'),
       ]);
-      return [
-        back,
-        el('h3', { text: `${c?.name || ''} 서류함` }),
-        // 정리 상태
-        o ? el('div', { class: o.state === 'failed' ? 'im-err' : 'im-muted', text: o.state === 'failed' ? `정리 실패: ${o.error || ''}` : `정리 대기 중 · 편지 ${o.forLetterIds.length}통${o.error ? ` (재시도: ${o.error})` : ''}` }) : null,
-        el('div', { class: 'im-row' }, [btn('아직 정리 안 된 편지 정리하기(생성 1회)', () => doAct(() => ask('organizeNow', { id: view.id })))]),
-        // 달력
-        el('h4', { text: '그쪽 달력' }),
-        el('div', { class: 'im-muted', text: calSummary(c?.calendar) }),
-        el('div', { class: 'im-row' }, [
-          c?.calendar ? el('select', { onchange: (e) => doAct(() => ask('setCalendar', { id: view.id, calendar: { style: e.target.value } })) }, [
-            el('option', { value: 'both', text: '달력 + 만난 지 N일째', selected: c.calendar.style === 'both' }),
-            el('option', { value: 'calendar', text: '달력만', selected: c.calendar.style === 'calendar' }),
-            el('option', { value: 'count', text: '만난 지 N일째만', selected: c.calendar.style === 'count' }),
-          ]) : null,
-          btn(c?.calendar ? '달력 다시 만들기(글 1회)' : '달력 만들기(글 1회)', () => doAct(async () => {
-            if (!confirm('로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 그쪽 달력을 만듭니다. 글 생성 1회. 계속할까요?')) return;
-            await ask('makeCalendar', { id: view.id }, 120000);
-          })),
-          c?.calendar ? link('달력 지우기', () => doAct(async () => { if (confirm('달력을 지우고 「만난 지 N일째」로 표시할까요?')) await ask('setCalendar', { id: view.id, calendar: null }); })) : null,
-        ]),
-        c?.calendar ? (() => {
-          // 달력 직접 고치기: 하루 길이·연도·연도 표기·달 목록(만난 날의 달·일은 그대로)
-          const cal = c.calendar;
-          const dh = el('input', { type: 'number', min: '6', max: '100', value: String(cal.dayHours) });
-          const yr = el('input', { type: 'number', value: String(cal.start?.year ?? 1) });
-          const yl = el('input', { value: cal.yearLabel || '', placeholder: '비우면 연도를 표시하지 않음' });
-          const ms = el('textarea', { rows: 3, value: monthsToText(cal) });
-          return el('details', {}, [
-            el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '달력 고치기' }),
-            el('div', { class: 'im-pair' }, [field('하루 길이(시간)', dh), field('만난 해(숫자)', yr), field('연도 표기(숫자 뒤, 예: 년·대륙력)', yl)]),
-            field('달 (한 줄에 「이름 | 일수」)', ms),
-            btn('달력 저장', () => doAct(() => ask('setCalendar', { id: view.id, calendar: { dayHours: Number(dh.value), yearLabel: yl.value, months: textToMonths(ms.value), start: { ...cal.start, year: Number(yr.value) } } }))),
-          ]);
-        })() : null,
+      // 탭: 모습·편지지 / 기억 / 달력 / 고급(규칙·모의 조립). 다시 그려져도 고른 탭 유지
+      const groups = {
+        look: el('div', {}, [
         // 그림
         el('h4', { text: `그림${S.art?.left !== undefined ? ` · 오늘 남은 ${S.art.left}장` : ''}` }),
         c ? artBar(c, doAct) : null,
@@ -1182,6 +1196,11 @@ export function setup(ctx) {
             }))]),
           ]);
         })),
+        ]),
+        memory: el('div', {}, [
+        // 정리 상태
+        o ? el('div', { class: o.state === 'failed' ? 'im-err' : 'im-muted', text: o.state === 'failed' ? `정리 실패: ${o.error || ''}` : `정리 대기 중 · 편지 ${o.forLetterIds.length}통${o.error ? ` (재시도: ${o.error})` : ''}` }) : null,
+        el('div', { class: 'im-row' }, [btn('아직 정리 안 된 편지 정리하기(생성 1회)', () => doAct(() => ask('organizeNow', { id: view.id })))]),
         // 관계 장부
         el('h4', { text: '관계 장부' }),
         c?.worldBookId ? el('div', { class: 'im-row' }, [
@@ -1202,6 +1221,39 @@ export function setup(ctx) {
         // 변경 기록
         el('h4', { text: `변경 기록 · 확인 필요 ${waiting.length}` }),
         ...(changes.length ? changes.slice(0, 60).map(changeRow) : [el('div', { class: 'im-muted', text: '아직 변경이 없습니다.' })]),
+        ]),
+        cal: el('div', {}, [
+        // 달력
+        el('h4', { text: '그쪽 달력' }),
+        el('div', { class: 'im-muted', text: calSummary(c?.calendar) }),
+        el('div', { class: 'im-row' }, [
+          c?.calendar ? el('select', { onchange: (e) => doAct(() => ask('setCalendar', { id: view.id, calendar: { style: e.target.value } })) }, [
+            el('option', { value: 'both', text: '달력 + 만난 지 N일째', selected: c.calendar.style === 'both' }),
+            el('option', { value: 'calendar', text: '달력만', selected: c.calendar.style === 'calendar' }),
+            el('option', { value: 'count', text: '만난 지 N일째만', selected: c.calendar.style === 'count' }),
+          ]) : null,
+          btn(c?.calendar ? '달력 다시 만들기(글 1회)' : '달력 만들기(글 1회)', () => doAct(async () => {
+            if (!confirm('로어북의 달력·시간 항목과 편지에 쓴 날짜를 읽어 그쪽 달력을 만듭니다. 글 생성 1회. 계속할까요?')) return;
+            await ask('makeCalendar', { id: view.id }, 120000);
+          })),
+          c?.calendar ? link('달력 지우기', () => doAct(async () => { if (confirm('달력을 지우고 「만난 지 N일째」로 표시할까요?')) await ask('setCalendar', { id: view.id, calendar: null }); })) : null,
+        ]),
+        c?.calendar ? (() => {
+          // 달력 직접 고치기: 하루 길이·연도·연도 표기·달 목록(만난 날의 달·일은 그대로)
+          const cal = c.calendar;
+          const dh = el('input', { type: 'number', min: '6', max: '100', value: String(cal.dayHours) });
+          const yr = el('input', { type: 'number', value: String(cal.start?.year ?? 1) });
+          const yl = el('input', { value: cal.yearLabel || '', placeholder: '비우면 연도를 표시하지 않음' });
+          const ms = el('textarea', { rows: 3, value: monthsToText(cal) });
+          return el('details', {}, [
+            el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '달력 고치기' }),
+            el('div', { class: 'im-pair' }, [field('하루 길이(시간)', dh), field('만난 해(숫자)', yr), field('연도 표기(숫자 뒤, 예: 년·대륙력)', yl)]),
+            field('달 (한 줄에 「이름 | 일수」)', ms),
+            btn('달력 저장', () => doAct(() => ask('setCalendar', { id: view.id, calendar: { dayHours: Number(dh.value), yearLabel: yl.value, months: textToMonths(ms.value), start: { ...cal.start, year: Number(yr.value) } } }))),
+          ]);
+        })() : null,
+        ]),
+        adv: el('div', {}, [
         // 규칙
         el('h4', { text: '규칙' }),
         field('잠근 칸 (쉼표로: first_line, core, fixed, never, look, … 또는 로어북 항목 제목)', lockText),
@@ -1214,6 +1266,16 @@ export function setup(ctx) {
         el('h4', { text: `다음 답장 모의 조립 · 약 ${d.totalTokens.toLocaleString()}토큰` }),
         el('div', {}, d.report.map((r) => el('div', { class: 'im-row' }, [el('span', { class: 'im-grow', text: r.layer }), el('span', { class: 'im-muted', text: `${r.chars.toLocaleString()}자 · 약 ${r.tokens.toLocaleString()}토큰${r.note ? ` · ${r.note}` : ''}` })]))),
         el('details', {}, [el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '실제로 보낼 프롬프트 전체 보기' }), el('pre', { style: 'white-space:pre-wrap;font-size:11px;max-height:420px;overflow:auto', text: d.prompt })]),
+        ]),
+      };
+      const TABS = [["look","모습·편지지"],["memory","기억"],["cal","달력"],["adv","고급"]];
+      const tabBtns = TABS.map(([k, t]) => el('button', { type: 'button', class: dossierTab === k ? 'im-on' : '', text: t, onclick: () => { dossierTab = k; for (const [g, node] of Object.entries(groups)) node.style.display = g === k ? '' : 'none'; tabBtns.forEach((x, i) => { x.className = TABS[i][0] === k ? 'im-on' : ''; }); } }));
+      for (const [g, node] of Object.entries(groups)) node.style.display = g === dossierTab ? '' : 'none';
+      return [
+        back,
+        el('div', { class: 'im-row', style: 'gap:12px;align-items:center' }, [c ? avatarEl(c, 'im-seal', { portraitFirst: true }) : null, el('h3', { class: 'im-grow', style: 'margin:0', text: `${c?.name || ''} 서류함` }), c ? link('상대 정보 수정', () => go({ name: 'form', id: view.id })) : null]),
+        el('div', { class: 'im-tabs im-subtabs' }, tabBtns),
+        ...Object.values(groups),
       ];
     }
 
@@ -1322,7 +1384,11 @@ export function setup(ctx) {
       stamp: l.from === 'them' ? want(l.art?.stamp || c.art?.stamp?.imageId, 'sm') : '',
     }));
     const portrait = want(c.art?.portrait?.imageId, 'lg');
-    const items = (c.items || []).filter((x) => x.state === 'arrived' && x.imageId).map((x) => ({ x, key: want(x.imageId, 'lg') }));
+    const items = (c.items || []).filter((x) => x.state === 'arrived' && x.imageId && !x.nai && !x.photo).map((x) => ({ x, key: want(x.imageId, 'lg') }));
+    const drawn = (c.items || []).filter((x) => x.state === 'arrived' && x.imageId && (x.nai || x.photo)).map((x) => ({ x, key: want(x.imageId, 'lg') }));
+    const box = want(c.art?.locker?.imageId, 'lg');
+    const oldFaces = [...(c.art?.portraitHistory || [])].reverse().map((h) => ({ h, key: want(h.imageId, 'lg') }));
+    const envs = letters.filter((l) => l.from === 'them' && (l.art?.envelope || c.art?.envelope?.imageId)).map((l) => ({ l, key: want(l.art?.envelope || c.art.envelope.imageId, 'lg') }));
     await Promise.all([...imgs.keys()].map(async (k) => { const [id, size] = k.split(':'); imgs.set(k, await dataUrlOf(id, size)); }));
     const src = (k) => (k && imgs.get(k)) || '';
     const A = S.settings?.art || {};
@@ -1359,6 +1425,13 @@ ${enc && !unread ? `<div class="encl">${enc}</div>` : ''}
 ${!mine ? `<div class="meta foot">받은 시각 ${escHtml(date(l.arriveAt))}</div>` : ''}
 </article>`;
     }).join('\n');
+    const fig = (k, cap, sub) => `<figure><img src="${src(k)}" alt="${escHtml(cap)}"><figcaption><b>${escHtml(cap)}</b>${sub ? `<br><small>${escHtml(sub)}</small>` : ''}</figcaption></figure>`;
+    const extra = [
+      box && src(box) ? `<h2>추억 상자</h2><div class="boxpic"><img src="${src(box)}" alt="추억 상자"></div>` : '',
+      drawn.length ? `<h2>그림·사진</h2><div class="grid">${drawn.map(({ x, key }) => fig(key, x.name, x.from === 'me' ? '내가 보냄' : `${c.name}이(가) 보냄`)).join('')}</div>` : '',
+      envs.length ? `<h2>받은 봉투</h2><div class="grid wide">${envs.map(({ l, key }) => fig(key, l.writtenLabel || l.theirWrittenLabel || date(l.arriveAt), '')).join('')}</div>` : '',
+      oldFaces.length ? `<h2>예전 모습</h2><div class="grid">${oldFaces.map(({ h, key }) => fig(key, h.at ? date(h.at) : '예전 초상화', '')).join('')}</div>` : '',
+    ].join('\n');
     const gallery = items.length ? `<h2>주고받은 물건</h2><div class="grid">${items.map(({ x, key }) => `<figure><img src="${src(key)}" alt="${escHtml(x.name)}"><figcaption><b>${escHtml(x.name)}</b>${x.note ? `<br>${escHtml(x.note)}` : ''}<br><small>${x.from === 'me' ? '내가 보냄' : `${escHtml(c.name)}이(가) 보냄`}</small></figcaption></figure>`).join('')}</div>` : '';
     const first = letters[0]?.sentAt; const last = letters[letters.length - 1]?.sentAt;
     const html = `<!doctype html>
@@ -1390,6 +1463,8 @@ h2{font-size:19px;margin:46px 0 16px;border-bottom:1px solid #c9b38c;padding-bot
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:16px}
 figure{margin:0;background:#fbf6ec;padding:8px;box-shadow:0 6px 14px -10px #0008}
 figure img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.grid.wide{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}.grid.wide figure img{aspect-ratio:3/2}
+.boxpic{max-width:420px;margin:0 auto}.boxpic img{width:100%;display:block;border-radius:10px;background:#fff;box-shadow:0 8px 20px -12px #0008}
 figcaption{font-size:13px;line-height:1.5;padding:6px 2px 2px}
 footer{margin-top:50px;text-align:center;font-family:system-ui,sans-serif;font-size:12px;color:#9a8a70}
 @media (max-width:520px){.paper{padding:14px 12px}.paper.theirs{margin-right:0}.paper.mine{margin-left:0}header{flex-direction:column;align-items:flex-start}}
@@ -1399,6 +1474,7 @@ footer{margin-top:50px;text-align:center;font-family:system-ui,sans-serif;font-s
 <div class="sub">${c.personaName ? `${escHtml(c.personaName)}의 편지 상대<br>` : ''}편지 ${letters.length}통${first ? ` · ${escHtml(date(first))} ~ ${escHtml(date(last))}` : ''}<br>그쪽 시간 1:${escHtml(c.ratio)}${c.mail?.medium ? ` · 편지: ${escHtml(c.mail.medium)}` : ''}</div></div></header>
 ${body || '<p>아직 주고받은 편지가 없습니다.</p>'}
 ${gallery}
+${extra}
 <footer>이세계 우체통 · ${escHtml(date(Date.now()))} 저장</footer>
 </main></body></html>`;
     const blob = new Blob([html], { type: 'text/html' });

@@ -179,6 +179,7 @@ clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '설정'); await tick(8);
 ok('설정: 먼저 오는 편지·알림 칸', drawerRoot.textContent.includes('먼저 오는 편지') && drawerRoot.textContent.includes('편지가 도착하면 푸시 알림 보내기'));
 ok('설정: 이미지 모델 목록', drawerRoot.querySelectorAll('#im-image-models option').length === 2 && drawerRoot.textContent.includes('이 연결의 기본 모델: chroma'));
+ok('설정: 탭 5개(글·그림·초상화·편지 흐름·기억·기타)', drawerRoot.querySelectorAll('.im-subtabs button').length === 5);
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '새 상대'); await tick(6);
 ok('매칭: 방식 4개', ['원하는 상대 적기', '무작위로 만나기', '기존 캐릭터', '직접 다 적기'].every((t) => drawerRoot.textContent.includes(t)));

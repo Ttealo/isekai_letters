@@ -46,7 +46,10 @@ test('그림 주제 프롬프트와 최종 프롬프트: 사람·글자 금지, 
   const art2 = A.cleanArt({ style: 'ukiyo-e', kinds: { stamp: { template: 'tiny stamp', model: 'recraft/v4.1/flash/v2/text-to-image' } } });
   assert.equal(A.composePrompt('stamp', 'cat', art2), 'cat, tiny stamp, ukiyo-e');
   assert.equal(A.modelFor(art2, 'stamp'), 'recraft/v4.1/flash/v2/text-to-image');
-  assert.equal(A.modelFor(art2, 'paper'), '');
+  assert.equal(A.modelFor(art2, 'paper'), 'recraft/v4.1/flash/v2/text-to-image'); // 종류 기본 모델
+  assert.equal(A.modelFor(art2, 'envelope'), 'chroma');
+  assert.equal(A.modelFor(art2, 'emblem'), 'seedream-v5.0-lite');
+  assert.equal(A.modelFor({ ...art2, model: 'flux' }, 'envelope'), 'flux'); // 전체 모델이 있으면 그것
   // 시도 순서: 금지어(켰을 때) → 크기만 → 연결 덮어쓰기도 비움
   let at = A.artParamAttempts('768x1024', art);
   assert.equal(at.length, 2);
