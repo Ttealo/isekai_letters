@@ -1605,7 +1605,7 @@ export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render
 export const DEFAULT_TEMPLATES = {
   envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
   postcard: 'picture postcard illustration of {subject}, a wide landscape view of that world, atmospheric depth, rich environmental detail, thin white postcard border, {style}, no people in focus, no lettering, no text',
-  locker: 'charming still-life illustration of a small keepsake box (like a jewelry box) with its lid open, three-quarter view from slightly above, the whole box centered with some margin, {subject}, a few folded letters and tiny keepsakes inside, warm soft light, plain soft background, {style}, no people, no lettering',
+  locker: 'cute storybook illustration of an open keepsake box seen from the front and slightly above, the box fills most of the square frame, packed full of {subject}, keepsakes peeking above the rim, clean soft outlines, moderate detail (simpler than a painting), soft warm colors, isolated on a plain white background, {style}, no lid, no people, no faces, no lettering',
   emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
@@ -1697,7 +1697,7 @@ export function buildArtPromptMessages(c, jobs) {
   const lines = jobs.map((j) => {
     const why = j.reason ? `; this letter's paper/stamp changed because: ${j.reason}` : '';
     if (j.kind === 'envelope') return `- key=${j.key}: ${c.name}'s closed letter as it arrives — material, color, texture, how it is closed and sealed, postal marks and wear (letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'}; seal: ${m.seal || '-'}; stamp: ${m.stampMotif || '-'}${why})`;
-    if (j.kind === 'locker') return `- key=${j.key}: the small keepsake box (jewelry-box size) where ${c.name} keeps these letters — material, lid, clasp, lining and ornaments shaped by their world, job and taste`;
+    if (j.kind === 'locker') return `- key=${j.key}: the box itself (material, color, small ornaments that fit ${c.name}'s world and taste) and what fills it: folded letters plus a few of these keepsakes they exchanged — ${(c.items || []).filter((x) => x.state !== 'in_transit').slice(-8).map((x) => x.name).join(', ') || 'small charms and pressed flowers'}`;
     if (j.kind === 'emblem') return `- key=${j.key}: one charming object that symbolizes ${c.name} (from their job, world and personality — e.g. a tool, charm or keepsake they always carry); describe its material, shape and ornaments`;
     if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${j.medium || m.medium || '-'}; texture: ${m.texture || '-'}${why})`;
     if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${j.motif || m.stampMotif || '-'}${why})`;
@@ -2182,7 +2182,7 @@ export function start(api) {
             // 모델이 값을 거절하면(금지어·크기) 하나씩 빼고 다시
             let res;
             let lastErr;
-            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || j.kind === 'locker' || postcard ? art.envelopeSize : art.size, art)) {
+            for (const parameters of artParamAttempts(j.kind === 'paper' ? art.paperSize : j.kind === 'envelope' || postcard ? art.envelopeSize : j.kind === 'locker' ? '1024x1024' : art.size, art)) {
               try {
                 // 오래 응답이 없으면 실패로(공급자 쪽에서 늦게라도 만들어질 수 있음 — 그 그림은 쓰지 않음)
                 let timer;
