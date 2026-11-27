@@ -1,10 +1,10 @@
 {
-  "version": "0.23.0",
+  "version": "0.23.1",
   "name": "이세계 편지",
   "identifier": "isekai_mailbox",
   "author": "Ttealo",
-  "github": "https://github.com/Ttealo/isekai_mailbox",
-  "description": "다른 세계의 누군가와 편지만 주고받는다. 실제 시간으로 배송되고, 상대 쪽 시간은 다른 빠르기로 흐른다.",
+  "github": "https://github.com/Ttealo/isekai_letters",
+  "description": "다른 세계의 누군가와 편지만 주고받아요. 편지는 진짜 시간을 들여 건너가고, 그쪽 시간은 다른 빠르기로 흘러요.",
   "permissions": [
     "generation",
     "personas",
@@ -19,5 +19,5 @@
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",
   "minimum_lumiverse_version": "1.2.4",
-  "homepage": "https://github.com/Ttealo/isekai_mailbox"
+  "homepage": "https://github.com/Ttealo/isekai_letters"
 }
