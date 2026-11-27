@@ -779,7 +779,8 @@ test('편지지 꾸미기(HTML): 매칭 뒤 테마, 사건이면 그 편지부�
   await host.ask('u1', 'saveSettings', { settings: { ...(await host.ask('u1', 'load')).settings, art: { perDay: 10 } } });
   await host.ask('u1', 'drawSet', { id });
   for (let i = 0; i < 50 && gens.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
-  assert.match(gens[0].prompt, /front face of a closed envelope/);
+  assert.match(gens[0].prompt, /closed letter as one object/);
+  assert.ok(gens.some((g) => /iconic object that represents a person/.test(g.prompt)), '상징물');
   assert.equal(gens[0].parameters.size, '1536x1024');
   // 수동 테마 고치기(잘못된 값은 버림, 안 읽히는 잉크는 바꿈)
   const r2 = await host.ask('u1', 'setTheme', { id, theme: { ...c.paperTheme, font: 'nope', ink: '#f4ead6' } });

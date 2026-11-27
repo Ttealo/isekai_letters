@@ -1579,19 +1579,20 @@ export function describeTime(hours) { return formatSpan(hours); }
 // 편지지·우표·봉인은 "그래픽 도안"(정면 평면, 배경·탁자·그림자 없음), 물건은 세밀한 일러스트.
 // 사람·얼굴·손·글자는 그리지 않는다. 종류마다 양식(템플릿)과 모델을 설정에서 바꿀 수 있다.
 
-export const ART_KINDS = ['envelope', 'paper', 'stamp', 'seal'];
-export const ALL_KINDS = ['envelope', 'paper', 'stamp', 'seal', 'item'];
-export const ART_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
+export const ART_KINDS = ['envelope', 'emblem', 'paper', 'stamp', 'seal'];
+export const ALL_KINDS = ['envelope', 'emblem', 'paper', 'stamp', 'seal', 'item'];
+export const ART_LABEL = { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인', item: '물건' };
 // 세트: 편지지를 HTML로 꾸미면(기본) 봉투·우표·봉인, 그림이면 편지지·우표·봉인
 // 꾸미기 모드: 우표는 쓰지 않는다(봉투·봉인만)
-export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'seal']);
+export const setKinds = (art) => (art?.paperMode === 'image' ? ['paper', 'stamp', 'seal'] : ['envelope', 'emblem']);
 
 export const DEFAULT_STYLE = 'hand-painted storybook illustration, delicate ink linework, soft watercolor washes, muted vintage palette, not a photograph';
 export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render, table, desk, wooden surface, background scene, perspective, shadow, people, person, face, hands, fingers, human figure, text, letters, writing, words, numbers, digits, watermark, signature, logo';
 
 // {subject} = 글 생성이 써 준 영어 주제, {style} = 전체 룩
 export const DEFAULT_TEMPLATES = {
-  envelope: 'flat 2D front face of a closed envelope seen straight-on and filling the whole frame, made of {subject}, empty upper-right corner area for a stamp, wide blank address area, worn edges, {style}, no stamp, no seal, no lettering, no text, no table, no background, no shadows',
+  envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
+  emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
   seal: 'flat 2D illustration of a seal impression seen from directly above, {subject}, engraved relief detail, centered on plain cream background, {style}, no lettering',
@@ -1681,7 +1682,8 @@ export function buildArtPromptMessages(c, jobs) {
   const m = c.mail || {};
   const lines = jobs.map((j) => {
     const why = j.reason ? `; this letter's paper/stamp changed because: ${j.reason}` : '';
-    if (j.kind === 'envelope') return `- key=${j.key}: the material, color, texture, wear and small printed or embossed marks of ${c.name}'s envelope (letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'}; scent hint: ${m.scent || '-'})`;
+    if (j.kind === 'envelope') return `- key=${j.key}: ${c.name}'s closed letter as it arrives — material, color, texture, how it is closed and sealed, postal marks and wear (letter medium: ${m.medium || '-'}; texture: ${m.texture || '-'}; seal: ${m.seal || '-'}; stamp: ${m.stampMotif || '-'}${why})`;
+    if (j.kind === 'emblem') return `- key=${j.key}: one charming object that symbolizes ${c.name} (from their job, world and personality — e.g. a tool, charm or keepsake they always carry); describe its material, shape and ornaments`;
     if (j.kind === 'paper') return `- key=${j.key}: decorative motifs for the border of ${c.name}'s letter paper (their world's flora, tools, symbols; letter medium: ${j.medium || m.medium || '-'}; texture: ${m.texture || '-'}${why})`;
     if (j.kind === 'stamp') return `- key=${j.key}: the emblem shown on a postage stamp of that world (motif: ${j.motif || m.stampMotif || '-'}${why})`;
     if (j.kind === 'seal') return `- key=${j.key}: the design pressed into ${c.name}'s letter seal (seal: ${m.seal || '-'})`;
@@ -1789,6 +1791,8 @@ export const DEFAULT_PORTRAIT = {
   size: '832x1216',
   avatar: true, // 매칭으로 만든 캐릭터의 아바타로 쓰기
   avatarExisting: false, // 원래 있던 캐릭터(기존 캐릭터로 시작)도 아바타를 바꿀지
+  refreshEvery: 8, // 상대 편지 이만큼마다 초상화를 지금 모습으로 새로 그림(0=안 함)
+  pictureItems: true, // 상대가 보낸 사진·그림류 동봉은 NovelAI로
 };
 
 const pstr = (v, max, d = '') => (typeof v === 'string' ? v.trim().slice(0, max) : d);
@@ -1801,6 +1805,8 @@ export function cleanPortrait(p) {
     size: typeof p?.size === 'string' && /^\d{3,4}x\d{3,4}$/.test(p.size.trim()) ? p.size.trim() : DEFAULT_PORTRAIT.size,
     avatar: p?.avatar !== false,
     avatarExisting: !!p?.avatarExisting,
+    refreshEvery: Number.isFinite(Number(p?.refreshEvery)) && p?.refreshEvery !== '' && p?.refreshEvery !== null && p?.refreshEvery !== undefined ? Math.min(100, Math.max(0, Math.round(Number(p.refreshEvery)))) : 8,
+    pictureItems: p?.pictureItems !== false,
   };
 }
 
@@ -1828,7 +1834,7 @@ scene (one portrait, base prompt part): framing (upper body or cowboy shot), a s
 character_uc: only opposite drifts to block (e.g. mature adult → youthful facial features, baby face; man drawn feminine → feminine face; slim → muscular, abs). Often empty. Never a generic quality list.
 </nai_v45f_rules>`;
 
-export function buildPortraitMessages(c, { cardText = '', world = '' } = {}) {
+export function buildPortraitMessages(c, { cardText = '', world = '', recent = '' } = {}) {
   const system = [
     'You write NovelAI image prompts from character sheets. Follow the rules exactly and keep every fact the sheet gives (hair, eyes, build, clothing, species, scars). Do not add designs the sheet contradicts; fill silent slots with plain values.',
     NAI_GUIDE,
@@ -1839,6 +1845,7 @@ export function buildPortraitMessages(c, { cardText = '', world = '' } = {}) {
     '</character_sheet>',
     world ? `<world>\n${world.slice(0, 1500)}\n</world>` : '',
     c.mail?.imageKeywords?.length ? `world_visual_keywords=${c.mail.imageKeywords.join(', ')}` : '',
+    recent ? `<lately>\n${recent.slice(0, 800)}\n</lately>\nShow them as they are lately (scene, season, visible changes such as injuries or new clothes), still one calm portrait.` : '',
     'The sheet is in Korean; translate attributes into English tags.',
     'Output JSON only: {"character":"","scene":"","character_uc":""}',
   ].filter(Boolean).join('\n');
@@ -1871,6 +1878,40 @@ export function composePortrait(P, pp) {
     characterTags: [{ tags: pp.character }],
   };
 }
+
+// ── 장면 그림(사진·그림 동봉): 자연어 → NAI 프롬프트. 등장인물은 상대·나(페르소나) 중 고른 쪽 ──
+export function buildSceneMessages({ request = '', them = null, me = null, world = '' } = {}) {
+  const system = [
+    'You turn a natural-language picture request into a NovelAI image prompt. Keep every visible fact of the people from their sheets; the request decides scene, pose, action, framing, place and mood (as visible attributes).',
+    NAI_GUIDE,
+    'For a scene: "scene" holds framing, the action and relations, place and lighting tags (under ~90 tokens; for 2 people add one short English sentence about who does what to whom). One entry in "characters" per person shown, each with fixed appearance only (same rules as character). Nobody shown → "characters": [] and the scene describes objects/landscape.',
+  ].join('\n');
+  const user = [
+    them ? `<person id="them" name="${them.name}">\n${String(them.card || '').slice(0, 2500)}\n</person>` : '',
+    me ? `<person id="me" name="${me.name || 'the letter writer'}">\n${String(me.card || '').slice(0, 1500) || '(no description: an ordinary adult from present-day Earth; keep appearance plain)'}\n</person>` : '',
+    world ? `<world>\n${world.slice(0, 1200)}\n</world>` : '',
+    `<request>\n${request}\n</request>`,
+    'The request and sheets may be in Korean; output English tags only.',
+    'Output JSON only: {"scene":"","characters":[{"who":"them|me","tags":""}],"character_uc":""}',
+  ].filter(Boolean).join('\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+export function cleanScenePrompt(raw) {
+  const chars = (Array.isArray(raw?.characters) ? raw.characters : []).map((x) => ({ who: x?.who === 'me' ? 'me' : 'them', tags: naiClean(x?.tags, 1500) })).filter((x) => x.tags).slice(0, 3);
+  const scene = naiClean(raw?.scene, 1000);
+  if (!scene && !chars.length) throw new Error('그림 프롬프트가 비어 있습니다.');
+  return { scene, characters: chars, characterUc: naiClean(raw?.character_uc, 400) };
+}
+export function composeScene(P, sp) {
+  const flat = (t) => String(t || '').replace(/\s*\n+\s*/g, ' ').trim().replace(/,\s*$/, '');
+  return {
+    prompt: [flat(P.base), sp.scene].filter(Boolean).join(', '),
+    negative: [flat(P.negative), sp.characterUc].filter(Boolean).join(', '),
+    characterTags: sp.characters.map((x) => ({ tags: x.tags })),
+  };
+}
+// 상대가 보낸 물건 중 NovelAI로 그릴 것(사람이 담긴 사진·그림)
+export const isPictureItem = (name = '', note = '') => /사진|초상|자화상|스케치|그림|화첩|portrait|photo|sketch/i.test(`${name} ${note}`);
 
 
 // 백엔드: 사용자별 저장소에 상대 파일을 두고, 1분마다 시간을 진행시킨다.
@@ -2065,7 +2106,7 @@ export function start(api) {
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
-    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
     // 대상마다 상태: waiting → drawing → done | failed
     const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
     const setTarget = (i, patch) => mutate(user, id, (c) => {
@@ -2099,7 +2140,8 @@ export function start(api) {
         }
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
-          : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+          : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+            : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
         for (let i = 0; i < named.length; i++) {
@@ -2150,7 +2192,7 @@ export function start(api) {
                 // 바뀌기 전 편지들은 그때 그림을 그대로 갖게 고정
                 const prev = c.art?.[j.kind]?.imageId;
                 const letters = c.letters.map((l) => {
-                  if (l.id === j.letterId) return { ...l, art: { ...(l.art || {}), [j.kind]: res.imageId }, artNote: [l.artNote, `새 ${j.kind === 'paper' ? '편지지' : '우표'} — ${j.reason || ''}`].filter(Boolean).join(' · ') };
+                  if (l.id === j.letterId) return { ...l, art: { ...(l.art || {}), [j.kind]: res.imageId }, artNote: [l.artNote, `새 ${{ paper: '편지지', envelope: '봉투' }[j.kind] || '우표'} — ${j.reason || ''}`].filter(Boolean).join(' · ') };
                   if (l.from === 'them' && prev && !l.art?.[j.kind]) return { ...l, art: { ...(l.art || {}), [j.kind]: prev } };
                   return l;
                 });
@@ -2205,7 +2247,58 @@ export function start(api) {
     return { started: jobs.length, queued: true, left: left - jobs.length };
   };
   // 초상화(NovelAI): 글 1회로 태그 프롬프트, 그림 1장. 백그라운드로 돈다.
-  const drawPortrait = async (user, id) => {
+  // NovelAI 그림 1장(시간 제한·상한 사용). 반환: imageId
+  const naiImage = async (user, c, req, P) => {
+    let timer;
+    const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${ART_TIMEOUT_MIN}분 동안 응답이 없어 그만뒀어요`)), ART_TIMEOUT_MIN * 60000); });
+    let res;
+    try {
+      res = await Promise.race([api.imageGen.generate({
+        prompt: req.prompt, connection_id: P.connectionId, model: P.model || undefined,
+        parameters: { negativePrompt: req.negative, resolution: P.size, characterTags: req.characterTags },
+        includeDataUrl: false, owner_character_id: c.characterId || undefined, userId: user,
+      }), timeout]);
+    } finally { clearTimeout(timer); }
+    if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
+    await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1, Date.now(), c.id), { userId: user });
+    return res.imageId;
+  };
+  const personaCard = async (user, c) => {
+    if (c.noPersona) return { name: '', card: '' };
+    try {
+      const p = c.personaId ? await api.personas.get(c.personaId, user) : await api.personas.getActive(user);
+      return { name: p?.name || '', card: [p?.description, p?.personality, p?.appearance].filter((x) => typeof x === 'string' && x).join('\n') };
+    } catch { return { name: '', card: '' }; }
+  };
+  const worldOf = async (user, c) => (await allLore(user, c).catch(() => [])).filter((e) => /세계 개요|overview/i.test(e.comment || '')).map((e) => e.content).join('\n') || c.world || '';
+  // 장면 그림: 자연어 → 지침 → NovelAI. 사람이 기다리는 요청(10~60초)
+  const drawScene = async (user, id, { request = '', includeThem = true, includeMe = false } = {}) => {
+    const settings = await loadSettings(user);
+    const art = cleanArt(settings.art);
+    const P = cleanPortrait(art.portrait);
+    if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
+    if (!String(request).trim()) throw new Error('어떤 그림인지 적어 주세요.');
+    const c = await loadC(user, id);
+    if (quotaLeft(await readUsage(user), art, Date.now(), c.id) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다.');
+    const them = includeThem ? { name: c.name, card: cardTextOf(await cardOf(user, c)) } : null;
+    const me = includeMe ? await personaCard(user, c) : null;
+    const raw = await genJson(user, buildSceneMessages({ request: String(request).slice(0, 1500), them, me, world: await worldOf(user, c) }), { ...settings, createTemperature: 0.6 });
+    const sp = cleanScenePrompt(raw);
+    const imageId = await naiImage(user, c, composeScene(P, sp), P);
+    log('info', `장면 그림(${c.name}): ${String(request).slice(0, 40)}`);
+    return { imageId, prompt: sp };
+  };
+  // 상대가 보낸 사진·그림 동봉: NovelAI로(상대가 담긴 그림)
+  const drawPictureItem = async (user, id, itemId) => {
+    const c = await loadC(user, id);
+    const it = (c.items || []).find((x) => x.id === itemId);
+    if (!it || it.imageId) return;
+    const l = c.letters.find((x) => x.id === it.letterId);
+    const r = await drawScene(user, id, { request: `${it.name}${it.note ? ` — ${it.note}` : ''}${l?.body ? `\n(편지 내용 일부: ${l.body.slice(0, 400)})` : ''}`, includeThem: true });
+    await mutate(user, id, (x) => ({ ...x, items: x.items.map((y) => (y.id === itemId ? { ...y, imageId: r.imageId, imagePrompt: r.prompt.scene, nai: true } : y)) }));
+    notify(user, { id });
+  };
+  const drawPortrait = async (user, id, { recent = '' } = {}) => {
     const key = `${user}:${id}:portrait`;
     if (drawing.has(key)) throw new Error('초상화를 이미 그리는 중입니다.');
     const settings = await loadSettings(user);
@@ -2222,7 +2315,7 @@ export function start(api) {
       try {
         const card = await cardOf(user, c);
         const world = (await allLore(user, c).catch(() => [])).filter((e) => /세계 개요|overview/i.test(e.comment || '')).map((e) => e.content).join('\n');
-        const raw = await genJson(user, buildPortraitMessages(c, { cardText: cardTextOf(card), world: world || c.world }), { ...settings, createTemperature: 0.6, createConnectionId: settings.createConnectionId });
+        const raw = await genJson(user, buildPortraitMessages(c, { cardText: cardTextOf(card), world: world || c.world, recent }), { ...settings, createTemperature: 0.6, createConnectionId: settings.createConnectionId });
         const pp = cleanPortraitPrompt(raw);
         const req = composePortrait(P, pp);
         log('info', `초상화 시작(${c.name}) 모델=${P.model}`);
@@ -2242,7 +2335,7 @@ export function start(api) {
         await mutate(user, id, (x) => {
           x = ensureArt(x);
           old = x.art?.portrait?.imageId || '';
-          return { ...x, portraitJob: null, art: { ...x.art, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now() } } };
+          return { ...x, portraitJob: null, art: { ...x.art, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now(), atLetters: x.letters.filter((q) => q.from === 'them').length } } };
         });
         if (old) { try { await api.images.delete(old, user); } catch {} }
         await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0, kind: 'portrait' }]);
@@ -2328,13 +2421,13 @@ export function start(api) {
       if (prevTheirs) seasonChanged = calendarDate(c.calendar, prevTheirs.theirWrittenAt).month !== calendarDate(c.calendar, l.theirWrittenAt).month;
     }
     const html = art.paperMode !== 'image';
-    let jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: html || !!c.art?.paper?.imageId, stamp: !!c.art?.stamp?.imageId } });
+    let jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: html || !!c.art?.paper?.imageId, stamp: html ? !!c.art?.envelope?.imageId : !!c.art?.stamp?.imageId } });
     if (!jobs.length) return;
     log('info', `편지지·우표 바뀜(${c.name}): ${jobs.map((j) => `${j.kind}=${j.reason}`).join(', ')}`);
     if (html) {
       const pj = jobs.find((j) => j.kind === 'paper');
       if (pj) await makeTheme(user, id, { reason: [pj.reason, pj.medium].filter(Boolean).join(' — '), letterId }).catch((e) => log('warn', `편지지 테마 바꾸기 실패: ${e?.message || e}`));
-      jobs = jobs.filter((j) => j.kind !== 'paper' && j.kind !== 'stamp');
+      jobs = jobs.filter((j) => j.kind !== 'paper').map((j) => (j.kind === 'stamp' ? { ...j, kind: 'envelope' } : j));
     }
     if (jobs.length && api.imageGen?.generate) await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
   };
@@ -2623,8 +2716,23 @@ export function start(api) {
       if (api.imageGen?.generate && cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
         const cur = await loadC(user, id);
         const last = cur.letters[cur.letters.length - 1];
-        const its = (cur.items || []).filter((x) => x.letterId === last.id && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
+        const P0 = cleanPortrait(cleanArt(settings.art).portrait);
+        const mine = (cur.items || []).filter((x) => x.letterId === last.id && !x.imageId);
+        const pics = P0.connectionId && P0.pictureItems ? mine.filter((x) => isPictureItem(x.name, x.note)) : [];
+        const its = mine.filter((x) => !pics.includes(x)).map((x) => ({ kind: 'item', itemId: x.id }));
         if (its.length) drawArtWhenFree(user, id, its).catch((e) => log('info', `물건 자동 그림 건너뜀: ${e?.message || e}`));
+        for (const x of pics) drawPictureItem(user, id, x.id).catch((e) => log('warn', `사진 동봉 그림 실패: ${e?.message || e}`));
+      }
+      {
+        const P1 = cleanPortrait(cleanArt(settings.art).portrait);
+        const cur = await loadC(user, id);
+        const theirs = cur.letters.filter((x) => x.from === 'them').length;
+        const pt = cur.art?.portrait;
+        if (P1.connectionId && P1.refreshEvery > 0 && pt?.imageId && theirs - (pt.atLetters || 0) >= P1.refreshEvery && cur.portraitJob?.state !== 'drawing') {
+          const lastL = cur.letters[cur.letters.length - 1];
+          const recent = [...(lastL?.between || []).map((b) => `${b.when || ''} ${b.event}`), (lastL?.body || '').slice(0, 300)].join('\n');
+          drawPortrait(user, id, { recent }).catch((e) => log('info', `초상화 갱신 건너뜀: ${e?.message || e}`));
+        }
       }
       notify(user, { id });
     } finally {
@@ -2901,6 +3009,11 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'drawScene': {
+        // 내 편지에 넣을 그림: 자연어 → NovelAI. 사진 동봉처럼 쓴다
+        const r = await drawScene(user, p.id, { request: p.request, includeThem: !!p.includeThem, includeMe: !!p.includeMe });
+        return { imageId: r.imageId };
+      }
       case 'makeTheme': return { theme: await makeTheme(user, p.id, { reason: String(p.reason || '').slice(0, 300) }) };
       case 'setTheme': {
         const c = await mutate(user, p.id, (c) => ({ ...c, paperTheme: cleanTheme(p.theme, c.paperTheme ? cleanTheme(c.paperTheme) : defaultTheme(c)) }));

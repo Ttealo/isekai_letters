@@ -122,7 +122,8 @@ ok('편지첩: 상대 편지 편지지(꾸민 HTML)', !!panelRoot.querySelector(
 ok('편지첩: 날짜 구분선·상대 정보 카드', panelRoot.querySelectorAll('.im-divider').length >= 3 && !!panelRoot.querySelector('.im-info .im-seal'));
 ok('편지첩: 내 편지 편지지', !!panelRoot.querySelector('.im-paper.im-mine'));
 ok('편지첩: HTML은 글자로만', !panelRoot.querySelector('.im-paper b') && panelRoot.textContent.includes('<b>편지</b>'));
-ok('편지첩: 편지지엔 우표 없음', !panelRoot.querySelector('.im-themed img'));
+ok('편지첩: 편지지엔 우표 없음', !panelRoot.querySelector('.im-themed .im-tstamp'));
+ok('편지첩: 받은 물건 그림은 편지 아래 썸네일', !!panelRoot.querySelector('.im-themed .im-thumbs img') || !panelRoot.querySelector('.im-item img'));
 const themed = panelRoot.querySelector('.im-themed.im-theirs');
 ok('편지지 꾸미기: 무늬 띠·모서리 장식 4개·글씨체', (themed?.getAttribute('style') || '').includes('data:image/svg+xml') && themed.querySelectorAll('.im-corners svg').length === 4 && /font-family/.test(themed.children[1]?.getAttribute('style') || ''));
 ok('그림: 상대 우표는 안 씀', !panelRoot.querySelector('.im-env-stamp'));

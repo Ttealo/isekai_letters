@@ -6,7 +6,7 @@ import {
 import {
   MATCH_MODES, rollMatch, rollText, buildMatchMessages, buildCalendarMessages, calendarFromRaw, cleanMatchDraft, cleanEditedDraft, briefFromCard, entryInput, pickLore, firstLetterReply,
 } from './match.js';
-import { cleanPortrait, buildPortraitMessages, cleanPortraitPrompt, composePortrait } from './portrait.js';
+import { cleanPortrait, buildPortraitMessages, cleanPortraitPrompt, composePortrait, buildSceneMessages, cleanScenePrompt, composeScene, isPictureItem } from './portrait.js';
 import { cleanTheme, defaultTheme, buildThemeMessages } from './paper.js';
 import {
   ensureMemory, memoryLayers, cleanBudgets, buildOrganizeMessages, cleanOrganize, applyMemory, planChanges, addChanges, setChange,
@@ -208,7 +208,7 @@ export function start(api) {
     if (left < jobs.length) throw new Error(`오늘 그릴 수 있는 그림이 ${left}장 남았습니다(필요 ${jobs.length}장${art.perCorrespondentDay ? ` · 상대 한 명 하루 ${art.perCorrespondentDay}장` : ''}). 설정에서 상한을 바꿀 수 있습니다.`);
     drawing.add(key);
     const c00 = await loadC(user, id);
-    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
+    const label = (j) => (j.kind === 'item' ? (c00.items || []).find((x) => x.id === j.itemId)?.name || '물건' : { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인' }[j.kind]);
     // 대상마다 상태: waiting → drawing → done | failed
     const targets = jobs.map((j) => ({ kind: j.kind, itemId: j.itemId || '', label: label(j), state: 'waiting', error: '' }));
     const setTarget = (i, patch) => mutate(user, id, (c) => {
@@ -242,7 +242,8 @@ export function start(api) {
         }
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
-          : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+          : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
+            : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
         for (let i = 0; i < named.length; i++) {
@@ -293,7 +294,7 @@ export function start(api) {
                 // 바뀌기 전 편지들은 그때 그림을 그대로 갖게 고정
                 const prev = c.art?.[j.kind]?.imageId;
                 const letters = c.letters.map((l) => {
-                  if (l.id === j.letterId) return { ...l, art: { ...(l.art || {}), [j.kind]: res.imageId }, artNote: [l.artNote, `새 ${j.kind === 'paper' ? '편지지' : '우표'} — ${j.reason || ''}`].filter(Boolean).join(' · ') };
+                  if (l.id === j.letterId) return { ...l, art: { ...(l.art || {}), [j.kind]: res.imageId }, artNote: [l.artNote, `새 ${{ paper: '편지지', envelope: '봉투' }[j.kind] || '우표'} — ${j.reason || ''}`].filter(Boolean).join(' · ') };
                   if (l.from === 'them' && prev && !l.art?.[j.kind]) return { ...l, art: { ...(l.art || {}), [j.kind]: prev } };
                   return l;
                 });
@@ -348,7 +349,58 @@ export function start(api) {
     return { started: jobs.length, queued: true, left: left - jobs.length };
   };
   // 초상화(NovelAI): 글 1회로 태그 프롬프트, 그림 1장. 백그라운드로 돈다.
-  const drawPortrait = async (user, id) => {
+  // NovelAI 그림 1장(시간 제한·상한 사용). 반환: imageId
+  const naiImage = async (user, c, req, P) => {
+    let timer;
+    const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${ART_TIMEOUT_MIN}분 동안 응답이 없어 그만뒀어요`)), ART_TIMEOUT_MIN * 60000); });
+    let res;
+    try {
+      res = await Promise.race([api.imageGen.generate({
+        prompt: req.prompt, connection_id: P.connectionId, model: P.model || undefined,
+        parameters: { negativePrompt: req.negative, resolution: P.size, characterTags: req.characterTags },
+        includeDataUrl: false, owner_character_id: c.characterId || undefined, userId: user,
+      }), timeout]);
+    } finally { clearTimeout(timer); }
+    if (!res?.imageId) throw new Error('이미지 id가 없습니다.');
+    await api.userStorage.setJson(USAGE, useQuota(await readUsage(user), 1, Date.now(), c.id), { userId: user });
+    return res.imageId;
+  };
+  const personaCard = async (user, c) => {
+    if (c.noPersona) return { name: '', card: '' };
+    try {
+      const p = c.personaId ? await api.personas.get(c.personaId, user) : await api.personas.getActive(user);
+      return { name: p?.name || '', card: [p?.description, p?.personality, p?.appearance].filter((x) => typeof x === 'string' && x).join('\n') };
+    } catch { return { name: '', card: '' }; }
+  };
+  const worldOf = async (user, c) => (await allLore(user, c).catch(() => [])).filter((e) => /세계 개요|overview/i.test(e.comment || '')).map((e) => e.content).join('\n') || c.world || '';
+  // 장면 그림: 자연어 → 지침 → NovelAI. 사람이 기다리는 요청(10~60초)
+  const drawScene = async (user, id, { request = '', includeThem = true, includeMe = false } = {}) => {
+    const settings = await loadSettings(user);
+    const art = cleanArt(settings.art);
+    const P = cleanPortrait(art.portrait);
+    if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
+    if (!String(request).trim()) throw new Error('어떤 그림인지 적어 주세요.');
+    const c = await loadC(user, id);
+    if (quotaLeft(await readUsage(user), art, Date.now(), c.id) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다.');
+    const them = includeThem ? { name: c.name, card: cardTextOf(await cardOf(user, c)) } : null;
+    const me = includeMe ? await personaCard(user, c) : null;
+    const raw = await genJson(user, buildSceneMessages({ request: String(request).slice(0, 1500), them, me, world: await worldOf(user, c) }), { ...settings, createTemperature: 0.6 });
+    const sp = cleanScenePrompt(raw);
+    const imageId = await naiImage(user, c, composeScene(P, sp), P);
+    log('info', `장면 그림(${c.name}): ${String(request).slice(0, 40)}`);
+    return { imageId, prompt: sp };
+  };
+  // 상대가 보낸 사진·그림 동봉: NovelAI로(상대가 담긴 그림)
+  const drawPictureItem = async (user, id, itemId) => {
+    const c = await loadC(user, id);
+    const it = (c.items || []).find((x) => x.id === itemId);
+    if (!it || it.imageId) return;
+    const l = c.letters.find((x) => x.id === it.letterId);
+    const r = await drawScene(user, id, { request: `${it.name}${it.note ? ` — ${it.note}` : ''}${l?.body ? `\n(편지 내용 일부: ${l.body.slice(0, 400)})` : ''}`, includeThem: true });
+    await mutate(user, id, (x) => ({ ...x, items: x.items.map((y) => (y.id === itemId ? { ...y, imageId: r.imageId, imagePrompt: r.prompt.scene, nai: true } : y)) }));
+    notify(user, { id });
+  };
+  const drawPortrait = async (user, id, { recent = '' } = {}) => {
     const key = `${user}:${id}:portrait`;
     if (drawing.has(key)) throw new Error('초상화를 이미 그리는 중입니다.');
     const settings = await loadSettings(user);
@@ -365,7 +417,7 @@ export function start(api) {
       try {
         const card = await cardOf(user, c);
         const world = (await allLore(user, c).catch(() => [])).filter((e) => /세계 개요|overview/i.test(e.comment || '')).map((e) => e.content).join('\n');
-        const raw = await genJson(user, buildPortraitMessages(c, { cardText: cardTextOf(card), world: world || c.world }), { ...settings, createTemperature: 0.6, createConnectionId: settings.createConnectionId });
+        const raw = await genJson(user, buildPortraitMessages(c, { cardText: cardTextOf(card), world: world || c.world, recent }), { ...settings, createTemperature: 0.6, createConnectionId: settings.createConnectionId });
         const pp = cleanPortraitPrompt(raw);
         const req = composePortrait(P, pp);
         log('info', `초상화 시작(${c.name}) 모델=${P.model}`);
@@ -385,7 +437,7 @@ export function start(api) {
         await mutate(user, id, (x) => {
           x = ensureArt(x);
           old = x.art?.portrait?.imageId || '';
-          return { ...x, portraitJob: null, art: { ...x.art, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now() } } };
+          return { ...x, portraitJob: null, art: { ...x.art, portrait: { imageId: res.imageId, prompt: req.prompt, character: pp.character, negative: req.negative, at: Date.now(), atLetters: x.letters.filter((q) => q.from === 'them').length } } };
         });
         if (old) { try { await api.images.delete(old, user); } catch {} }
         await pushWebp(user, [{ cid: id, imageId: res.imageId, tries: 0, kind: 'portrait' }]);
@@ -471,13 +523,13 @@ export function start(api) {
       if (prevTheirs) seasonChanged = calendarDate(c.calendar, prevTheirs.theirWrittenAt).month !== calendarDate(c.calendar, l.theirWrittenAt).month;
     }
     const html = art.paperMode !== 'image';
-    let jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: html || !!c.art?.paper?.imageId, stamp: !!c.art?.stamp?.imageId } });
+    let jobs = artChangeJobs(art, { change, seasonChanged, hasSet: { paper: html || !!c.art?.paper?.imageId, stamp: html ? !!c.art?.envelope?.imageId : !!c.art?.stamp?.imageId } });
     if (!jobs.length) return;
     log('info', `편지지·우표 바뀜(${c.name}): ${jobs.map((j) => `${j.kind}=${j.reason}`).join(', ')}`);
     if (html) {
       const pj = jobs.find((j) => j.kind === 'paper');
       if (pj) await makeTheme(user, id, { reason: [pj.reason, pj.medium].filter(Boolean).join(' — '), letterId }).catch((e) => log('warn', `편지지 테마 바꾸기 실패: ${e?.message || e}`));
-      jobs = jobs.filter((j) => j.kind !== 'paper' && j.kind !== 'stamp');
+      jobs = jobs.filter((j) => j.kind !== 'paper').map((j) => (j.kind === 'stamp' ? { ...j, kind: 'envelope' } : j));
     }
     if (jobs.length && api.imageGen?.generate) await drawArtWhenFree(user, id, jobs.map((j) => ({ ...j, letterId })));
   };
@@ -766,8 +818,23 @@ export function start(api) {
       if (api.imageGen?.generate && cleanArt(settings.art).autoItems === 'all' && reply.enclosures?.length) {
         const cur = await loadC(user, id);
         const last = cur.letters[cur.letters.length - 1];
-        const its = (cur.items || []).filter((x) => x.letterId === last.id && !x.imageId).map((x) => ({ kind: 'item', itemId: x.id }));
+        const P0 = cleanPortrait(cleanArt(settings.art).portrait);
+        const mine = (cur.items || []).filter((x) => x.letterId === last.id && !x.imageId);
+        const pics = P0.connectionId && P0.pictureItems ? mine.filter((x) => isPictureItem(x.name, x.note)) : [];
+        const its = mine.filter((x) => !pics.includes(x)).map((x) => ({ kind: 'item', itemId: x.id }));
         if (its.length) drawArtWhenFree(user, id, its).catch((e) => log('info', `물건 자동 그림 건너뜀: ${e?.message || e}`));
+        for (const x of pics) drawPictureItem(user, id, x.id).catch((e) => log('warn', `사진 동봉 그림 실패: ${e?.message || e}`));
+      }
+      {
+        const P1 = cleanPortrait(cleanArt(settings.art).portrait);
+        const cur = await loadC(user, id);
+        const theirs = cur.letters.filter((x) => x.from === 'them').length;
+        const pt = cur.art?.portrait;
+        if (P1.connectionId && P1.refreshEvery > 0 && pt?.imageId && theirs - (pt.atLetters || 0) >= P1.refreshEvery && cur.portraitJob?.state !== 'drawing') {
+          const lastL = cur.letters[cur.letters.length - 1];
+          const recent = [...(lastL?.between || []).map((b) => `${b.when || ''} ${b.event}`), (lastL?.body || '').slice(0, 300)].join('\n');
+          drawPortrait(user, id, { recent }).catch((e) => log('info', `초상화 갱신 건너뜀: ${e?.message || e}`));
+        }
       }
       notify(user, { id });
     } finally {
@@ -1044,6 +1111,11 @@ export function start(api) {
         return { left: quotaLeft(await readUsage(user), art), perDay: art.perDay };
       }
       case 'drawPortrait': return drawPortrait(user, p.id);
+      case 'drawScene': {
+        // 내 편지에 넣을 그림: 자연어 → NovelAI. 사진 동봉처럼 쓴다
+        const r = await drawScene(user, p.id, { request: p.request, includeThem: !!p.includeThem, includeMe: !!p.includeMe });
+        return { imageId: r.imageId };
+      }
       case 'makeTheme': return { theme: await makeTheme(user, p.id, { reason: String(p.reason || '').slice(0, 300) }) };
       case 'setTheme': {
         const c = await mutate(user, p.id, (c) => ({ ...c, paperTheme: cleanTheme(p.theme, c.paperTheme ? cleanTheme(c.paperTheme) : defaultTheme(c)) }));

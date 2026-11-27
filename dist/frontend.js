@@ -936,8 +936,14 @@ const CSS = `
 .im-env-seal2{position:absolute;left:50%;top:52%;width:17%;transform:translate(-50%,-50%);border-radius:50%;filter:drop-shadow(0 2px 3px #0006)}
 .im-themed{position:relative;margin-right:22px}
 .im-face{object-fit:cover;object-position:50% 12%;cursor:zoom-in;background:#ddd}
+.im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-thumbs{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;white-space:normal}
+.im-thumbs figure{margin:0;width:120px;cursor:zoom-in;background:#fffa;padding:4px;box-shadow:0 3px 8px -4px #0007;transform:rotate(-1deg)}
+.im-thumbs figure:nth-child(even){transform:rotate(1.2deg)}
+.im-thumbs img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.im-thumbs figcaption{font:11px/1.3 system-ui,sans-serif;color:#555;padding-top:3px;text-align:center}
 .im-env-btn{align-self:flex-start;font-size:12px;margin:0 0 4px 2px}
 .im-env-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .im-env-card{cursor:zoom-in;border-radius:3px;box-shadow:0 3px 8px -3px #0006}
@@ -1270,6 +1276,26 @@ export function setup(ctx) {
       el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
       el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
       el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
+      el('details', { class: 'im-scene' }, [
+        el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '그림 그려서 동봉 (NovelAI)' }),
+        (() => {
+          const req = el('textarea', { rows: 2, placeholder: '어떤 그림인지 자연어로 — 예: 비 오는 창가에서 편지를 읽는 나, 창밖엔 네온 간판' });
+          const me = el('input', { type: 'checkbox', style: 'width:auto', checked: true });
+          const them = el('input', { type: 'checkbox', style: 'width:auto' });
+          return el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, [
+            req,
+            el('div', { class: 'im-row', style: 'gap:14px' }, [el('label', { class: 'im-row', style: 'flex-direction:row' }, [me, '나(페르소나)']), el('label', { class: 'im-row', style: 'flex-direction:row' }, [them, `${c.name}`])]),
+            btn('그려서 넣기 (글 1회 + 그림 1장)', () => act(async () => {
+              if (d.photos.length >= 3) throw new Error('그림·사진은 편지 한 통에 3장까지예요.');
+              const text = req.value.trim();
+              if (!text) throw new Error('어떤 그림인지 적어 주세요.');
+              const r = await ask('drawScene', { id: c.id, request: text, includeMe: me.checked, includeThem: them.checked }, 300000);
+              d.photos.push({ imageId: r.imageId, name: short(text, 60) });
+            }), { disabled: busyRef() || d.photos.length >= 3 }),
+            el('div', { class: 'im-muted', style: 'font-size:11px', text: '적은 글을 지침대로 NovelAI 프롬프트로 바꿔 그립니다. 다 그리면 아래 동봉 칸에 붙어요(빼기 가능).' }),
+          ]);
+        })(),
+      ]),
       photoRow,
       el('div', { class: 'im-row' }, [
         el('span', { class: 'im-muted im-grow', text: `${deliveryLabel(c)}. 도착 전에는 회수할 수 있습니다.` }),
@@ -1300,26 +1326,32 @@ export function setup(ctx) {
     }
   } catch {}
   const htmlPaper = () => (S.settings?.art?.paperMode || 'html') !== 'image';
-  const setKindsUi = () => (htmlPaper() ? ['envelope', 'seal'] : ['paper', 'stamp', 'seal']);
+  const setKindsUi = () => (htmlPaper() ? ['envelope', 'emblem'] : ['paper', 'stamp', 'seal']);
   // 상대 얼굴: 초상화 → 봉인 → 이름 첫 글자
-  const avatarEl = (c, cls = 'im-seal') => (c.art?.portrait?.imageId ? el('img', { class: `${cls} im-face`, src: imgUrl(c.art.portrait.imageId, 'sm'), alt: c.name, title: '눌러서 초상화 크게 보기', onclick: (e) => { e.stopPropagation(); openImage(c.art.portrait.imageId, `${c.name} · 초상화`, ''); } })
+  const avatarEl = (c, cls = 'im-seal', { portraitFirst = false } = {}) => (!portraitFirst && (c.art?.emblem?.imageId || c.art?.seal?.imageId) ? el('img', { class: `${cls} im-emblem`, src: imgUrl(c.art.emblem?.imageId || c.art.seal.imageId, 'sm'), alt: '' })
+    : c.art?.portrait?.imageId ? el('img', { class: `${cls} im-face`, src: imgUrl(c.art.portrait.imageId, 'sm'), alt: c.name, title: '눌러서 초상화 크게 보기', onclick: (e) => { e.stopPropagation(); openImage(c.art.portrait.imageId, `${c.name} · 초상화`, ''); } })
     : c.art?.seal?.imageId ? el('img', { class: cls, src: imgUrl(c.art.seal.imageId, 'sm'), alt: '' }) : el('span', { class: cls, text: c.name.replace(/^[[^]]*]s*/, '').slice(0, 1) }));
-  const KIND_LABEL = { envelope: '봉투', paper: '편지지', stamp: '우표', seal: '봉인' };
+  const KIND_LABEL = { envelope: '봉투', emblem: '상징물', paper: '편지지', stamp: '우표', seal: '봉인' };
   const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
+  // 편지에 딸린 그림(받은 물건·사진 그림, 내 사진): 편지지 아래 썸네일, 누르면 크게
+  const attachThumbs = (c, l) => {
+    const pics = (c.items || []).filter((x) => x.letterId === l.id && x.imageId).map((x) => ({ id: x.imageId, name: x.name, note: x.note || '' }));
+    if (!pics.length) return null;
+    return el('div', { class: 'im-thumbs' }, pics.map((x) => el('figure', { onclick: (e) => { e.stopPropagation(); openImage(x.id, x.name, x.note); } }, [
+      el('img', { src: imgUrl(x.id, 'lg'), alt: x.name, loading: 'lazy' }),
+      el('figcaption', { text: short(x.name, 24) }),
+    ])));
+  };
   // 연 편지에도 봉투가 보이게: 작은 봉투(우표·봉인 붙은 채), 누르면 크게
   const envelopeFace = (c, l, cls) => {
-    const envImg = c.art?.envelope?.imageId;
+    const envImg = l?.art?.envelope || c.art?.envelope?.imageId;
     if (!envImg) return null;
-    const st = l?.art?.stamp || c.art?.stamp?.imageId;
-    const se = c.art?.seal?.imageId;
     return el('div', { class: `im-env-art ${cls}`, style: `background-image:url("${imgUrl(envImg, 'lg')}")` }, [
-      se ? el('img', { class: 'im-env-seal2', src: imgUrl(se, 'sm'), alt: '봉인' }) : null,
     ]);
   };
   const showEnvelope = (c, l) => {
     const big = envelopeFace(c, l, 'im-env-big');
     if (!big) return;
-    if (l?.arriveAt) big.append(el('span', { class: 'im-env-postdate', text: new Date(l.arriveAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) }));
     const box = el('div', { class: 'im-env-overlay', onclick: () => box.remove() }, [big, el('div', { class: 'im-env-cap', text: [`${c.name}의 봉투`, l?.writtenLabel || l?.theirWrittenLabel, l?.envelope?.medium, l?.envelope?.stamp && `우표: ${l.envelope.stamp}`].filter(Boolean).join(' · ') })]);
     document.body.append(box);
   };
@@ -1640,6 +1672,8 @@ export function setup(ctx) {
       const psize = el('input', { value: PP.size || '832x1216', placeholder: '832x1216' });
       const pav = el('input', { type: 'checkbox', style: 'width:auto', checked: PP.avatar !== false });
       const pavx = el('input', { type: 'checkbox', style: 'width:auto', checked: !!PP.avatarExisting });
+      const prefresh = el('input', { type: 'number', min: '0', max: '100', step: '1', value: String(PP.refreshEvery ?? 8) });
+      const ppic = el('input', { type: 'checkbox', style: 'width:auto', checked: PP.pictureItems !== false });
       const iauto = el('select', {}, [el('option', { value: 'all', text: '켬', selected: A.autoItems !== 'off' }), el('option', { value: 'off', text: '끔', selected: A.autoItems === 'off' })]);
       const CHG = [['event', '사건이 있을 때 (계절 변화 포함)'], ['season', '그쪽 계절이 바뀔 때만'], ['off', '끄기']];
       const ipch = el('select', {}, CHG.map(([v, t]) => el('option', { value: v, text: t, selected: (A.paperChange || 'event') === v })));
@@ -1707,6 +1741,8 @@ export function setup(ctx) {
         field('네거티브', pneg),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [pav, '매칭으로 만든 캐릭터의 아바타로 쓰기']),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [pavx, '원래 있던 캐릭터(기존 캐릭터로 시작)도 아바타 바꾸기']),
+        field('초상화를 요즘 모습으로 새로 그리기: 상대 편지 몇 통마다 (0=안 함)', prefresh),
+        el('label', { class: 'im-row', style: 'flex-direction:row' }, [ppic, '상대가 보낸 사진·그림·초상류 동봉은 NovelAI로 그리기']),
         el('h4', { text: '먼저 오는 편지' }),
         el('label', { class: 'im-row', style: 'flex-direction:row' }, [initOn, '내가 오래 답장하지 않으면 상대가 먼저 쓰기']),
         el('div', { class: 'im-pair' }, [field('하루 최대(전체)', initDay), field('답 없이 연달아 쓰는 최대 통수', initStreak)]),
@@ -1755,7 +1791,7 @@ export function setup(ctx) {
         ]),
         el('div', { class: 'im-muted', text: pageMode ? '지금: 채팅창처럼 화면 가득' : panelMode === 'float' ? '지금: 떠 있는 창' : (lsGet(LS_PANEL_MODE, 'page') === 'page' ? '지금: 오른쪽에 붙이기 (화면 가득 방식은 확장 패널에서 app_manipulation 권한을 승인해야 합니다)' : '지금: 오른쪽에 붙이기') }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -2049,13 +2085,10 @@ export function setup(ctx) {
     if (l.state === 'delivered') {
       const rows = [['매체', e.medium], ['손끝에 닿는 것', e.texture], ['냄새', e.scent], ['흔적', e.marks], ['봉인', e.seal], ['우표', e.stamp]].filter(([, v]) => v);
       const sealImg = c.art?.seal?.imageId;
-      const envImg = c.art?.envelope?.imageId;
+      const envImg = l?.art?.envelope || c.art?.envelope?.imageId;
       const stampImg0 = l.art?.stamp || c.art?.stamp?.imageId;
       const face = envImg
         ? el('div', { class: 'im-env-art', style: `background-image:url("${imgUrl(envImg, 'lg')}")` }, [
-          el('span', { class: 'im-env-post', html: `<svg viewBox="0 0 80 80" width="74" height="74"><circle cx="40" cy="40" r="30" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="40" cy="40" r="24" fill="none" stroke="currentColor" stroke-width="1"/><path d="M4 34h18M4 40h16M4 46h18M58 34h18M60 40h16M58 46h18" stroke="currentColor" stroke-width="1.5"/></svg>` }),
-          el('span', { class: 'im-env-postdate', text: new Date(l.arriveAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) }),
-          sealImg ? el('img', { class: 'im-env-seal2', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : null,
         ])
         : el('div', { class: 'im-env-face' }, [sealImg ? el('img', { class: 'im-env-seal', src: imgUrl(sealImg, 'sm'), alt: '봉인' }) : el('span', { class: 'im-env-seal', text: c.name.replace(/^\[[^\]]*\]\s*/, '').slice(0, 1) })]);
       return el('div', { class: 'im-envelope' }, [
@@ -2084,13 +2117,14 @@ export function setup(ctx) {
       : undefined;
     if (htmlPaper() && !l.art?.paper) {
       const look = paperLook(themeOf(c, l), { seed: l.id, narrow });
-      const envBtn = c.art?.envelope?.imageId ? el('button', { class: 'im-link im-env-btn', type: 'button', text: '✉ 봉투 보기', onclick: () => showEnvelope(c, l) }) : null;
+      const envBtn = (l.art?.envelope || c.art?.envelope?.imageId) ? el('button', { class: 'im-link im-env-btn', type: 'button', text: '✉ 봉투 보기', onclick: () => showEnvelope(c, l) }) : null;
       return el('div', { class: 'im-themed-wrap' }, [envBtn, el('div', { class: 'im-themed im-theirs', style: look.outer }, [
         el('span', { class: 'im-corners', html: look.corners }),
         el('div', { style: look.inner }, [
           el('div', { class: 'im-tmeta', style: `color:${look.metaColor}`, text: `${c.name}의 편지 · ${meta}` }),
           el('div', { text: l.body + (l.ps ? `\n\n추신. ${l.ps}` : '') }),
           l.enclosures?.length ? el('div', { class: 'im-tencl', style: `border-color:${look.accent}88` }, l.enclosures.map((x) => el('div', { text: `동봉 · ${x.item}${x.note ? ` — ${x.note}` : ''}` }))) : null,
+          attachThumbs(c, l),
           l.artNote ? el('div', { class: 'im-tmeta', style: `margin:10px 0 0;color:${look.accent}`, text: `✦ ${l.artNote}` }) : null,
           l.late ? el('div', { class: 'im-tmeta', style: `margin:6px 0 0;color:${look.accent}`, text: `✦ 우체부가 늦었다 — ${l.late}` }) : null,
           el('div', { class: 'im-tmeta', style: `margin:10px 0 0;color:${look.metaColor}`, text: `받은 시각 ${when(l.arriveAt)}` }),
@@ -2396,6 +2430,7 @@ ${gallery}
           el('div', { class: 'im-meta', text: `${l.personaName || '나'}의 편지 · ${when(l.sentAt)} 보냄 · 그쪽 ${l.theirArriveLabel} 도착${l.late ? ` · 늦게 닿음(${l.late})` : ''}` }),
           el('div', { text: l.body }),
           enc.length ? el('div', { class: 'im-encl' }, enc.map((x) => el('div', { text: `동봉 · ${x}` }))) : null,
+          attachThumbs(c, l),
         ]);
       }
       if (l.state === 'in_transit') return el('div', { class: 'im-transit im-theirs', text: `${c.name}의 편지가 ${exact ? etaLabel(l.arriveAt - now, true).replace('도착까지', '도착까지') : '어딘가를 건너는 중…'}${l.late ? ` · ✦ 우체부가 늦어지고 있어요(${l.late})` : ''}` });
@@ -2404,7 +2439,7 @@ ${gallery}
     const sealImg = c.art?.seal?.imageId;
     return [
       el('div', { class: 'im-info' }, [
-        avatarEl(c),
+        avatarEl(c, 'im-seal', { portraitFirst: true }),
         el('div', { class: 'im-grow' }, [
           el('div', { class: 'im-name', text: c.name }),
           el('div', { class: 'im-muted', text: `${c.personaName ? `${c.personaName}의 편지 상대 · ` : ''}그쪽은 지금 ${c.theirNowLabel} · 시간 1:${c.ratio}` }),
@@ -2631,7 +2666,7 @@ ${gallery}
         ]);
       }),
       (() => {
-        const envs = list.flatMap((c) => (c.art?.envelope?.imageId ? c.letters.filter((l) => l.from === 'them' && l.state !== 'in_transit').map((l) => ({ c, l })) : []));
+        const envs = list.flatMap((c) => (c.art?.envelope?.imageId || c.letters.some((q) => q.art?.envelope) ? c.letters.filter((l) => l.from === 'them' && l.state !== 'in_transit').map((l) => ({ c, l })) : []));
         envs.sort((a, b) => (b.l.arriveAt || 0) - (a.l.arriveAt || 0));
         return el('div', {}, [
           el('h4', { text: `받은 봉투 · ${envs.length}` }),

@@ -33,6 +33,8 @@ export const DEFAULT_PORTRAIT = {
   size: '832x1216',
   avatar: true, // 매칭으로 만든 캐릭터의 아바타로 쓰기
   avatarExisting: false, // 원래 있던 캐릭터(기존 캐릭터로 시작)도 아바타를 바꿀지
+  refreshEvery: 8, // 상대 편지 이만큼마다 초상화를 지금 모습으로 새로 그림(0=안 함)
+  pictureItems: true, // 상대가 보낸 사진·그림류 동봉은 NovelAI로
 };
 
 const pstr = (v, max, d = '') => (typeof v === 'string' ? v.trim().slice(0, max) : d);
@@ -45,6 +47,8 @@ export function cleanPortrait(p) {
     size: typeof p?.size === 'string' && /^\d{3,4}x\d{3,4}$/.test(p.size.trim()) ? p.size.trim() : DEFAULT_PORTRAIT.size,
     avatar: p?.avatar !== false,
     avatarExisting: !!p?.avatarExisting,
+    refreshEvery: Number.isFinite(Number(p?.refreshEvery)) && p?.refreshEvery !== '' && p?.refreshEvery !== null && p?.refreshEvery !== undefined ? Math.min(100, Math.max(0, Math.round(Number(p.refreshEvery)))) : 8,
+    pictureItems: p?.pictureItems !== false,
   };
 }
 
@@ -72,7 +76,7 @@ scene (one portrait, base prompt part): framing (upper body or cowboy shot), a s
 character_uc: only opposite drifts to block (e.g. mature adult → youthful facial features, baby face; man drawn feminine → feminine face; slim → muscular, abs). Often empty. Never a generic quality list.
 </nai_v45f_rules>`;
 
-export function buildPortraitMessages(c, { cardText = '', world = '' } = {}) {
+export function buildPortraitMessages(c, { cardText = '', world = '', recent = '' } = {}) {
   const system = [
     'You write NovelAI image prompts from character sheets. Follow the rules exactly and keep every fact the sheet gives (hair, eyes, build, clothing, species, scars). Do not add designs the sheet contradicts; fill silent slots with plain values.',
     NAI_GUIDE,
@@ -83,6 +87,7 @@ export function buildPortraitMessages(c, { cardText = '', world = '' } = {}) {
     '</character_sheet>',
     world ? `<world>\n${world.slice(0, 1500)}\n</world>` : '',
     c.mail?.imageKeywords?.length ? `world_visual_keywords=${c.mail.imageKeywords.join(', ')}` : '',
+    recent ? `<lately>\n${recent.slice(0, 800)}\n</lately>\nShow them as they are lately (scene, season, visible changes such as injuries or new clothes), still one calm portrait.` : '',
     'The sheet is in Korean; translate attributes into English tags.',
     'Output JSON only: {"character":"","scene":"","character_uc":""}',
   ].filter(Boolean).join('\n');
@@ -115,3 +120,37 @@ export function composePortrait(P, pp) {
     characterTags: [{ tags: pp.character }],
   };
 }
+
+// ── 장면 그림(사진·그림 동봉): 자연어 → NAI 프롬프트. 등장인물은 상대·나(페르소나) 중 고른 쪽 ──
+export function buildSceneMessages({ request = '', them = null, me = null, world = '' } = {}) {
+  const system = [
+    'You turn a natural-language picture request into a NovelAI image prompt. Keep every visible fact of the people from their sheets; the request decides scene, pose, action, framing, place and mood (as visible attributes).',
+    NAI_GUIDE,
+    'For a scene: "scene" holds framing, the action and relations, place and lighting tags (under ~90 tokens; for 2 people add one short English sentence about who does what to whom). One entry in "characters" per person shown, each with fixed appearance only (same rules as character). Nobody shown → "characters": [] and the scene describes objects/landscape.',
+  ].join('\n');
+  const user = [
+    them ? `<person id="them" name="${them.name}">\n${String(them.card || '').slice(0, 2500)}\n</person>` : '',
+    me ? `<person id="me" name="${me.name || 'the letter writer'}">\n${String(me.card || '').slice(0, 1500) || '(no description: an ordinary adult from present-day Earth; keep appearance plain)'}\n</person>` : '',
+    world ? `<world>\n${world.slice(0, 1200)}\n</world>` : '',
+    `<request>\n${request}\n</request>`,
+    'The request and sheets may be in Korean; output English tags only.',
+    'Output JSON only: {"scene":"","characters":[{"who":"them|me","tags":""}],"character_uc":""}',
+  ].filter(Boolean).join('\n');
+  return [{ role: 'system', content: system }, { role: 'user', content: user }];
+}
+export function cleanScenePrompt(raw) {
+  const chars = (Array.isArray(raw?.characters) ? raw.characters : []).map((x) => ({ who: x?.who === 'me' ? 'me' : 'them', tags: naiClean(x?.tags, 1500) })).filter((x) => x.tags).slice(0, 3);
+  const scene = naiClean(raw?.scene, 1000);
+  if (!scene && !chars.length) throw new Error('그림 프롬프트가 비어 있습니다.');
+  return { scene, characters: chars, characterUc: naiClean(raw?.character_uc, 400) };
+}
+export function composeScene(P, sp) {
+  const flat = (t) => String(t || '').replace(/\s*\n+\s*/g, ' ').trim().replace(/,\s*$/, '');
+  return {
+    prompt: [flat(P.base), sp.scene].filter(Boolean).join(', '),
+    negative: [flat(P.negative), sp.characterUc].filter(Boolean).join(', '),
+    characterTags: sp.characters.map((x) => ({ tags: x.tags })),
+  };
+}
+// 상대가 보낸 물건 중 NovelAI로 그릴 것(사람이 담긴 사진·그림)
+export const isPictureItem = (name = '', note = '') => /사진|초상|자화상|스케치|그림|화첩|portrait|photo|sketch/i.test(`${name} ${note}`);
