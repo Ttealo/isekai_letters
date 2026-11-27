@@ -958,6 +958,11 @@ const CSS = `
 .im-emblem{object-fit:cover;background:#f6efe2;box-shadow:inset 0 0 0 2px #fff8,0 2px 6px #0003}
 .im-info .im-face{width:56px;height:56px}
 .im-themed-wrap{display:flex;flex-direction:column}
+.im-myface{width:28px;height:28px;border-radius:50%;object-fit:cover;object-position:50% 15%;cursor:zoom-in;box-shadow:0 1px 3px #0004}
+.im-myface-letter{float:right;width:40px;height:40px;margin:0 0 6px 10px}
+.im-me{padding:10px;border-radius:12px;background:var(--lumiverse-bg-elevated,#fff);box-shadow:0 4px 12px -8px #0007;margin-bottom:10px}
+.im-me-big{width:120px;aspect-ratio:832/1216;object-fit:cover;border-radius:8px;cursor:zoom-in;flex:none}
+.im-me-empty{display:flex;align-items:center;justify-content:center;background:var(--lumiverse-fill);color:var(--lumiverse-text-muted);font-size:12px}
 .im-tsum{font-size:12.5px;line-height:1.6;padding:8px 10px;border-radius:8px;background:var(--lumiverse-fill);color:var(--lumiverse-text);margin-bottom:6px}
 .im-thumbs{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;white-space:normal}
 .im-thumbs figure{margin:0;width:120px;cursor:zoom-in;background:#fffa;padding:4px;box-shadow:0 3px 8px -4px #0007;transform:rotate(-1deg)}
@@ -1193,6 +1198,7 @@ export function setup(ctx) {
       if (p) { S.personas = p.personas; S.activePersonaId = p.activeId; }
       const l = await ask('load');
       S.list = l.list;
+      ask('mePortraits').then((m) => { S.me = m.me || {}; renderAll(); }).catch(() => {});
       S.error = '';
       ask('artStatus').then((a) => { S.art = a; }).catch(() => {});
       convertWebp();
@@ -1260,7 +1266,7 @@ export function setup(ctx) {
       const count = S.list.filter((x) => x.personaId === p.id).length;
       if (!count && p.id !== S.persona) continue; // 편지 상대가 있는 페르소나만(고른 것은 유지)
       chips.push(el('button', { class: `im-chip${S.persona === p.id ? ' im-on' : ''}`, type: 'button', title: p.title || p.name, onclick: () => setPersona(p.id) }, [
-        p.imageId ? el('img', { class: 'im-ava', src: imgUrl(p.imageId), alt: '' }) : el('span', { class: 'im-ava', text: p.name.slice(0, 1) }),
+        myPortrait(p.id) ? el('img', { class: 'im-ava', src: imgUrl(myPortrait(p.id).imageId, 'sm'), alt: '' }) : p.imageId ? el('img', { class: 'im-ava', src: imgUrl(p.imageId), alt: '' }) : el('span', { class: 'im-ava', text: p.name.slice(0, 1) }),
         `${p.name} · ${count}`,
       ]));
     }
@@ -1292,7 +1298,7 @@ export function setup(ctx) {
     ]))) : null;
     const sender = c.noPersona ? '나 (페르소나 없음)' : c.personaId ? (personaOf(c.personaId)?.name || c.personaName || '(지워진 페르소나)') : '활성 페르소나';
     return el('div', { class: 'im-letter' }, [
-      el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })]),
+      el('div', { class: 'im-row' }, [el('h4', { class: 'im-grow', text: `${c.name}에게` }), el('span', { class: 'im-row', style: 'gap:6px;align-items:center' }, [myFace(meKeyOf(c)), el('span', { class: 'im-muted', text: `보내는 사람: ${sender}` })])]),
       el('textarea', { value: d.body, placeholder: '편지 본문', rows: 7, oninput: (e) => { d.body = e.target.value; } }),
       el('textarea', { value: d.enclosure, placeholder: '동봉할 것(선택, 한 줄에 하나) — 예: 말린 네잎클로버 한 장', rows: 2, style: 'min-height:48px', oninput: (e) => { d.enclosure = e.target.value; } }),
       el('div', { class: 'im-row' }, [photoIn, btn('사진 동봉…', () => photoIn.click(), { disabled: busyRef() || d.photos.length >= 3 }), el('span', { class: 'im-muted', text: '내 세계의 사진(3장까지). 상대는 붙인 설명만큼 압니다.' })]),
@@ -1353,6 +1359,33 @@ export function setup(ctx) {
     : c.art?.seal?.imageId ? el('img', { class: cls, src: imgUrl(c.art.seal.imageId, 'sm'), alt: '' }) : el('span', { class: cls, text: c.name.replace(/^[[^]]*]s*/, '').slice(0, 1) }));
   const KIND_LABEL = { envelope: '봉투', emblem: '상징물', locker: '추억 상자', paper: '편지지', stamp: '우표', seal: '봉인' };
   const themeOf = (c, l) => (l?.theme || c?.paperTheme || defaultTheme(c));
+  // ── 내 초상화 ──
+  const meKeyOf = (c) => (c?.noPersona ? 'none' : (c?.personaId || S.activePersonaId || 'none')).replace(/[^\w-]/g, '_');
+  const myPortrait = (key) => S.me?.[String(key || 'none').replace(/[^\w-]/g, '_')]?.portrait || null;
+  const myFace = (key, cls = 'im-myface') => {
+    const pt = myPortrait(key);
+    return pt?.imageId ? el('img', { class: cls, src: imgUrl(pt.imageId, 'sm'), alt: '내 모습', title: '내 초상화 — 눌러서 크게', onclick: (e) => { e.stopPropagation(); openImage(pt.imageId, '내 초상화', ''); } }) : null;
+  };
+  // 내 모습 칸(모음): 지금 초상화, 지난 모습, 그리기(페르소나 설명 + 메모), 보낸 그림에서 고르기
+  function meCard(key, label, opts, act) {
+    const m = S.me?.[String(key).replace(/[^\w-]/g, '_')] || {};
+    const note = el('textarea', { rows: 2, placeholder: '내 모습 메모(선택) — 예: 어깨까지 오는 갈색 머리, 안경, 회색 니트. 페르소나 설명에 더해져요.' });
+    return el('div', { class: 'im-me' }, [
+      el('div', { class: 'im-row', style: 'gap:12px;align-items:flex-start' }, [
+        m.portrait?.imageId ? el('img', { class: 'im-me-big', src: imgUrl(m.portrait.imageId, 'lg'), alt: '내 초상화', onclick: () => openImage(m.portrait.imageId, `${label} · 초상화`, m.portrait.character || '') }) : el('div', { class: 'im-me-big im-me-empty', text: '아직 없음' }),
+        el('div', { class: 'im-grow', style: 'display:flex;flex-direction:column;gap:6px' }, [
+          el('b', { text: `${label}의 모습` }),
+          note,
+          btn(m.portrait ? '다시 그리기 (글 1회 + NovelAI 1장)' : '초상화 그리기 (글 1회 + NovelAI 1장)', () => act(async () => {
+            await ask('drawMyPortrait', { ...opts, request: note.value }, 300000);
+            const r = await ask('mePortraits'); S.me = r.me || {};
+          })),
+          el('div', { class: 'im-muted', style: 'font-size:11px', text: '그린 모습은 내 편지·편지 쓰기 칸·페르소나 칩에 보이고, 「그림 그려서 동봉」에서 나를 그릴 때 같은 모습으로 그려요.' }),
+        ]),
+      ]),
+      m.history?.length ? el('div', { class: 'im-thumbs' }, [...m.history].reverse().map((h) => el('figure', { onclick: () => openImage(h.imageId, '예전 모습', h.at ? new Date(h.at).toLocaleDateString('ko-KR') : '') }, [el('img', { src: imgUrl(h.imageId, 'lg'), alt: '예전 모습' }), el('figcaption', { text: h.at ? new Date(h.at).toLocaleDateString('ko-KR') : '예전' })]))) : null,
+    ]);
+  }
   let editingLetter = '';
   const rerenderAll = () => { try { renderAll(); } catch {} };
   // 편지에 딸린 그림(받은 물건·사진 그림, 내 사진): 편지지 아래 썸네일, 누르면 크게
@@ -1664,20 +1697,40 @@ export function setup(ctx) {
         el('option', { value: '', text: '앱 기본 이미지 연결' }),
         ...imageConns.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}${x.is_default ? ' (기본)' : ''}`, selected: x.id === A.connectionId })),
       ]);
-      const imodel = el('input', { value: A.model, placeholder: '목록에서 고르거나 직접 적기 (비우면 연결의 모델)', list: 'im-image-models' });
-      const ilist = el('datalist', { id: 'im-image-models' });
+      // 모델은 고르기만(연결이 알려 준 목록). 목록에 없는 예전 값도 남겨 둠
+      const modelSelects = [];
+      const modelSel = (value, emptyText) => {
+        const sel = el('select', {});
+        sel.dataset.v = value || '';
+        sel.dataset.empty = emptyText;
+        modelSelects.push(sel);
+        fillModelSel(sel, null);
+        return sel;
+      };
+      const fillModelSel = (sel, models) => {
+        const cur = (sel.options.length ? sel.value : '') || sel.dataset.v || '';
+        sel.dataset.v = cur;
+        const ids = (models || []).map((m) => m.id);
+        sel.replaceChildren(
+          el('option', { value: '', text: sel.dataset.empty }),
+          ...(cur && !ids.includes(cur) ? [el('option', { value: cur, text: cur })] : []),
+          ...(models || []).map((m) => el('option', { value: m.id, text: m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id })),
+        );
+        for (const o of sel.options) o.selected = o.value === cur;
+      };
+      const imodel = modelSel(A.model, '종류마다 정해 둔 모델 (비우기)');
+      const ilist = el('span', {});
       const imodelNote = el('div', { class: 'im-muted', text: '' });
       const showModels = (r) => {
-        ilist.replaceChildren(...r.models.map((m) => el('option', { value: m.id, text: m.label !== m.id ? m.label : '' })));
-        imodelNote.textContent = `모델 ${r.models.length}개${r.current ? ` · 이 연결의 기본 모델: ${r.current}` : ''}. 칸을 비우면 기본 모델을 씁니다.`;
+        for (const sel of modelSelects) fillModelSel(sel, r.models);
+        imodelNote.textContent = `모델 ${r.models.length}개${r.current ? ` · 이 연결의 기본 모델: ${r.current}` : ''}.`;
       };
       const loadModels = (connId) => {
         if (modelCache[connId || '']) { showModels(modelCache[connId || '']); return; }
         imodelNote.textContent = '모델 목록을 불러오는 중…';
         ask('imageModels', { connectionId: connId }, 30000).then((r) => {
           modelCache[connId || ''] = r;
-          ilist.replaceChildren(...r.models.map((m) => el('option', { value: m.id, text: m.label !== m.id ? m.label : '' })));
-          imodelNote.textContent = `모델 ${r.models.length}개${r.current ? ` · 이 연결의 기본 모델: ${r.current}` : ''}. 칸을 비우면 기본 모델을 씁니다.`;
+          showModels(r);
         }).catch((e) => { imodelNote.textContent = `모델 목록을 못 불러왔습니다: ${e.message}`; });
       };
       isel.addEventListener('change', () => loadModels(isel.value));
@@ -1695,7 +1748,8 @@ export function setup(ctx) {
         item: 'highly detailed illustration of {subject}, intricate textures … single object on plain paper background, {style}',
       };
       const kIn = Object.fromEntries(KINDS.map(([k]) => [k, {
-        model: el('input', { value: A.kinds?.[k]?.model || '', placeholder: `비우면 위 기본 모델, 그것도 비면 ${DEF_MODEL[k] || '연결 기본'}`, list: 'im-image-models' }),
+        conn: el('select', {}, [el('option', { value: '', text: '위 이미지 연결' }), ...imageConns.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === A.kinds?.[k]?.connectionId }))]),
+        model: modelSel(A.kinds?.[k]?.model || '', `기본 (${DEF_MODEL[k] || '연결 기본'}, 종류 연결을 고르면 그 연결의 모델)`),
         template: el('textarea', { value: A.kinds?.[k]?.template || '', rows: 3, placeholder: `비우면 기본 양식: ${DEF_T[k]}` }),
       }]));
       const ineg = el('input', { type: 'checkbox', style: 'width:auto', checked: !!A.sendNegative });
@@ -1717,7 +1771,8 @@ export function setup(ctx) {
         el('option', { value: '', text: '(고르기 — NovelAI 연결)' }),
         ...imageConns.map((x) => el('option', { value: x.id, text: `${x.name} — ${x.model || x.provider}`, selected: x.id === PP.connectionId })),
       ]);
-      const pmodel = el('input', { value: PP.model || 'nai-diffusion-4-5-full', placeholder: 'nai-diffusion-4-5-full' });
+      const NAI_MODELS = [['nai-diffusion-4-5-full', 'NAI Diffusion V4.5 Full'], ['nai-diffusion-4-5-curated', 'NAI Diffusion V4.5 Curated'], ['nai-diffusion-5-full', 'NAI Diffusion V5 Full'], ['nai-diffusion-5-curated', 'NAI Diffusion V5 Curated']];
+      const pmodel = el('select', {}, NAI_MODELS.map(([v, t]) => el('option', { value: v, text: t, selected: (PP.model || 'nai-diffusion-4-5-full') === v })));
       const pbase = el('textarea', { value: PP.base || '', rows: 5, placeholder: '비우면 기본(받은 화풍·품질 프롬프트)' });
       const pneg = el('textarea', { value: PP.negative || '', rows: 4, placeholder: '비우면 기본(받은 네거티브)' });
       const psize = el('input', { value: PP.size || '832x1216', placeholder: '832x1216' });
@@ -1778,7 +1833,7 @@ export function setup(ctx) {
         el('details', {}, [
           el('summary', { class: 'im-muted', style: 'cursor:pointer', text: '종류별 모델·양식 (봉투·상징물·추억 상자·물건 …)' }),
           el('div', { class: 'im-muted', text: '모델 칸을 비우면 종류마다 정해 둔 모델(봉투·상자: chroma, 상징물·물건: seedream-v5.0-lite)을 씁니다. {subject}는 글 생성이 써 주는 주제, {style}은 전체 룩.' }),
-          ...KINDS.flatMap(([k, t]) => [el('h4', { text: t }), field('모델', kIn[k].model), field('양식', kIn[k].template)]),
+          ...KINDS.flatMap(([k, t]) => [el('h4', { text: t }), el('div', { class: 'im-pair' }, [field('연결', kIn[k].conn), field('모델 (위 이미지 연결의 목록)', kIn[k].model)]), field('양식', kIn[k].template)]),
           el('label', { class: 'im-row', style: 'flex-direction:row' }, [ineg, '금지어를 negative prompt로 보내기 (받지 않는 모델이 많아요. 거절되면 빼고 다시 시도합니다)']),
           field('금지어', inegText),
           field('그림 크기', isize), field('봉투 크기', iesize),
@@ -1874,7 +1929,7 @@ export function setup(ctx) {
         ...Object.values(groups),
         el('div', { class: 'im-muted', style: 'margin-top:10px', text: '저장은 모든 탭의 값을 한꺼번에 저장합니다.' }),
         btn('저장', () => act(async () => {
-          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
+          S.settings = (await ask('saveSettings', { settings: { replyConnectionId: sel.value, createConnectionId: csel.value, createTemperature: ctemp.value, art: { connectionId: isel.value, model: imodel.value, style: istyle.value, size: isize.value, paperSize: ipsize.value, perDay: Number(iday.value), perCorrespondentDay: Number(icday.value), paperMode: ipmode.value, envelopeSize: iesize.value, autoItems: iauto.value, paperChange: ipch.value, stampChange: isch.value, sendNegative: ineg.checked, negative: inegText.value, paperStrength: Number(istrength.value), paperBorder: Number(iborder.value), paperSlice: Number(islice.value), kinds: Object.fromEntries(Object.entries(kIn).map(([k, v]) => [k, { model: v.model.value, template: v.template.value, connectionId: v.conn.value }])), portrait: { connectionId: psel.value, model: pmodel.value, base: pbase.value, negative: pneg.value, size: psize.value, avatar: pav.checked, avatarExisting: pavx.checked, refreshEvery: Number(prefresh.value), pictureItems: ppic.checked } }, initiativeEnabled: initOn.checked, initiativePerDay: Number(initDay.value), initiativeStreak: Number(initStreak.value), pushEnabled: pushOn.checked, organizeEnabled: orgOn.checked, organizeConnectionId: osel.value, organizeTemperature: otemp.value, budgets: Object.fromEntries(Object.entries(bIn).map(([k, i]) => [k, Number(i.value)])), temperature: temp.value, maxTokens: maxT.value, recentLetters: recent.value, letterMin: Number(lMin.value), letterMax: Number(lMax.value), lateChance: Number(lateIn.value), fallbackMode: fbMode.value, fallbackConnectionId: fbSel.value, showExactEta: exact.checked } })).settings;
           go({ name: 'home' });
         }), { primary: true }),
       ];
@@ -2560,6 +2615,7 @@ ${extra}
         }
         const enc = l.enclosures?.length ? l.enclosures.map((x) => x.item) : (l.enclosure ? [l.enclosure] : []);
         return el('div', { class: 'im-paper im-mine' }, [
+          myFace(meKeyOf(c), 'im-myface im-myface-letter'),
           el('div', { class: 'im-meta', text: `${l.personaName || '나'}의 편지 · ${when(l.sentAt)} 보냄 · 그쪽 ${l.theirArriveLabel} 도착${l.late ? ` · 늦게 닿음(${l.late})` : ''}` }),
           el('div', { text: l.body }),
           enc.length ? el('div', { class: 'im-encl' }, enc.map((x) => el('div', { text: `동봉 · ${x}` }))) : null,
@@ -2785,7 +2841,13 @@ ${extra}
     const go2 = (id) => { P.locker = id; panelView.render(); };
     const open = list.find((c) => c.id === P.locker);
     if (open) return lockerView(open, act, () => go2(''));
+    const keys = [...new Set(list.map((c) => meKeyOf(c)))];
     return [
+      el('h4', { text: '나' }),
+      ...keys.map((k) => {
+        const p = S.personas.find((x) => x.id.replace(/[^\w-]/g, '_') === k);
+        return meCard(k, k === 'none' ? '나 (페르소나 없음)' : (p?.name || '나'), k === 'none' ? { noPersona: true } : { personaId: p?.id || '' }, act);
+      }),
       el('h4', { text: `추억 상자 · ${list.length}` }),
       el('div', { class: 'im-lockers' }, list.map((c) => {
         const img = c.art?.locker?.imageId;
@@ -2817,7 +2879,7 @@ ${extra}
       el('h4', { text: `초상화 · ${portraits.length}` }),
       portraits.length ? grid(portraits, (x) => pic(x.imageId, x.now ? '지금 모습' : '예전 모습', x.at ? new Date(x.at).toLocaleDateString('ko-KR') : '')) : el('div', { class: 'im-muted', text: '서류함의 「초상화 그리기」로 그릴 수 있어요.' }),
       el('h4', { text: `그림·사진 · ${drawn.length}` }),
-      drawn.length ? grid(drawn, (x) => pic(x.imageId, x.name, x.from === 'me' ? '내가 보냄' : `${c.name}이(가) 보냄`)) : el('div', { class: 'im-muted', text: '서로 보낸 그림·사진이 여기에 모여요.' }),
+      drawn.length ? el('div', { class: 'im-grid' }, drawn.map((x) => el('div', {}, [pic(x.imageId, x.name, x.from === 'me' ? '내가 보냄' : `${c.name}이(가) 보냄`), x.from === 'me' ? link('내 초상화로 쓰기', () => act(async () => { await ask('setMyPortrait', { key: meKeyOf(c), imageId: x.imageId }); const r = await ask('mePortraits'); S.me = r.me || {}; })) : null]))) : el('div', { class: 'im-muted', text: '서로 보낸 그림·사진이 여기에 모여요.' }),
       el('h4', { text: `봉투 · ${envs.length}` }),
       envs.length ? el('div', { class: 'im-env-grid' }, envs.map((l) => { const f = envelopeFace(c, l, 'im-env-card'); f.addEventListener('click', () => showEnvelope(c, l)); return el('div', {}, [f, el('div', { class: 'im-muted', style: 'font-size:11px;margin-top:4px', text: l.writtenLabel || l.theirWrittenLabel || when(l.arriveAt) })]); })) : el('div', { class: 'im-muted', text: '봉투 그림이 생기면 편지마다 모여요.' }),
       el('h4', { text: `물건 · ${things.length + (c.items || []).filter((x) => !x.imageId).length}` }),

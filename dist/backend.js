@@ -1643,7 +1643,7 @@ export function cleanArt(a) {
   const kinds = {};
   for (const k of ALL_KINDS) {
     const x = a?.kinds?.[k] || {};
-    kinds[k] = { model: astr(x.model, 200), template: astr(x.template, 1500) };
+    kinds[k] = { model: astr(x.model, 200), template: astr(x.template, 1500), connectionId: astr(x.connectionId, 200) };
   }
   return {
     connectionId: astr(a?.connectionId, 200),
@@ -1671,7 +1671,9 @@ export function cleanArt(a) {
 export const templateFor = (art, kind) => art.kinds?.[kind]?.template || DEFAULT_TEMPLATES[kind] || DEFAULT_TEMPLATES.item;
 // 종류별 기본 모델(NanoGPT 기준, 싸면서 지금 그림체에 맞는 것). 사용자가 종류·전체 모델을 정하면 그것이 우선
 export const DEFAULT_KIND_MODEL = { envelope: 'chroma', locker: 'chroma', emblem: 'seedream-v5.0-lite', item: 'seedream-v5.0-lite', paper: 'recraft/v4.1/flash/v2/text-to-image', stamp: 'recraft/v4.1/flash/v2/text-to-image', seal: 'recraft/v4.1/flash/v2/text-to-image' };
-export const modelFor = (art, kind) => art.kinds?.[kind]?.model || art.model || DEFAULT_KIND_MODEL[kind] || '';
+// 종류에 따로 고른 연결이 있으면(모델을 안 정했으면) 그 연결의 모델을 쓴다
+export const modelFor = (art, kind) => art.kinds?.[kind]?.model || (art.kinds?.[kind]?.connectionId ? '' : art.model || DEFAULT_KIND_MODEL[kind] || '');
+export const connFor = (art, kind) => art.kinds?.[kind]?.connectionId || art.connectionId || '';
 
 // 하루 사용량(서버 날짜 기준 YYYY-MM-DD)
 export function dayKey(now = Date.now()) {
@@ -2193,7 +2195,7 @@ export function start(api) {
                 const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${ART_TIMEOUT_MIN}분 동안 응답이 없어 그만뒀어요(이미지 서버가 느림)`)), ART_TIMEOUT_MIN * 60000); });
                 try {
                   res = await Promise.race([api.imageGen.generate({
-                    prompt, connection_id: art.connectionId || undefined, model: modelFor(art, j.kind) || undefined,
+                    prompt, connection_id: connFor(art, j.kind) || undefined, model: modelFor(art, j.kind) || undefined,
                     parameters, includeDataUrl: false, owner_character_id: c00.characterId || undefined, userId: user,
                   }), timeout]);
                 } finally { clearTimeout(timer); }
@@ -2295,6 +2297,44 @@ export function start(api) {
     } catch { return { name: '', card: '' }; }
   };
   const worldOf = async (user, c) => (await allLore(user, c).catch(() => [])).filter((e) => /세계 개요|overview/i.test(e.comment || '')).map((e) => e.content).join('\n') || c.world || '';
+  // ── 내 초상화(페르소나마다) ──
+  const meKey = (k) => String(k || 'none').replace(/[^\w-]/g, '_').slice(0, 80) || 'none';
+  const mePath = (k) => `me/${meKey(k)}.json`;
+  const loadMe = async (user, k) => readJson(mePath(k), user, { portrait: null, history: [] });
+  const keyOfC = async (user, c) => {
+    if (c.noPersona) return 'none';
+    if (c.personaId) return c.personaId;
+    try { return (await api.personas.getActive(user))?.id || 'none'; } catch { return 'none'; }
+  };
+  const setMyPortrait = async (user, k, rec) => serial(user, async () => {
+    const cur = await loadMe(user, k);
+    const history = [...(cur.history || []), ...(cur.portrait?.imageId ? [cur.portrait] : [])].slice(-30);
+    await api.userStorage.setJson(mePath(k), { portrait: rec, history }, { userId: user });
+  });
+  const drawMyPortrait = async (user, { personaId = '', noPersona = false, request = '' } = {}) => {
+    const settings = await loadSettings(user);
+    const art = cleanArt(settings.art);
+    const P = cleanPortrait(art.portrait);
+    if (!P.connectionId) throw new Error('설정 → 초상화에서 NovelAI 이미지 연결을 먼저 골라 주세요.');
+    if (quotaLeft(await readUsage(user), art) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다.');
+    let name = ''; let card = '';
+    if (!noPersona) {
+      try {
+        const p = personaId ? await api.personas.get(personaId, user) : await api.personas.getActive(user);
+        name = p?.name || ''; personaId = p?.id || personaId;
+        card = [p?.description, p?.personality, p?.appearance].filter((x) => typeof x === 'string' && x).join('\n');
+      } catch {}
+    }
+    const brief = [card, request && `외모·차림 메모: ${request}`].filter(Boolean).join('\n');
+    if (!brief.trim()) throw new Error('페르소나 설명이 비어 있어요. 내 모습을 짧게 적어 주세요.');
+    const raw = await genJson(user, buildPortraitMessages({ name: name || 'the letter writer', brief, mail: {} }, { cardText: brief, world: noPersona ? 'present-day Earth, an ordinary room' : '' }), { ...settings, createTemperature: 0.6 });
+    const pp = cleanPortraitPrompt(raw);
+    const imageId = await naiImage(user, { id: 'me', characterId: '' }, composePortrait(P, pp), P);
+    const k = noPersona ? 'none' : personaId || 'none';
+    await setMyPortrait(user, k, { imageId, character: pp.character, at: Date.now(), source: 'drawn' });
+    log('info', `내 초상화(${name || '페르소나 없음'})`);
+    return { key: meKey(k), imageId };
+  };
   // 장면 그림: 자연어 → 지침 → NovelAI. 사람이 기다리는 요청(10~60초)
   const drawScene = async (user, id, { request = '', includeThem = true, includeMe = false } = {}) => {
     const settings = await loadSettings(user);
@@ -2305,7 +2345,11 @@ export function start(api) {
     const c = await loadC(user, id);
     if (quotaLeft(await readUsage(user), art, Date.now(), c.id) < 1) throw new Error('오늘 그릴 수 있는 그림을 다 썼습니다.');
     const them = includeThem ? { name: c.name, card: cardTextOf(await cardOf(user, c)) } : null;
-    const me = includeMe ? await personaCard(user, c) : null;
+    let me = includeMe ? await personaCard(user, c) : null;
+    if (me) {
+      const mine = await loadMe(user, await keyOfC(user, c));
+      if (mine.portrait?.character) me = { ...me, card: `NovelAI appearance tags of this person (reuse them exactly, add nothing that contradicts): ${mine.portrait.character}\n${me.card}` };
+    }
     const raw = await genJson(user, buildSceneMessages({ request: String(request).slice(0, 1500), them, me, world: await worldOf(user, c) }), { ...settings, createTemperature: 0.6 });
     const sp = cleanScenePrompt(raw);
     const imageId = await naiImage(user, c, composeScene(P, sp), P);
@@ -3092,6 +3136,20 @@ export function start(api) {
         if (old) await api.world_books.entries.update(old.id, input, user);
         else await api.world_books.entries.create(c.worldBookId, input, user);
         return { updated: !!old, chars: content.length };
+      }
+      case 'mePortraits': {
+        const out = {};
+        for (const f of await api.userStorage.list('me', user).catch(() => [])) {
+          const k = String(f).replace(/^me\//, '').replace(/\.json$/, '');
+          try { const m = await readJson(`me/${k}.json`, user, null); if (m) out[k] = m; } catch {}
+        }
+        return { me: out };
+      }
+      case 'drawMyPortrait': return drawMyPortrait(user, { personaId: String(p.personaId || ''), noPersona: !!p.noPersona, request: String(p.request || '').slice(0, 800) });
+      case 'setMyPortrait': {
+        if (!p.imageId) throw new Error('그림을 골라 주세요.');
+        await setMyPortrait(user, p.key || 'none', { imageId: String(p.imageId), character: '', at: Date.now(), source: 'picked' });
+        return { ok: true };
       }
       case 'drawScene': {
         // 내 편지에 넣을 그림: 자연어 → NovelAI. 사진 동봉처럼 쓴다

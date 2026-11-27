@@ -624,7 +624,7 @@ test('편지지·우표 바뀜: 정리 단계가 사건을 찾으면 그 편지�
   await host.ask('u1', 'send', { id: r.id, body: '축제 이야기 들려줘요', enclosure: '' });
   now += 1 * H; await host.ask('u1', 'load'); await settle(); // 도착 → 답장 생성(조개 동봉 → 자동 그림)
   for (let i = 0; i < 40; i++) { await host.ask('u1', 'load'); await settle(); const x = await host.ask('u1', 'get', { id: r.id }); if (!x.c.organize && !x.c.reply) break; await new Promise((res) => setTimeout(res, 50)); } // 정리 → 우표 바뀜
-  for (let i = 0; i < 80; i++) { const x = await host.ask('u1', 'get', { id: r.id }); const rl = [...x.c.letters].reverse().find((l) => l.from === 'them'); if (rl?.art?.stamp && !x.c.artJob) break; await new Promise((res) => setTimeout(res, 100)); } // 물건 그리기가 끝난 뒤 이어서 그리는 우표
+  for (let i = 0; i < 200; i++) { const x = await host.ask('u1', 'get', { id: r.id }); const rl = [...x.c.letters].reverse().find((l) => l.from === 'them'); if (rl?.art?.stamp && !x.c.artJob) break; await new Promise((res) => setTimeout(res, 100)); } // 물건 그리기가 끝난 뒤 이어서 그리는 우표
   now += 2 * H; await host.ask('u1', 'load'); await settle(); // 답장 도착(배송 중엔 내용이 가려짐)
   g = await host.ask('u1', 'get', { id: r.id });
   const reply = [...g.c.letters].reverse().find((l) => l.from === 'them');
@@ -836,4 +836,40 @@ test('원래 연결이 계속 429면 같은 모델의 NanoGPT 연결로 넘긴�
   used.length = 0;
   await assert.rejects(host.ask('u1', 'matchDraft', { mode: 'random' }), /429/);
   assert.deepEqual(used, ['vx', 'vx', 'vx']);
+});
+
+test('내 초상화: 페르소나 설명으로 그리고, 지난 모습 남기고, 장면 그림의 「나」는 같은 태그로', async (t) => {
+  const host = fakeHost();
+  addLibrary(host, { ...MATCH, first_letter: null });
+  host.api.personas.get = async (id) => (id === 'p1' ? { id: 'p1', name: '시드', description: '검은 머리, 붉은 눈, 검은 코트' } : null);
+  host.api.personas.getActive = async () => ({ id: 'p1', name: '시드', description: '검은 머리, 붉은 눈, 검은 코트' });
+  const sent = [];
+  const quiet = host.api.generate.quiet;
+  host.api.generate.quiet = async (req) => {
+    const sys = req.messages[0].content;
+    if (/NovelAI image prompts from character sheets/.test(sys)) { sent.push(req.messages[1].content); return { content: JSON.stringify({ character: '1boy, solo, black hair, red eyes, black coat', scene: 'upper body', character_uc: '' }) }; }
+    if (/natural-language picture request/.test(sys)) { sent.push(req.messages[1].content); return { content: JSON.stringify({ scene: 'night, rain', characters: [{ who: 'me', tags: '1boy, black hair' }], character_uc: '' }) }; }
+    return quiet(req);
+  };
+  let n = 0;
+  host.api.imageGen = { generate: async () => ({ imageId: `img${n++}` }), listConnections: async () => [] };
+  const stop = start(host.api);
+  t.after(stop);
+  const s0 = (await host.ask('u1', 'load')).settings;
+  await host.ask('u1', 'saveSettings', { settings: { ...s0, art: { perDay: 10, portrait: { connectionId: 'nai1' } } } });
+  const r1 = await host.ask('u1', 'drawMyPortrait', { personaId: 'p1', request: '안경' });
+  assert.equal(r1.imageId, 'img0');
+  assert.match(sent[0], /검은 코트/);
+  assert.match(sent[0], /안경/);
+  await host.ask('u1', 'drawMyPortrait', { personaId: 'p1' });
+  const me = (await host.ask('u1', 'mePortraits')).me.p1;
+  assert.equal(me.portrait.imageId, 'img1');
+  assert.equal(me.history.length, 1);
+  await host.ask('u1', 'setMyPortrait', { key: 'p1', imageId: 'sent9' });
+  assert.equal((await host.ask('u1', 'mePortraits')).me.p1.portrait.imageId, 'sent9');
+  await host.ask('u1', 'drawMyPortrait', { personaId: 'p1' });
+  const { draft } = await host.ask('u1', 'matchDraft', { mode: 'random' });
+  const { id } = await host.ask('u1', 'matchConfirm', { draft, personaId: 'p1' });
+  await host.ask('u1', 'drawScene', { id, request: '비 오는 밤의 나', includeMe: true });
+  assert.match(sent.at(-1), /reuse them exactly.*1boy, solo, black hair, red eyes, black coat/s);
 });

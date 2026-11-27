@@ -178,7 +178,7 @@ ok('보조창에서 보내기(동봉 2줄)', sendMsg.length === 1 && sendMsg[0].
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '설정'); await tick(8);
 ok('설정: 먼저 오는 편지·알림 칸', drawerRoot.textContent.includes('먼저 오는 편지') && drawerRoot.textContent.includes('편지가 도착하면 푸시 알림 보내기'));
-ok('설정: 이미지 모델 목록', drawerRoot.querySelectorAll('#im-image-models option').length === 2 && drawerRoot.textContent.includes('이 연결의 기본 모델: chroma'));
+ok('설정: 이미지 모델은 목록에서 고르기', [...drawerRoot.querySelectorAll('select')].some((sel) => [...sel.options].filter((o) => o.value).length >= 2 && [...sel.options].some((o) => o.value === 'chroma')) && drawerRoot.textContent.includes('이 연결의 기본 모델: chroma'));
 ok('설정: 탭 5개(글·그림·초상화·편지 흐름·기억·기타)', drawerRoot.querySelectorAll('.im-subtabs button').length === 5);
 clickIn(drawerRoot, 'button', '← 우편함'); await tick();
 clickIn(drawerRoot, 'button', '새 상대'); await tick(6);
