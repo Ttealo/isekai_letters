@@ -243,7 +243,7 @@ export function start(api) {
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
           : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
-            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s keepsake box`
+            : j.kind === 'locker' ? ['folded letters', 'small keepsakes', ...(m.imageKeywords || []).slice(0, 4)].join(', ')
             : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로

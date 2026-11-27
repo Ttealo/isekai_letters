@@ -1605,7 +1605,7 @@ export const NEGATIVE = 'photo, photograph, photorealistic, realistic, 3d render
 export const DEFAULT_TEMPLATES = {
   envelope: 'beautiful illustration of a closed letter as one object, seen straight-on and filling the whole frame: {subject}, its closure (wax seal, cord, clasp or whatever that world uses) and its own postal marks are part of the picture, rich small details, {style}, no readable lettering, no text, no table, no background scene',
   postcard: 'picture postcard illustration of {subject}, a wide landscape view of that world, atmospheric depth, rich environmental detail, thin white postcard border, {style}, no people in focus, no lettering, no text',
-  locker: 'cute storybook illustration of an open keepsake box seen from the front and slightly above, the box fills most of the square frame, packed full of {subject}, keepsakes peeking above the rim, clean soft outlines, moderate detail (simpler than a painting), soft warm colors, isolated on a plain white background, {style}, no lid, no people, no faces, no lettering',
+  locker: 'storybook illustration of a shallow open tray box with no lid at all (like a bento box), seen from the front and slightly above, the box fills most of the square frame, packed full of {subject}, the contents heaped and peeking above the rim, clean soft outlines, moderate detail (simpler than a painting), soft warm colors, isolated on a plain white background, {style}, no lid, no hinged lid, no people, no faces, no smiley faces, no hearts, no writing, no lettering',
   emblem: 'single small iconic object that represents a person, beautifully crafted and ornate, centered in a soft round vignette, {subject}, jewel-like detail, gentle rim light, plain soft background, {style}, no people, no face, no lettering',
   paper: 'flat 2D stationery design printed on cream paper, straight-on front view filling the entire frame edge to edge, ornamental border and small corner vignettes showing {subject}, large completely blank center area for handwriting, {style}, no table, no background, no shadows, no perspective, no lettering',
   stamp: 'flat 2D postage stamp design, straight-on front view filling the whole frame, white perforated edge, vintage engraved illustration of {subject}, two or three ink colors, printed paper texture, {style}, no denomination, no lettering, no numbers',
@@ -2159,7 +2159,7 @@ export function start(api) {
         const m = c00.mail || {};
         const fallback = (j) => (j.kind === 'item' ? [j.name, j.note].filter(Boolean).join(', ')
           : j.kind === 'paper' || j.kind === 'envelope' ? [m.medium, m.texture, m.seal, ...(m.imageKeywords || [])].filter(Boolean).join(', ')
-            : j.kind === 'locker' ? [m.medium, ...(m.imageKeywords || []).slice(0, 4)].filter(Boolean).join(', ') || `${c00.name}'s keepsake box`
+            : j.kind === 'locker' ? ['folded letters', 'small keepsakes', ...(m.imageKeywords || []).slice(0, 4)].join(', ')
             : j.kind === 'emblem' ? [m.stampMotif, m.seal, ...(m.imageKeywords || []).slice(0, 3)].filter(Boolean).join(', ') || `${c00.name} keepsake`
             : j.kind === 'stamp' ? (m.stampMotif || m.seal || m.medium || `${c00.name} emblem`) : (m.seal || m.stampMotif || `${c00.name} seal`));
         // 2) 그림을 차례로
