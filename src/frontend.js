@@ -238,6 +238,12 @@ const CSS2 = `
 .im-cal-ev .im-t{font-variant-numeric:tabular-nums;font-size:12px;color:var(--lumiverse-text-muted);min-width:40px}
 .im-cal-ev .im-x{font-family:var(--im-serif);font-size:12.5px;color:var(--lumiverse-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .im-flash{animation:im-flash 1.6s ease}
+.im-trip{border:1px dashed var(--im-line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.im-trip-steps{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:11.5px}
+.im-trip-steps span{padding:2px 9px;border-radius:999px;border:1px solid var(--im-line);color:var(--lumiverse-text-muted)}
+.im-trip-steps span.im-done{background:color-mix(in srgb,var(--im-line) 45%,transparent);color:var(--lumiverse-text)}
+.im-trip-steps span.im-now{background:var(--im-ink);border-color:var(--im-ink);color:var(--lumiverse-bg-elevated,#fff);font-weight:700}
+.im-trip-now{font-family:var(--im-serif);font-size:13.5px;display:flex;align-items:center;gap:6px}
 @media (max-width:520px){.im-panel .im-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}.im-panel .im-tabs button{padding:5px 11px;white-space:nowrap}}
 .im-col{display:flex;flex-direction:column}
 .im-world-entry{display:flex;flex-direction:column;gap:4px;border:1px solid var(--im-line);border-radius:8px;padding:8px}
@@ -320,9 +326,22 @@ const short = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
 // 배송 시간을 실제(가속 반영) 시간으로
 function deliveryLabel(c) {
   const s = Math.max(1, Number(c.timeScale) || 1);
-  const f = (h) => (s > 1 ? formatSpan(h / s) : `${h}시간`);
-  const range = c.delivery.min === c.delivery.max ? f(c.delivery.min) : `${f(c.delivery.min)}~${f(c.delivery.max)}`;
-  return `배송 ${range}${s > 1 ? ` (시험 가속 ${s}배)` : ''}`;
+  const f = (h) => (s > 1 ? formatSpan(h / s) : `${Math.round(h * 10) / 10}시간`);
+  const r = (x) => (x.min === x.max ? f(x.min) : `${f(x.min)}~${f(x.max)}`);
+  const t = tripOf(c);
+  return `건너가는 데 ${r(t.go)} · 받고 답장까지 ${r(t.term)} · 건너오는 데 ${r(t.back)} · 왕복 최대 ${f(t.roundMax)}${s > 1 ? ` (시험 가속 ${s}배)` : ''}`;
+}
+// 편지 한 통의 지금 단계: 보냄 → 건너가는 중 → 받음 → 답장 씀 → 건너오는 중 → 도착
+function tripStage(c, now = Date.now()) {
+  const inMine = c.letters.filter((l) => l.from === 'me' && l.state === 'in_transit');
+  const inTheirs = c.letters.filter((l) => l.from === 'them' && l.state === 'in_transit');
+  const r = c.reply && c.reply.state !== 'failed' ? c.reply : null;
+  if (inTheirs.length) return { at: 4, label: '답장이 건너오는 중', until: inTheirs[0].arriveAt, initiative: false };
+  if (r?.initiative) return { at: 3, label: '그쪽이 먼저 편지를 쓰는 중', until: 0, initiative: true };
+  if (r && r.state === 'waiting' && now < r.dueAt) return { at: 2, label: '편지를 받았어요 · 답장을 고민하는 중', until: r.dueAt };
+  if (r) return { at: 3, label: '답장을 쓰는 중', until: 0 };
+  if (inMine.length) return { at: 1, label: '편지가 건너가는 중', until: inMine[inMine.length - 1].arriveAt };
+  return null;
 }
 
 export function setup(ctx) {
@@ -830,9 +849,9 @@ export function setup(ctx) {
       const cur = editing ? byId(view.id) : null;
       const v = cur ? {
         name: cur.name, brief: cur.brief, world: cur.world, ratio: cur.ratio, deliveryMin: cur.delivery.min, deliveryMax: cur.delivery.max,
-        writeMin: cur.writeDelay.min, writeMax: cur.writeDelay.max, maxReplyRealHours: cur.maxReplyRealHours, timeScale: cur.timeScale || 1, personaId: cur.noPersona ? NONE_OPT : cur.personaId || '', waitHours: cur.waitHours ?? Math.max(72, cur.writeDelay.max * 3),
+        writeMin: cur.writeDelay.min, writeMax: cur.writeDelay.max, maxReplyRealHours: cur.maxReplyRealHours, ...flatTrip(tripOf(cur)), timeScale: cur.timeScale || 1, personaId: cur.noPersona ? NONE_OPT : cur.personaId || '', waitHours: cur.waitHours ?? Math.max(72, cur.writeDelay.max * 3),
       } : {
-        name: '', brief: '', world: '', ratio: 1, deliveryMin: 1, deliveryMax: 24, writeMin: 2, writeMax: 48, maxReplyRealHours: 24, timeScale: 1,
+        name: '', brief: '', world: '', ratio: 1, ...flatTrip(TRIP_DEFAULT), timeScale: 1,
         personaId: defaultPick(),
       };
       const inputs = {};
@@ -847,8 +866,10 @@ export function setup(ctx) {
         const r = n('ratio') || 1;
         tsum.textContent = [
           `내 하루 = 그쪽 ${span(24 * r)}`,
-          `편지는 현실 ${n('deliveryMin')}~${n('deliveryMax')}시간 걸려 닿음`,
-          `상대는 받고 그쪽 시간 ${span(n('writeMin'))}~${span(n('writeMax'))} 뒤 답장(현실로는 최대 ${n('maxReplyRealHours')}시간)`,
+          `건너가는 데 ${n('goMin')}~${n('goMax')}시간`,
+          `받고 답장까지 ${n('termMin')}~${n('termMax')}시간(그쪽으로는 ${span(n('termMin') * r)}~${span(n('termMax') * r)})`,
+          `건너오는 데 ${n('backMin')}~${n('backMax')}시간`,
+          `한 번 왕복은 ${Math.min(n('goMin') + n('termMin') + n('backMin'), n('roundMax'))}~${Math.min(n('goMax') + n('termMax') + n('backMax'), n('roundMax'))}시간(최대 ${n('roundMax')})`,
           n('waitHours') ? `내가 답이 없으면 그쪽 시간 ${span(n('waitHours'))} 뒤 먼저 씀` : '먼저 쓰지 않음',
         ].join(' · ');
       };
@@ -865,11 +886,13 @@ export function setup(ctx) {
         tsum,
         el('div', { class: 'im-pair', oninput: updT }, [
           field('시간 비율 (나의 1 = 그쪽 ?)', numIn('ratio')),
-          field('답장까지 현실 최대(시간)', numIn('maxReplyRealHours')),
-          field('배송 최소(현실 시간)', numIn('deliveryMin')),
-          field('배송 최대(현실 시간)', numIn('deliveryMax')),
-          field('답장 쓰는 데 최소(그쪽 시간)', numIn('writeMin')),
-          field('답장 쓰는 데 최대(그쪽 시간)', numIn('writeMax')),
+          field('한 번 왕복 최대(현실 시간, 0~48)', numIn('roundMax')),
+          field('건너가는 데 최소(시간)', numIn('goMin')),
+          field('건너가는 데 최대(시간)', numIn('goMax')),
+          field('받고 답장까지 최소(시간)', numIn('termMin')),
+          field('받고 답장까지 최대(시간)', numIn('termMax')),
+          field('건너오는 데 최소(시간)', numIn('backMin')),
+          field('건너오는 데 최대(시간)', numIn('backMax')),
           field('답 없으면 먼저 쓰기까지(그쪽 시간, 0=안 씀)', numIn('waitHours')),
         ]),
         el('details', {}, [
@@ -1219,8 +1242,6 @@ export function setup(ctx) {
           el('div', { class: 'im-pair' }, [
             field('시간 비율 최소', bind('ratioMin', 'input', { type: 'number', step: 'any', min: '0' })),
             field('시간 비율 최대', bind('ratioMax', 'input', { type: 'number', step: 'any', min: '0' })),
-            field('배송 최소(시간)', bind('deliveryMin', 'input', { type: 'number', step: 'any', min: '0' })),
-            field('배송 최대(시간)', bind('deliveryMax', 'input', { type: 'number', step: 'any', min: '0' })),
           ]),
           field('시험용 시간 가속 (1=실제)', bind('timeScale', 'input', { type: 'number', step: '1', min: '1' })),
         ]),
@@ -1274,10 +1295,10 @@ export function setup(ctx) {
         d.mail.ratioReason ? el('div', { class: 'im-muted', text: d.mail.ratioReason }) : null,
         el('div', { class: 'im-pair' }, [
           field('시간 비율 (나의 1 = 그쪽 ?)', numIn(d.mail, 'ratio')),
-          field('배송 최소(현실 시간)', numIn(d.mail, 'deliveryMin')),
-          field('배송 최대(현실 시간)', numIn(d.mail, 'deliveryMax')),
-          field('답장 쓰는 데 최소(그쪽 시간)', numIn(d.mail, 'writeMin')),
-          field('답장 쓰는 데 최대(그쪽 시간)', numIn(d.mail, 'writeMax')),
+          field('한 번 왕복 최대(시간, 0~48)', numIn(d.mail, 'roundMax')),
+          field('건너가는 데 최소·최대(시간)', el('div', { class: 'im-row', style: 'gap:6px' }, [numIn(d.mail, 'goMin'), numIn(d.mail, 'goMax')])),
+          field('받고 답장까지 최소·최대(시간)', el('div', { class: 'im-row', style: 'gap:6px' }, [numIn(d.mail, 'termMin'), numIn(d.mail, 'termMax')])),
+          field('건너오는 데 최소·최대(시간)', el('div', { class: 'im-row', style: 'gap:6px' }, [numIn(d.mail, 'backMin'), numIn(d.mail, 'backMax')])),
           field('답 없으면 먼저 쓰기까지(그쪽 시간)', numIn(d.mail, 'waitHours')),
           field('편지 매체', txt(d.mail, 'medium')),
           field('봉인', txt(d.mail, 'seal')),
@@ -1857,7 +1878,18 @@ export function setup(ctx) {
       c.reply?.state === 'failed' ? el('div', { class: 'im-row' }, [el('span', { class: 'im-err im-grow', text: `우편 사고: ${c.reply.error || ''}` }), btn('다시 시도', () => act(async () => { await ask('retry', { id: c.id }); await refresh(); }))]) : null,
       foldBar,
       ...(nodes.length ? nodes : [el('div', { class: 'im-muted', text: '아직 주고받은 편지가 없습니다. 첫 편지를 써 보세요.' })]),
-      c.reply && c.reply.state !== 'failed' ? el('div', { class: 'im-transit im-theirs' }, [el('span', { class: 'im-spin' }), `${c.name}이(가) 답장을 쓰고 있는 듯합니다`]) : null,
+      (() => {
+        const st = c.ended ? null : tripStage(c, now);
+        if (!st) return null;
+        const steps = st.initiative ? ['먼저 씀', '건너오는 중', '도착'] : ['보냄', '건너가는 중', '받음', '답장 씀', '건너오는 중', '도착'];
+        const at = st.initiative ? (st.at === 3 ? 0 : 1) : st.at;
+        const left = st.until ? st.until - now : 0;
+        const eta = !left ? '' : st.at === 4 && !exact ? '' : st.at === 2 ? (exact ? ` · 답장을 쓰기까지 ${etaLabel(left, true).replace('도착까지 ', '')}` : '') : ` · ${etaLabel(left, exact)}`;
+        return el('div', { class: 'im-trip' }, [
+          el('div', { class: 'im-trip-steps' }, steps.map((t, i) => el('span', { class: i < at ? 'im-done' : i === at ? 'im-now' : '', text: t }))),
+          el('div', { class: 'im-trip-now' }, [st.at === 3 ? el('span', { class: 'im-spin' }) : null, `${st.label}${eta}`]),
+        ]);
+      })(),
       c.ended ? el('div', { class: 'im-ended' }, [
         el('div', { class: 'im-ended-t', text: '— 여기까지, 편지를 마무리했어요 —' }),
         el('div', { class: 'im-muted', text: '그 후의 이야기는 「이야기」 탭에서 들을 수 있어요. 다시 주고받고 싶으면 거기서 「다시 편지 잇기」를 눌러요.' }),

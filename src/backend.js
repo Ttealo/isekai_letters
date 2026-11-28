@@ -883,6 +883,7 @@ export function start(api) {
       let c = createCorrespondent({
         name: d.name, brief, world: '', ratio: d.mail.ratio,
         deliveryMin: d.mail.deliveryMin, deliveryMax: d.mail.deliveryMax, writeMin: d.mail.writeMin, writeMax: d.mail.writeMax,
+        goMin: d.mail.goMin, goMax: d.mail.goMax, termMin: d.mail.termMin, termMax: d.mail.termMax, backMin: d.mail.backMin, backMax: d.mail.backMax, roundMax: d.mail.roundMax,
         maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
         personaId: persona?.id || '', personaName: persona?.name || '', noPersona: !!p.noPersona, userTz: p.userTz || '',
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,

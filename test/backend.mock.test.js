@@ -221,7 +221,7 @@ const MATCH = {
     { title: '등대', keys: ['등대'], content: '돌 등대 이야기.' },
     { title: '선술집', keys: ['선술집'], content: '항구 선술집 이야기.' },
   ],
-  mail: { ratio: 7, delivery_min: 1, delivery_max: 1, write_min: 0, write_max: 0, medium: '기름 먹인 양피지', seal: '등대 도장' },
+  mail: { ratio: 7, delivery_min: 1, delivery_max: 1, write_min: 0, write_max: 0, go_min: 1, go_max: 1, term_min: 0, term_max: 0, back_min: 1, back_max: 1, medium: '기름 먹인 양피지', seal: '등대 도장' },
   first_letter: { body: '누구냐, 이 편지를 받은 사람은.', envelope: { medium: '양피지' }, enclosures: [{ item: '조개' }] },
 };
 

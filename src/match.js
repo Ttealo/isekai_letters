@@ -1,6 +1,6 @@
 
 
-import { cleanCalendar } from './core.js';
+import { cleanCalendar, cleanTrip } from './core.js';
 
 // 상대 자동 생성(매칭): 프롬프트, 결과 검사, 카드·로어북·우편 설정으로 나누기. 부수 효과 없음.
 // 카드 양식은 압축판 캐릭터 카드 양식(외형·핵심·겉과 속·욕구·말투·never)을 요약한 것.
@@ -243,6 +243,11 @@ export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '', p
     deliveryMax: Math.round(dMax * 10) / 10,
     writeMin: Math.round(wMin * 10) / 10,
     writeMax: Math.round(wMax * 10) / 10,
+    // 편지 한 통의 왕복(현실 시간). 사람이 미리보기에서 고친다
+    ...(() => {
+      const t = cleanTrip({ goMin: m.go_min, goMax: m.go_max, termMin: m.term_min, termMax: m.term_max, backMin: m.back_min, backMax: m.back_max, roundMax: m.round_max });
+      return { goMin: t.go.min, goMax: t.go.max, termMin: t.term.min, termMax: t.term.max, backMin: t.back.min, backMax: t.back.max, roundMax: t.roundMax };
+    })(),
     medium: s(m.medium, 200), stampMotif: s(m.stamp_motif, 200), seal: s(m.seal, 200), scent: s(m.scent, 200), texture: s(m.texture, 200),
     imageKeywords: (Array.isArray(m.image_keywords) ? m.image_keywords : []).map((k) => s(k, 40)).filter(Boolean).slice(0, 12),
   };
@@ -302,6 +307,7 @@ export function cleanEditedDraft(d) {
     calendar: d?.calendar,
   };
   raw.mail.wait_hours = d?.mail?.waitHours;
+  Object.assign(raw.mail, { go_min: d?.mail?.goMin, go_max: d?.mail?.goMax, term_min: d?.mail?.termMin, term_max: d?.mail?.termMax, back_min: d?.mail?.backMin, back_max: d?.mail?.backMax, round_max: d?.mail?.roundMax });
   return cleanMatchDraft(raw, { mode: d?.mode, existingName: d?.name });
 }
 

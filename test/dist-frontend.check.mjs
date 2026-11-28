@@ -158,6 +158,7 @@ ok('봉투 열면 편지지로', panelRoot.querySelectorAll('.im-themed.im-their
   const folds = [...panelRoot.querySelectorAll('details.im-fold')];
   const isOpen = (d) => !!d && d.hasAttribute('open');
   ok('지난 편지는 한 줄로 접힘(맨 끝 2통·가는 중은 펼침)', folds.length === 2 && folds.every((d) => !isOpen(d)) && folds[0].getAttribute('data-lid') === 'l1' && folds[0].querySelector('summary').textContent.includes('처음 편지') && folds[1].querySelector('.im-fold-who').textContent.includes('받음'));
+  ok('왕복 단계 띠: 지금은 건너가는 중', panelRoot.querySelector('.im-trip .im-now')?.textContent === '건너가는 중' && panelRoot.querySelector('.im-trip-now')?.textContent.startsWith('편지가 건너가는 중') && panelRoot.querySelectorAll('.im-trip .im-done').length === 1);
   ok('접힌 줄 위에 「지난 편지 2통 · 모두 펼치기」', panelRoot.querySelector('.im-fold-bar')?.textContent.includes('지난 편지 2통'));
   folds[0].setAttribute('open', ''); folds[0].dispatchEvent(new window.Event('toggle'));
   backend({ type: 'changed' }); await tick(40);

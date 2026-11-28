@@ -1,10 +1,10 @@
 {
   "name": "isekai-mailbox",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node scripts/build.js",
-    "test": "node --test test/core.test.js test/match.test.js test/memory.test.js test/art.test.js test/story.test.js test/myworld.test.js test/backend.mock.test.js && node scripts/build.js && node test/dist-frontend.check.mjs"
+    "test": "node --test test/core.test.js test/match.test.js test/memory.test.js test/art.test.js test/story.test.js test/myworld.test.js test/trip.test.js test/backend.mock.test.js && node scripts/build.js && node test/dist-frontend.check.mjs"
   }
 }

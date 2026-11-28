@@ -168,6 +168,45 @@ export function formatSpan(hours) {
 
 // ── 상대 ──
 
+// ── 편지 한 통의 왕복 ──
+// 가는 길(건너가는 중) → 받고 답장까지(받음·고민) → 오는 길(건너오는 중). 모두 현실 시간, 구간마다 0~48시간.
+// 세 구간을 고른 합이 왕복 최대를 넘으면 그 안에 들도록 같은 비율로 줄인다.
+export const TRIP_KEYS = ['goMin', 'goMax', 'termMin', 'termMax', 'backMin', 'backMax', 'roundMax'];
+export const TRIP_DEFAULT = { go: { min: 0, max: 6 }, term: { min: 0, max: 6 }, back: { min: 0, max: 6 }, roundMax: 48 };
+export function cleanTrip(p) {
+  const h = (v, d) => num(v, 0, 48, d);
+  const pair = (lo, hi, d) => { const a = h(lo, d.min); return { min: a, max: Math.max(a, h(hi, d.max)) }; };
+  return {
+    go: pair(p?.goMin, p?.goMax, TRIP_DEFAULT.go),
+    term: pair(p?.termMin, p?.termMax, TRIP_DEFAULT.term),
+    back: pair(p?.backMin, p?.backMax, TRIP_DEFAULT.back),
+    roundMax: h(p?.roundMax, TRIP_DEFAULT.roundMax),
+  };
+}
+export function flatTrip(t) {
+  return { goMin: t?.go?.min, goMax: t?.go?.max, termMin: t?.term?.min, termMax: t?.term?.max, backMin: t?.back?.min, backMax: t?.back?.max, roundMax: t?.roundMax };
+}
+// 이 상대의 구간 시간(예전 상대는 배송·답장 쓰는 시간에서 풀어 보인다 — 저장하면 그 값으로 바뀜)
+export function tripOf(c) {
+  if (c?.trip) return c.trip;
+  const d = c?.delivery || { min: 1, max: 24 };
+  const w = c?.writeDelay || { min: 2, max: 48 };
+  const r = c?.ratio || 1;
+  const cap = c?.maxReplyRealHours ?? 24;
+  const t = (x) => Math.round(Math.min(x / r, cap) * 10) / 10;
+  return cleanTrip({ goMin: d.min, goMax: d.max, termMin: t(w.min), termMax: t(w.max), backMin: d.min, backMax: d.max, roundMax: 48 });
+}
+// 보낼 때 왕복을 미리 정한다(시간 단위). 합이 왕복 최대를 넘으면 줄인다
+export function planTrip(c, rand = Math.random) {
+  const t = tripOf(c);
+  let go = pickBetween(t.go.min, t.go.max, rand);
+  let term = pickBetween(t.term.min, t.term.max, rand);
+  let back = pickBetween(t.back.min, t.back.max, rand);
+  const sum = go + term + back;
+  if (sum > t.roundMax) { const f = sum ? t.roundMax / sum : 0; go *= f; term *= f; back *= f; }
+  return { go, term, back };
+}
+
 export function cleanCorrespondentInput(p) {
   const name = str(p?.name, 80).trim();
   if (!name) throw new Error('상대 이름이 비어 있습니다.');
@@ -197,6 +236,8 @@ export function cleanCorrespondentInput(p) {
     origin: ['manual', 'prompt', 'random', 'existing'].includes(p?.origin) ? p.origin : 'manual',
     mail: cleanMail(p?.mail),
     calendar: cleanCalendar(p?.calendar),
+    // 편지 한 통의 왕복(현실 시간): 가는 길 → 받고 답장까지 → 오는 길, 왕복 최대. 예전 상대(없음)는 배송·답장 쓰는 시간을 쓴다
+    trip: TRIP_KEYS.some((k) => p?.[k] !== undefined && p?.[k] !== '' && p?.[k] !== null) ? cleanTrip(p) : (p?.trip ? cleanTrip(flatTrip(p.trip)) : null),
     // 먼저 오는 편지: 내 답이 없을 때 그쪽 시간으로 이만큼 기다리면 먼저 쓴다(0이면 안 씀)
     waitHours: num(p?.waitHours, 0, 24 * 3650, Math.max(72, num(p?.writeMax, 0, 24 * 365 * 2, 48) * 3)),
   };
@@ -273,7 +314,7 @@ export function toInput(c) {
     name: c.name, brief: c.brief, world: c.world, ratio: c.ratio,
     deliveryMin: c.delivery.min, deliveryMax: c.delivery.max,
     writeMin: c.writeDelay.min, writeMax: c.writeDelay.max,
-    maxReplyRealHours: c.maxReplyRealHours, timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '', noPersona: !!c.noPersona, userTz: c.userTz || '',
+    maxReplyRealHours: c.maxReplyRealHours, ...(c.trip ? flatTrip(c.trip) : {}), timeScale: scaleOf(c), personaId: c.personaId, personaName: c.personaName || '', noPersona: !!c.noPersona, userTz: c.userTz || '',
     characterId: c.characterId || '', worldBookId: c.worldBookId || '', origin: c.origin || 'manual', mail: c.mail || {}, calendar: c.calendar || null, waitHours: c.waitHours ?? '',
   };
 }
@@ -312,9 +353,21 @@ export function postLate(hours, chancePct = 0, rand = Math.random) {
 // 내가 보내는 편지
 export function sendLetter(c, { body, enclosure, personaName, photos = [], lateChance = 0 }, now = Date.now(), rand = Math.random) {
   c = normalize(c);
-  const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
-  const late = postLate(base0, lateChance, rand);
-  const travel = base0 + (late ? late.extra : 0);
+  let travel; let late; let plan = null;
+  if (c.trip) {
+    // 왕복을 미리 정하고, 우체부가 늦어도 왕복 최대 안에서만
+    plan = planTrip(c, rand);
+    late = postLate(plan.go, lateChance, rand);
+    if (late) {
+      const room = Math.max(0, c.trip.roundMax - (plan.go + plan.term + plan.back));
+      late = room >= 0.05 ? { ...late, extra: Math.min(late.extra, room) } : null;
+    }
+    travel = realHours(c, plan.go + (late ? late.extra : 0));
+  } else {
+    const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+    late = postLate(base0, lateChance, rand);
+    travel = base0 + (late ? late.extra : 0);
+  }
   // 사진 동봉: 이쪽 세계의 사진(설명이 이름). 글 동봉과 합쳐 5개까지
   const pics = (Array.isArray(photos) ? photos : []).map((x) => ({ imageId: str(x?.imageId, 200), name: str(x?.name, 120).trim() || '사진 한 장' })).filter((x) => x.imageId).slice(0, 3);
   const names = [...splitEnclosures(enclosure).slice(0, 5 - pics.length), ...pics.map((x) => `사진 — ${x.name}`)];
@@ -327,6 +380,7 @@ export function sendLetter(c, { body, enclosure, personaName, photos = [], lateC
     enclosures: names.map((item) => ({ item, note: '' })),
     ...(pics.length ? { photos: pics } : {}),
     ...(late ? { late: late.reason } : {}),
+    ...(plan ? { plan: { term: plan.term, back: plan.back } } : {}),
     sentAt: now,
     arriveAt: now + travel,
     theirSentAt: theirNow(c, now),
@@ -400,12 +454,17 @@ export function advance(c, now = Date.now(), rand = Math.random) {
       out = { ...out, reply: { ...out.reply, forLetterIds: [...new Set([...out.reply.forLetterIds, ...ids])] } };
     } else {
       const first = arrivedNow.reduce((a, b) => (a.arriveAt <= b.arriveAt ? a : b));
-      const theirWrite = pickBetween(c.writeDelay.min, c.writeDelay.max, rand);
-      const realWrite = Math.min(theirHoursToReal(out, theirWrite), realHours(out, out.maxReplyRealHours));
-      out = {
-        ...out,
-        reply: { state: 'waiting', dueAt: first.arriveAt + realWrite, attempts: 0, nextTryAt: 0, error: '', forLetterIds: ids },
-      };
+      if (first.plan) {
+        // 보낼 때 정한 왕복대로: 받고 답장까지, 오는 길
+        out = { ...out, reply: { state: 'waiting', dueAt: first.arriveAt + realHours(out, first.plan.term), attempts: 0, nextTryAt: 0, error: '', forLetterIds: ids, back: first.plan.back, tripFrom: first.sentAt } };
+      } else {
+        const theirWrite = pickBetween(c.writeDelay.min, c.writeDelay.max, rand);
+        const realWrite = Math.min(theirHoursToReal(out, theirWrite), realHours(out, out.maxReplyRealHours));
+        out = {
+          ...out,
+          reply: { state: 'waiting', dueAt: first.arriveAt + realWrite, attempts: 0, nextTryAt: 0, error: '', forLetterIds: ids },
+        };
+      }
     }
   }
   // 3) 상대 편지 배달
@@ -483,9 +542,21 @@ export function retryReply(c, now = Date.now()) {
 // immediate: 바로 도착(매칭 때 상대의 첫 편지 — 만나자마자 우체통에 들어 있음)
 export function applyReply(c, reply, now = Date.now(), rand = Math.random, { lateChance = 0, immediate = false } = {}) {
   c = normalize(c);
-  const base0 = immediate ? 0 : realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
-  const late = immediate ? null : postLate(base0, lateChance, rand);
-  const travel = base0 + (late ? late.extra : 0);
+  let travel = 0; let late = null;
+  if (immediate) travel = 0;
+  else if (c.trip) {
+    // 오는 길: 보낼 때 정한 값(먼저 쓰는 편지는 지금 고름). 늦어도 왕복 최대 안에서만
+    const back = typeof c.reply?.back === 'number' ? c.reply.back : Math.min(pickBetween(c.trip.back.min, c.trip.back.max, rand), c.trip.roundMax);
+    const used = c.reply?.tripFrom ? (now - c.reply.tripFrom) / HOUR * scaleOf(c) : 0;
+    const room = Math.max(0, c.trip.roundMax - used - back);
+    late = postLate(back, lateChance, rand);
+    if (late) late = room >= 0.05 ? { ...late, extra: Math.min(late.extra, room) } : null;
+    travel = realHours(c, back + (late ? late.extra : 0));
+  } else {
+    const base0 = realHours(c, pickBetween(c.delivery.min, c.delivery.max, rand));
+    late = postLate(base0, lateChance, rand);
+    travel = base0 + (late ? late.extra : 0);
+  }
   const letter = {
     id: newId('l', now, rand),
     from: 'them',
@@ -704,9 +775,11 @@ export function summarize(c, now = Date.now()) {
   let status = '아직 편지가 없습니다';
   if (c.ended) status = '편지를 마무리했어요 · 그 후를 들을 수 있어요';
   else if (c.reply?.state === 'failed') status = '우편 사고 — 답장을 만들지 못했습니다';
-  else if (c.reply) status = '답장을 쓰는 중인 듯합니다';
-  else if (lastMine && lastMine.state === 'in_transit') status = '편지가 가는 중';
-  else if (lastLetter?.from === 'them' && lastLetter.state === 'in_transit') status = '답장이 오는 중';
+  else if (c.reply?.initiative) status = '그쪽이 먼저 편지를 쓰는 중인 듯해요';
+  else if (c.reply && c.reply.state === 'waiting' && now < c.reply.dueAt) status = '편지를 받았어요 · 답장을 고민하는 중';
+  else if (c.reply) status = '답장을 쓰는 중';
+  else if (lastMine && lastMine.state === 'in_transit') status = '편지가 건너가는 중';
+  else if (lastLetter?.from === 'them' && lastLetter.state === 'in_transit') status = '답장이 건너오는 중';
   else if (lastThem && (!lastMine || lastMine.sentAt < lastThem.sentAt)) status = `그쪽은 ${formatSpan(tNow - lastThem.theirWrittenAt)}째 내 답장을 기다리는 중`;
   return {
     id: c.id, name: c.name, ratio: c.ratio, theirNow: theirLabel(c, tNow),
@@ -1181,6 +1254,11 @@ export function cleanMatchDraft(raw, { mode, ranges = null, existingName = '', p
     deliveryMax: Math.round(dMax * 10) / 10,
     writeMin: Math.round(wMin * 10) / 10,
     writeMax: Math.round(wMax * 10) / 10,
+    // 편지 한 통의 왕복(현실 시간). 사람이 미리보기에서 고친다
+    ...(() => {
+      const t = cleanTrip({ goMin: m.go_min, goMax: m.go_max, termMin: m.term_min, termMax: m.term_max, backMin: m.back_min, backMax: m.back_max, roundMax: m.round_max });
+      return { goMin: t.go.min, goMax: t.go.max, termMin: t.term.min, termMax: t.term.max, backMin: t.back.min, backMax: t.back.max, roundMax: t.roundMax };
+    })(),
     medium: s(m.medium, 200), stampMotif: s(m.stamp_motif, 200), seal: s(m.seal, 200), scent: s(m.scent, 200), texture: s(m.texture, 200),
     imageKeywords: (Array.isArray(m.image_keywords) ? m.image_keywords : []).map((k) => s(k, 40)).filter(Boolean).slice(0, 12),
   };
@@ -1240,6 +1318,7 @@ export function cleanEditedDraft(d) {
     calendar: d?.calendar,
   };
   raw.mail.wait_hours = d?.mail?.waitHours;
+  Object.assign(raw.mail, { go_min: d?.mail?.goMin, go_max: d?.mail?.goMax, term_min: d?.mail?.termMin, term_max: d?.mail?.termMax, back_min: d?.mail?.backMin, back_max: d?.mail?.backMax, round_max: d?.mail?.roundMax });
   return cleanMatchDraft(raw, { mode: d?.mode, existingName: d?.name });
 }
 
@@ -3158,6 +3237,7 @@ export function start(api) {
       let c = createCorrespondent({
         name: d.name, brief, world: '', ratio: d.mail.ratio,
         deliveryMin: d.mail.deliveryMin, deliveryMax: d.mail.deliveryMax, writeMin: d.mail.writeMin, writeMax: d.mail.writeMax,
+        goMin: d.mail.goMin, goMax: d.mail.goMax, termMin: d.mail.termMin, termMax: d.mail.termMax, backMin: d.mail.backMin, backMax: d.mail.backMax, roundMax: d.mail.roundMax,
         maxReplyRealHours: p.maxReplyRealHours ?? 24, timeScale: p.timeScale ?? 1,
         personaId: persona?.id || '', personaName: persona?.name || '', noPersona: !!p.noPersona, userTz: p.userTz || '',
         characterId: charId, worldBookId: book.id, origin: mode, mail: d.mail,
